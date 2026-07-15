@@ -10,6 +10,8 @@ Usage:
     python examples/ssx/bez_ssx5_coverage_check.py 10 11   # check cases 10, 11
     python examples/ssx/bez_ssx5_coverage_check.py         # check all known cases
 """
+import json
+import os
 import sys
 
 import numpy as np
@@ -18,7 +20,7 @@ from mmcore.numeric.bern import de_casteljau_split_nd
 from mmcore.numeric.intersection.csx._bez_csx4 import bez_csx
 from mmcore.numeric.intersection.ssx._bez_ssx5 import bez_ssx
 
-ALL_CASES = (5, 6, 7, 8, 9, 10, 11)
+ALL_CASES = (5, 6, 7, 8, 9, 10, 11, 15)
 
 
 def _extract_isoline(S, axis, value):
@@ -29,13 +31,20 @@ def _extract_isoline(S, axis, value):
     return left[:, -1, :]
 
 
-def reference_cloud(S1, S2, atol=1e-3, n=200, axis=0):
+def reference_cloud(S1, S2, atol=1e-3, n=200, axis=0, rational=False):
     """Slice S1 along `axis`, CSX each isoline against S2."""
-    S1h = np.concatenate([S1, np.ones(S1.shape[:-1] + (1,))], axis=-1)
-    S2h = np.concatenate([S2, np.ones(S2.shape[:-1] + (1,))], axis=-1)
+    if rational:
+        S1h, S2h = S1, S2
+    else:
+        S1h = np.concatenate([S1, np.ones(S1.shape[:-1] + (1,))], axis=-1)
+        S2h = np.concatenate([S2, np.ones(S2.shape[:-1] + (1,))], axis=-1)
     pts, params = [], []
     for w in np.linspace(1e-9, 1.0 - 1e-9, n):
         r = bez_csx(_extract_isoline(S1h, axis, float(w)), S2h, atol=atol, rational=True)
+        if (r.get("budget_exhausted", False)
+                or not r.get("boundary_topology_complete", True)):
+            raise RuntimeError(
+                f"reference CSX incomplete at slice {float(w):.12g}")
         for p in r.get("isolated", []):
             pts.append(np.asarray(p["point"], dtype=float))
             params.append(float(w))
@@ -73,19 +82,63 @@ def load_case_surfaces(case):
         fn = next(v for k, v in ns.items() if callable(v) and k.startswith("bez_ssx_case"))
         fn()
         s1, s2 = captured["s1"], captured["s2"]
-    return np.asarray(s1, dtype=float), np.asarray(s2, dtype=float)
+    return (np.asarray(s1, dtype=float), np.asarray(s2, dtype=float),
+            bool(ns.get("RATIONAL", False)))
 
 
-def check_case(case, atol=1e-3, n_ref=200):
+WORK_BASELINE_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "bez_ssx5_work_baseline.json")
+# Review doc 2026-07-12 §11.5 (ledger L52 slice 11): the gate records
+# per-case status.work and fails on >2x cells drift, so headroom
+# regressions surface the day they happen — not the day a model freezes.
+WORK_DRIFT_FACTOR = 2.0
+
+
+def load_work_baseline():
+    try:
+        with open(WORK_BASELINE_PATH) as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def check_work_drift(case, res, baseline):
+    work = res.get("status", {}).get("work", {})
+    cells = int(work.get("cells_processed", 0))
+    csx_calls = int(work.get("csx_calls", 0))
+    base = baseline.get(str(case))
+    if base is None:
+        print(f"    work cells={cells} csx_calls={csx_calls} "
+              f"(no baseline recorded — run --update-baseline)")
+        return True, cells, csx_calls
+    base_cells = max(1, int(base.get("cells_processed", 0)))
+    ratio = cells / base_cells
+    line = (f"    work cells={cells} csx_calls={csx_calls} "
+            f"(baseline {base_cells}, x{ratio:.2f})")
+    if cells > WORK_DRIFT_FACTOR * base_cells:
+        print(line + "  WORK DRIFT: exceeds "
+              f"{WORK_DRIFT_FACTOR}x baseline")
+        return False, cells, csx_calls
+    print(line)
+    return True, cells, csx_calls
+
+
+def check_case(case, atol=1e-3, n_ref=200, work_baseline=None,
+               work_out=None):
     import time
-    S1, S2 = load_case_surfaces(case)
+    S1, S2, rational = load_case_surfaces(case)
     t0 = time.time()
-    res = bez_ssx(S1, S2, atol, rational=False)
+    res = bez_ssx(S1, S2, atol, rational=rational)
     dt = time.time() - t0
 
     polys = []
     print(f"=== case {case}: {dt:.2f}s, {len(res['branches'])} branches, "
           f"{len(res['points'])} points")
+    work_ok, cells, csx_calls = check_work_drift(
+        case, res, work_baseline if work_baseline is not None else {})
+    if work_out is not None:
+        work_out[str(case)] = {"cells_processed": cells,
+                               "csx_calls": csx_calls}
     for bi, b in enumerate(res["branches"]):
         xyz = np.asarray(b.curve[1])
         seg = np.linalg.norm(np.diff(xyz, axis=0), axis=1)
@@ -99,14 +152,24 @@ def check_case(case, atol=1e-3, n_ref=200):
     for g in res.get("singularities", []):
         print(f"    singularity {g.kind}: stuv={np.round(g.stuv, 5).tolist()} "
               f"xyz={np.round(g.xyz, 5).tolist()} links={g.branch_links}")
+    if not res.get("complete", True):
+        reasons = res.get("status", {}).get("reasons", [])
+        print(f"    INCOMPLETE SSX RESULT: reasons={reasons}")
+        return False
     # Ledger L24: the regular coverage cases must produce ZERO typed
     # singularities — enforced (exit code), not just printed, so CI
     # catches spurious-singularity regressions.
-    clean_singularities = not res.get("singularities", [])
+    clean_singularities = (case not in ALL_CASES
+                           or not res.get("singularities", []))
     if not clean_singularities:
         print(f"    SPURIOUS SINGULARITIES: {len(res['singularities'])} (expected 0)")
 
-    ref, ws = reference_cloud(S1, S2, atol=atol, n=n_ref)
+    try:
+        ref, ws = reference_cloud(
+            S1, S2, atol=atol, n=n_ref, rational=rational)
+    except RuntimeError as exc:
+        print(f"    INCOMPLETE REFERENCE: {exc}")
+        return False
     if not len(ref):
         print("    (no reference points)")
         return clean_singularities
@@ -118,10 +181,22 @@ def check_case(case, atol=1e-3, n_ref=200):
           + (f"; MISSED {int(missed.sum())} "
              f"(worst {float(dists[missed].max()):.4f} at s={ws[missed][np.argmax(dists[missed])]:.4f})"
              if missed.any() else ""))
-    return (not missed.any()) and clean_singularities
+    return (not missed.any()) and clean_singularities and work_ok
 
 
 if __name__ == "__main__":
-    cases = [int(a) for a in sys.argv[1:]] or list(ALL_CASES)
-    ok = all([check_case(c) for c in cases])
+    args = sys.argv[1:]
+    update_baseline = "--update-baseline" in args
+    cases = [int(a) for a in args if a != "--update-baseline"]
+    cases = cases or list(ALL_CASES)
+    baseline = load_work_baseline()
+    measured = {}
+    ok = all([check_case(c, work_baseline=baseline, work_out=measured)
+              for c in cases])
+    if update_baseline:
+        baseline.update(measured)
+        with open(WORK_BASELINE_PATH, "w") as fh:
+            json.dump(baseline, fh, indent=2, sort_keys=True)
+            fh.write("\n")
+        print(f"work baseline updated: {WORK_BASELINE_PATH}")
     sys.exit(0 if ok else 1)

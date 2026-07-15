@@ -52,6 +52,96 @@ def _map_local_to_global_csx(t_loc, u_loc, v_loc, t0, t1, u0, u1, v0, v1):
     return t_glob, u_glob, v_glob
 
 
+_BEZIER_LIMIT_KWARGS = ('max_depth',)
+_DEFAULT_MAX_CELLS = 100_000
+_DEFAULT_MAX_RESULTS = 4_096
+
+
+def _bezier_limit_kwargs(kwargs):
+    """Forward only the bounded-solver controls understood by bez_csx v4."""
+    return {name: kwargs[name] for name in _BEZIER_LIMIT_KWARGS
+            if name in kwargs}
+
+
+# Shared aggregate-status ledger (ledger L52): the implementation lives in
+# `_adapter_status`; these wrappers keep the adapter's historical private
+# names, its extra `parameter_fibers` ledger field, and its message texts.
+from mmcore.numeric.intersection._adapter_status import (
+    consume_bezier_status as _shared_consume_bezier_status,
+    mark_incomplete as _mark_incomplete,
+    new_status as _shared_new_status,
+    reject_unknown_kwargs as _reject_unknown_kwargs,
+    remaining_allowances as _remaining_allowances,
+)
+
+
+def _new_status(max_cells, max_results):
+    return _shared_new_status(
+        max_cells, max_results, extra_list_fields=('parameter_fibers',))
+
+
+def _map_parameter_fiber(fiber, seg_interval, patch_interval):
+    """Map a Bezier CSX parameter fiber into global NURBS parameters."""
+    mapped = dict(fiber)
+    t0, t1 = seg_interval
+    (u0, u1), (v0, v1) = patch_interval
+
+    if 't_range' in mapped:
+        lo, hi = mapped['t_range']
+        mapped['t_range'] = (t0 + (t1 - t0) * lo,
+                             t0 + (t1 - t0) * hi)
+    if 'u_range' in mapped:
+        lo, hi = mapped['u_range']
+        mapped['u_range'] = (u0 + (u1 - u0) * lo,
+                             u0 + (u1 - u0) * hi)
+    if 'v_range' in mapped:
+        lo, hi = mapped['v_range']
+        mapped['v_range'] = (v0 + (v1 - v0) * lo,
+                             v0 + (v1 - v0) * hi)
+    if 't' in mapped:
+        mapped['t'] = t0 + (t1 - t0) * mapped['t']
+    if 'u' in mapped:
+        mapped['u'] = u0 + (u1 - u0) * mapped['u']
+    if 'v' in mapped:
+        mapped['v'] = v0 + (v1 - v0) * mapped['v']
+    return mapped
+
+
+def _consume_bezier_status(
+    result, status, seg_interval, patch_interval, return_status,
+    cell_allowance, result_allowance,
+):
+    """Aggregate one span result; CSX additionally maps parameter fibers
+    into global NURBS parameters and refuses the legacy two-value return
+    when a positive-dimensional fiber is present."""
+    result, incomplete = _shared_consume_bezier_status(
+        result, status,
+        incomplete_message=(
+            f"nurbs_csx spans {seg_interval} x {patch_interval}: "
+            "incomplete Bezier CSX result (budget exhausted or boundary "
+            "topology incomplete); pass return_status=True to receive "
+            "explicit partial status"),
+        return_status=return_status,
+        cell_allowance=cell_allowance,
+        result_allowance=result_allowance,
+        list_keys=('isolated', 'overlaps', 'parameter_fibers'),
+    )
+
+    fibers = result['parameter_fibers']
+    if fibers:
+        status['parameter_fibers'].extend(
+            _map_parameter_fiber(fiber, seg_interval, patch_interval)
+            for fiber in fibers
+        )
+        if not return_status:
+            raise RuntimeError(
+                f"nurbs_csx spans {seg_interval} x {patch_interval}: "
+                "positive-dimensional parameter fiber cannot be represented "
+                "by the legacy two-value return; pass return_status=True"
+            )
+    return result, incomplete
+
+
 # ---------------------------------------------------------------------------
 # Overlap merging
 # ---------------------------------------------------------------------------
@@ -192,7 +282,14 @@ def _dedup_csx_isolated(entries, curve, surface, tol):
 # nurbs_csx: NURBS curve × NURBS surface intersection
 # ---------------------------------------------------------------------------
 
-def nurbs_csx(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, atol: float = 1e-3, **kwargs):
+def nurbs_csx(
+    curve: NURBSCurveTuple,
+    surface: NURBSSurfaceTuple,
+    tol: float = 1e-3,
+    *,
+    return_status: bool = True,
+    **kwargs,
+):
     """Find all intersections between a NURBS curve and a NURBS surface.
 
 
@@ -200,7 +297,7 @@ def nurbs_csx(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, atol: float = 
     ----------
     curve : NURBSCurve or NURBSCurveTuple
     surface : NURBSSurface or NURBSSurfaceTuple
-    atol : float
+    tol : float
         Geometric tolerance.
 
     Returns
@@ -209,7 +306,18 @@ def nurbs_csx(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, atol: float = 
         Each entry: {'t': float, 'u': float, 'v': float, 'point': ndarray}
     overlaps : list[dict] or None
         Each entry: {'t_range': (t0,t1), 'u_range': (u0,u1), 'v_range': (v0,v1)}
+    status : dict
+        Third value, returned by default: aggregate bounded-solver
+        diagnostics and globally mapped ``parameter_fibers``; read
+        ``status['complete']`` before trusting the output as the whole
+        truth (ledger L41 — the former raise-on-incomplete default turned
+        collapsed-edge geometry into a crash for legacy-shaped callers).
+        Pass ``return_status=False`` for the legacy two-value shape, which
+        raises ``RuntimeError`` on partial or positive-dimensional
+        sub-results instead (fail-fast opt-in).
     """
+    _reject_unknown_kwargs(
+        "nurbs_csx", kwargs, ("max_cells", "max_results") + _BEZIER_LIMIT_KWARGS)
     if isinstance(curve, NURBSCurve):
         curve = _nurbs_to_tuple(curve)
     if isinstance(surface, NURBSSurface):
@@ -224,16 +332,28 @@ def nurbs_csx(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, atol: float = 
 
     # Build BVHs
     bvh_curves = build_bvh([
-        AABB.from_points(seg.control_points).offset(atol) for seg in curve_segs
+        AABB.from_points(seg.control_points).offset(tol) for seg in curve_segs
     ])
     bvh_surfs = build_bvh([
-        _surface_patch_aabb(patch, atol) for patch in surf_patches
+        _surface_patch_aabb(patch, tol) for patch in surf_patches
     ])
 
     raw_isolated = []
     raw_overlaps = []
+    candidates = list(bvh_intersect(bvh_curves, bvh_surfs, exact=False))
+    # Candidate-scaled default allowance — a flat total that a handful of
+    # ordinary span x patch pairs can exhaust is a mispriced exchange rate
+    # (ledger L41 / review finding 2); explicit ``max_cells`` stays absolute.
+    aggregate_max_cells = kwargs.get('max_cells')
+    if aggregate_max_cells is None:
+        aggregate_max_cells = _DEFAULT_MAX_CELLS * max(1, len(candidates))
+    aggregate_max_cells = max(0, int(aggregate_max_cells))
+    aggregate_max_results = max(
+        0, int(kwargs.get('max_results', _DEFAULT_MAX_RESULTS)))
+    status = _new_status(aggregate_max_cells, aggregate_max_results)
+    bezier_kwargs = _bezier_limit_kwargs(kwargs)
 
-    for a, b in bvh_intersect(bvh_curves, bvh_surfs, exact=False):
+    for a, b in candidates:
         seg = curve_segs[a.object]
         patch = surf_patches[b.object]
 
@@ -244,10 +364,26 @@ def nurbs_csx(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, atol: float = 
             pts_c = seg.control_points
             pts_s = patch.control_points
 
-        result = bez_csx_v4(pts_c, pts_s, atol=atol, rational=rational)
-
         seg_interval = seg.interval()
         patch_interval = patch.interval()  # ((u0, u1), (v0, v1))
+        context = f"nurbs_csx spans {seg_interval} x {patch_interval}"
+        remaining_cells, remaining_results = _remaining_allowances(status)
+        if remaining_cells <= 0 or remaining_results <= 0:
+            _mark_incomplete(
+                status, context, return_status,
+                "aggregate CSX cell/result budget exhausted")
+            break
+        call_kwargs = dict(bezier_kwargs)
+        call_kwargs['max_cells'] = remaining_cells
+        call_kwargs['max_results'] = remaining_results
+        result = bez_csx_v4(
+            pts_c, pts_s, atol=tol, rational=rational, **call_kwargs,
+        )
+
+        result, stop_after_span = _consume_bezier_status(
+            result, status, seg_interval, patch_interval, return_status,
+            remaining_cells, remaining_results,
+        )
 
         for iso in result['isolated']:
             t_glob, u_glob, v_glob = _map_local_to_global_csx(
@@ -276,17 +412,19 @@ def nurbs_csx(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, atol: float = 
                 'u_range': (u0g, u1g),
                 'v_range': (v0g, v1g),
             })
+        if stop_after_span:
+            break
 
     # ---------------------------------------------------------------
     # Post-processing: merge overlaps, classify micro-fragments
     # ---------------------------------------------------------------
-    ptol_t = float(nurbs_curve_param_tolerance(curve, atol))
+    ptol_t = float(nurbs_curve_param_tolerance(curve, tol))
 
     # 1. Merge adjacent overlaps by t-range
     merged_overlaps = _merge_overlaps_by_t(raw_overlaps, ptol_t)
 
     # 2. Parametric dedup of isolated points
-    deduped_isolated = _dedup_csx_isolated(raw_isolated, curve, surface, atol)
+    deduped_isolated = _dedup_csx_isolated(raw_isolated, curve, surface, tol)
 
     # 3. Classify micro-fragments: isolated points adjacent to overlaps
     #    become part of the overlap; others remain isolated
@@ -321,4 +459,6 @@ def nurbs_csx(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, atol: float = 
     isolated = deduped_isolated if deduped_isolated else None
     overlaps = merged_overlaps if merged_overlaps else None
 
+    if return_status:
+        return isolated, overlaps, status
     return isolated, overlaps

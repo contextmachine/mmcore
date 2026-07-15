@@ -202,7 +202,7 @@ parser.add_argument('--no-display', action='store_true')
 args=parser.parse_args()
 
 
-isolated,overlaps=nurbs_ccx_multiple(val,tol=0.001,rational=True)
+isolated,overlaps,_status=nurbs_ccx_multiple(val,tol=0.001,rational=True)
 print('\n\nOUT\n')
 print(len(isolated) if isolated is not None else 0,len(overlaps) if overlaps is not None else 0)
 print(isolated,overlaps)
@@ -217,13 +217,13 @@ else:
         viewer.add(curve, color=color)
     for pt in isolated['point']:
 
-        viewer.add(pt, color=(0.0, 1.0, 0.5,1.0),size_px=13)
+        viewer.add(pt, color=(0.0, 1.0, 0.5,1.0),size_px=6)
     if overlaps is not None:
 
 
         for start,end in overlaps['point']:
-            viewer.add(start, color=(0.0, 1.0, 0.5, 1.0), size_px=13)
-            viewer.add(end, color=(0.0, 1.0, 0.5, 1.0), size_px=13)
+            viewer.add(start, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
+            viewer.add(end, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
 
 
 

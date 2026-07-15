@@ -246,6 +246,199 @@ def test_surface_closest_plane_interior():
     assert res[0]["kind"] == "min"
 
 
+def test_surface_closest_shares_one_seven_cell_budget(monkeypatch):
+    """Boundary searches spend through one allowance; the interior heap
+    keeps its OWN pop allowance (ledger L46 — the former single shared
+    total let the boundary phase starve the interior to zero pops and
+    silently drop the true interior minimum). Work counters report the
+    honest total (boundary + interior <= 2*max_cells)."""
+    import mmcore.numeric._bez_closest_point as closest
+
+    curve_allowances = []
+
+    def fake_curve_solver(C, point, atol=1e-3, rational=False,
+                          max_cells=20000, upper_bound=None, stats=None):
+        curve_allowances.append(max_cells)
+        stats.update(cells_processed=1, budget_exhausted=False)
+        return []
+
+    monkeypatch.setattr(closest, "bez_curve_closest_points", fake_curve_solver)
+    S = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                  [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]])
+    stats = {}
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore")
+        closest.bez_surface_closest_points(
+            S, np.array([0.5, 0.5, 5.0]), atol=1e-6,
+            max_cells=7, stats=stats)
+
+    assert curve_allowances == [7, 6, 5, 4]
+    assert stats == {
+        "cells_processed": 11,
+        "boundary_cells": 4,
+        "surface_cells": 7,
+        "trace_steps": 0,
+        "budget_exhausted": True,
+    }
+
+
+def test_surface_closest_does_not_trace_after_budget_exhaustion(monkeypatch):
+    """Degenerate tracing must not run outside the shared cell allowance."""
+    import mmcore.numeric._bez_closest_point as closest
+
+    ratio_calls = 0
+
+    def fake_ratio_bounds(*args):
+        nonlocal ratio_calls
+        ratio_calls += 1
+        # Initial/root/child-heap bounds remain unresolved.  The first child
+        # popped from the heap is a flat rank-one cell and creates a seed;
+        # the sibling then remains queued when the two-cell cap is reached.
+        return (0.0, 0.0) if ratio_calls == 5 else (0.0, 1.0)
+
+    trace_calls = []
+
+    def forbidden_trace(*args, **kwargs):
+        trace_calls.append((args, kwargs))
+        raise AssertionError("degenerate tracing ran after max_cells")
+
+    monkeypatch.setattr(closest, "_ratio_dist_bounds", fake_ratio_bounds)
+    monkeypatch.setattr(closest, "_hull_excludes_zero", lambda *args: False)
+    monkeypatch.setattr(
+        closest, "newton_surface_closest_point",
+        lambda *args, **kwargs: (0.5, 0.5, None, None),
+    )
+    monkeypatch.setattr(
+        closest, "_classify_surface_min",
+        lambda *args, **kwargs: (
+            True, 1.0, np.array([0.5, 0.5, 0.0]),
+        ),
+    )
+    monkeypatch.setattr(
+        closest, "_hessian_eigs",
+        lambda *args, **kwargs: (0.0, 1.0, None, 1.0),
+    )
+    monkeypatch.setattr(closest, "_is_stationary_point", lambda *args: True)
+    monkeypatch.setattr(closest, "trace_equidistant_curve", forbidden_trace)
+
+    S = np.array([
+        [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]],
+    ])
+    stats = {}
+    result = closest.bez_surface_closest_points(
+        S, np.array([0.5, 0.5, 1.0]), atol=1e-3,
+        max_cells=2, _interior_only=True, stats=stats,
+    )
+
+    assert result
+    assert trace_calls == []
+    assert stats["surface_cells"] == 2
+    assert stats["budget_exhausted"] is True
+
+
+def test_surface_closest_does_not_trace_after_exactly_spending_allowance(
+        monkeypatch):
+    """An empty queue does not make continuation work free."""
+    import mmcore.numeric._bez_closest_point as closest
+
+    ratio_calls = 0
+
+    def fake_ratio_bounds(*_args):
+        nonlocal ratio_calls
+        ratio_calls += 1
+        return (0.0, 1.0) if ratio_calls == 1 else (0.0, 0.0)
+
+    monkeypatch.setattr(closest, "_ratio_dist_bounds", fake_ratio_bounds)
+    monkeypatch.setattr(closest, "_hull_excludes_zero", lambda *_a: False)
+    monkeypatch.setattr(
+        closest, "newton_surface_closest_point",
+        lambda *_a, **_k: (0.5, 0.5, None, None),
+    )
+    monkeypatch.setattr(
+        closest, "_hessian_eigs",
+        lambda *_a, **_k: (0.0, 1.0, None, 1.0),
+    )
+    monkeypatch.setattr(closest, "_is_stationary_point", lambda *_a: True)
+    monkeypatch.setattr(
+        closest, "_classify_surface_min",
+        lambda *_a, **_k: (True, 1.0, np.array([0.5, 0.5, 0.0])),
+    )
+
+    def forbidden_trace(*_args, **_kwargs):
+        raise AssertionError("continuation ran after the sole cell was spent")
+
+    monkeypatch.setattr(closest, "trace_equidistant_curve", forbidden_trace)
+    surface = np.array([
+        [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        [[1.0, 0.0, 0.0], [1.0, 1.0, 1.0]],
+    ])
+    stats = {}
+    closest.bez_surface_closest_points(
+        surface, np.array([0.0, 0.0, 2.0]), atol=1e-3,
+        max_cells=1, _interior_only=True, stats=stats,
+    )
+
+    assert stats == {
+        "cells_processed": 1,
+        "boundary_cells": 0,
+        "surface_cells": 1,
+        "trace_steps": 0,
+        "budget_exhausted": True,
+    }
+
+
+def test_surface_closest_charges_degenerate_trace_steps(monkeypatch):
+    import mmcore.numeric._bez_closest_point as closest
+
+    ratio_calls = 0
+
+    def fake_ratio_bounds(*_args):
+        nonlocal ratio_calls
+        ratio_calls += 1
+        return (0.0, 1.0) if ratio_calls == 1 else (0.0, 0.0)
+
+    monkeypatch.setattr(closest, "_ratio_dist_bounds", fake_ratio_bounds)
+    monkeypatch.setattr(closest, "_hull_excludes_zero", lambda *_a: False)
+    monkeypatch.setattr(
+        closest, "newton_surface_closest_point",
+        lambda *_a, **_k: (0.5, 0.5, None, None),
+    )
+    monkeypatch.setattr(
+        closest, "_hessian_eigs",
+        lambda *_a, **_k: (0.0, 1.0, None, 1.0),
+    )
+    monkeypatch.setattr(closest, "_is_stationary_point", lambda *_a: True)
+    monkeypatch.setattr(
+        closest, "_classify_surface_min",
+        lambda *_a, **_k: (True, 1.0, np.array([0.5, 0.5, 0.0])),
+    )
+
+    def truncated_trace(*_args, max_total_steps=None, stats=None, **_kwargs):
+        assert max_total_steps == 4
+        stats.update(steps_processed=4, budget_exhausted=True)
+        return None
+
+    monkeypatch.setattr(closest, "trace_equidistant_curve", truncated_trace)
+    surface = np.array([
+        [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        [[1.0, 0.0, 0.0], [1.0, 1.0, 1.0]],
+    ])
+    stats = {}
+    closest.bez_surface_closest_points(
+        surface, np.array([0.0, 0.0, 2.0]), atol=1e-3,
+        max_cells=5, _interior_only=True, stats=stats,
+    )
+
+    assert stats == {
+        "cells_processed": 5,
+        "boundary_cells": 0,
+        "surface_cells": 1,
+        "trace_steps": 4,
+        "budget_exhausted": True,
+    }
+
+
 def test_surface_closest_curved_patch_matches_dense_grid():
     # Non-planar biquadratic-ish patch (bilinear with a bump via z)
     S = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 2.0, 0.0]],
@@ -608,6 +801,28 @@ def test_trace_equidistant_curve_direct():
     assert tr["uv"][:, 0].max() - tr["uv"][:, 0].min() > 0.9
 
 
+def test_trace_equidistant_curve_marks_shared_total_step_cap(monkeypatch):
+    import mmcore.numeric._bez_closest_point as closest
+
+    monkeypatch.setattr(
+        closest, "_hessian_eigs",
+        lambda *_a, **_k: (0.0, 1.0, np.array([1.0, 0.0]), 1.0),
+    )
+    monkeypatch.setattr(
+        closest, "_surface_g_derivs",
+        lambda *_a, **_k: (1.0, 0.0, 0.0, 0.0, 0.0, 1.0),
+    )
+    surface = np.zeros((2, 2, 3), dtype=np.float64)
+    stats = {}
+    result = closest.trace_equidistant_curve(
+        surface, np.zeros(3), 0.5, 0.5, step=0.01,
+        max_steps=100, max_total_steps=3, stats=stats,
+    )
+
+    assert result is None
+    assert stats == {"steps_processed": 3, "budget_exhausted": True}
+
+
 def test_trace_rejects_isolated_seed():
     # At a well-conditioned isolated minimum the tracer must decline.
     S = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
@@ -793,3 +1008,92 @@ def test_rhino_rotated_cone_single_closed_ring():
 def test_rhino_paraboloid_single_closed_ring():
     from examples.closest_point.paraboloid import val, query
     _assert_single_closed_ring(val, query)
+
+
+# ---------------------------------------------------------------------------
+# L46 — NURBS aggregators propagate the budget signal; interior not starved
+# ---------------------------------------------------------------------------
+
+def _flat_square_surface():
+    from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
+    axis = np.array([0.0, 0.0, 1.0, 1.0])
+    pts = np.zeros((2, 2, 3))
+    pts[..., 0] = [[0.0, 0.0], [1.0, 1.0]]
+    pts[..., 1] = [[0.0, 1.0], [0.0, 1.0]]
+    return NURBSSurfaceTuple(order_u=2, order_v=2, knot_u=axis, knot_v=axis,
+                             control_points=pts, weights=np.ones((2, 2)))
+
+
+def test_nurbs_surface_aggregator_propagates_budget_signal(monkeypatch):
+    # Ledger L46: the NURBS aggregator passed no stats= and no shared
+    # allowance — a capped patch only warned and its far-local-min
+    # entities were merged as the certified globally-closest set. The
+    # aggregator now takes stats=/max_cells= and publishes aggregate
+    # exhaustion.
+    import mmcore.numeric._bez_closest_point as cp
+
+    calls = []
+
+    def fake_bez(S, point, atol=1e-3, rational=False, want_eval=False,
+                 max_cells=20000, stats=None, upper_bound=None):
+        calls.append(int(max_cells))
+        if stats is not None:
+            stats.update(cells_processed=int(max_cells),
+                         budget_exhausted=True)
+        return [{"kind": "min", "u": 0.5, "v": 0.5,
+                 "point": np.zeros(3), "distance": 1.0}]
+
+    monkeypatch.setattr(cp, "bez_surface_closest_points", fake_bez)
+    stats = {}
+    res = cp.nurbs_surface_closest_points(
+        _flat_square_surface(), np.array([0.5, 0.5, 1.0]),
+        atol=1e-3, max_cells=7_000, stats=stats)
+
+    assert res
+    assert stats["budget_exhausted"] is True
+    assert stats["cells_processed"] >= 7_000
+    assert calls and calls[0] == 7_000  # the shared allowance reached the patch
+
+
+def test_interior_search_not_starved_by_boundary(monkeypatch):
+    # Ledger L46 (starvation half): the interior best-first heap shared
+    # one max_cells with the 4 boundary searches — a boundary phase that
+    # burned the whole allowance left the interior ZERO pops and the
+    # global interior minimum was silently absent. The interior now keeps
+    # its own pop allowance.
+    import mmcore.numeric._bez_closest_point as cp
+
+    def hungry_boundary(S, point, out_points, out_curves, rational, atol,
+                        ptol_u, ptol_v, max_cells=20000, stats=None):
+        # burns the whole allowance AND reports one far boundary corner —
+        # so the post-loop paranoia fallback (which only fires on an empty
+        # entity set) cannot mask the starved interior.
+        from mmcore.numeric.intersection._bezier_common import eval_surface
+        S_h = np.concatenate([S, np.ones(S.shape[:-1] + (1,))], axis=-1)
+        pt = eval_surface(S_h, 0.0, 0.0, rational=True)
+        out_points.append({"u": 0.0, "v": 0.0, "point": np.asarray(pt),
+                           "distance": float(np.linalg.norm(pt - point)),
+                           "kind": "boundary_min"})
+        if stats is not None:
+            stats.update(cells_processed=int(max_cells),
+                         budget_exhausted=False)
+
+    monkeypatch.setattr(cp, "_surface_boundary_entities", hungry_boundary)
+
+    # bowl z = 4(u-.5)^2 + 4(v-.5)^2 (Bernstein net f[i]+g[j] with
+    # f = g = [1,-1,1]); query point BELOW the bowl bottom: the unique
+    # global minimum is INTERIOR at (.5,.5,0), distance 0.5 — every
+    # boundary point is > 1.5 away.
+    S = np.zeros((3, 3, 3))
+    f = np.array([1.0, -1.0, 1.0])
+    for i, u in enumerate([0.0, 0.5, 1.0]):
+        for j, v in enumerate([0.0, 0.5, 1.0]):
+            S[i, j] = (u, v, f[i] + f[j])
+    res = cp.bez_surface_closest_points(
+        S, np.array([0.5, 0.5, -0.5]), atol=1e-3, rational=False)
+
+    mins = [e for e in res if e["kind"] == "min"]
+    assert mins, "interior minimum lost to boundary starvation"
+    u, v = mins[0]["u"], mins[0]["v"]
+    assert abs(u - 0.5) < 1e-3 and abs(v - 0.5) < 1e-3
+    assert abs(mins[0]["distance"] - 0.5) < 1e-3

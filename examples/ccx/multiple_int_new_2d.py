@@ -62,7 +62,7 @@ val = [NURBSCurveTuple(
 from mmcore.numeric.intersection.ccx._nccx4 import nurbs_ccx,nurbs_ccx_multiple
 from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera
 
-isolated,overlaps=nurbs_ccx_multiple(val,rational=True)
+isolated,overlaps,_status=nurbs_ccx_multiple(val,rational=True)
 print('isolated:')
 print(isolated)
 print('overlaps:')

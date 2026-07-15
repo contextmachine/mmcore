@@ -9,6 +9,7 @@ import pytest
 
 from mmcore.geom._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
 from mmcore.numeric.intersection.ccx._nccx4 import nurbs_ccx, nurbs_ccx_multiple
+import mmcore.numeric.intersection.ccx._nccx4 as nccx4
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +85,9 @@ class TestNurbsCCXMultiple2D:
 
     def test_no_false_positives(self):
         """Every reported intersection must have dist < atol between the curves."""
-        iso, ovl = nurbs_ccx_multiple(CURVES_2D, tol=0.001, rational=True)
+        # `rational=` removed (L52 slice 8): the adapter derives rationality per
+        # pair; the kwarg was silently swallowed before rejection landed.
+        iso, ovl, _status = nurbs_ccx_multiple(CURVES_2D, tol=0.001)
         assert iso is not None
         for entry in iso:
             c1i, c2i = int(entry['curve1_i']), int(entry['curve2_i'])
@@ -98,7 +101,9 @@ class TestNurbsCCXMultiple2D:
 
     def test_count(self):
         """Should find exactly 11 intersections (matching the old algorithm)."""
-        iso, ovl = nurbs_ccx_multiple(CURVES_2D, tol=0.001, rational=True)
+        # `rational=` removed (L52 slice 8): the adapter derives rationality per
+        # pair; the kwarg was silently swallowed before rejection landed.
+        iso, ovl, _status = nurbs_ccx_multiple(CURVES_2D, tol=0.001)
         assert iso is not None
         assert len(iso) == 11
 
@@ -121,11 +126,14 @@ class TestNurbsCCXMultiple3D:
 
     @pytest.fixture(scope="class")
     def result(self, curves_3d):
-        return nurbs_ccx_multiple(curves_3d, tol=0.001, rational=True)
+        # `rational=` removed + 3-tuple unpack (L52 slice 8 review finding:
+        # this fixture errors at setup on a pre-existing import today, but
+        # both latent breakages would fire the day that import is repaired).
+        return nurbs_ccx_multiple(curves_3d, tol=0.001)
 
     def test_ground_truth(self, result, expected):
         """All 25 known intersections (excl curve 0) must be found."""
-        iso, ovl = result
+        iso, ovl, _status = result
         assert iso is not None
         iso_filt = [i for i in iso if i['curve1_i'] != 0 and i['curve2_i'] != 0]
         for exp in expected:
@@ -140,13 +148,13 @@ class TestNurbsCCXMultiple3D:
 
     def test_no_span_boundary_duplicates(self, result, expected):
         """Excluding curve 0, raw count should equal unique count (no duplicates)."""
-        iso, ovl = result
+        iso, ovl, _status = result
         iso_filt = [i for i in iso if i['curve1_i'] != 0 and i['curve2_i'] != 0]
         assert len(iso_filt) == 25
 
     def test_no_false_positives(self, result, curves_3d):
         """Every reported intersection must have dist < atol."""
-        iso, ovl = result
+        iso, ovl, _status = result
         for entry in iso:
             c1i, c2i = int(entry['curve1_i']), int(entry['curve2_i'])
             pt1 = evaluate_nurbs_curve(curves_3d[c1i], float(entry['u']), 0)['C']
@@ -167,7 +175,7 @@ class TestNurbsCCXPair:
 
     def test_two_ellipses(self):
         """Two rational ellipses that intersect."""
-        iso, ovl = nurbs_ccx(CURVES_2D[0], CURVES_2D[1], tol=0.001)
+        iso, ovl, _status = nurbs_ccx(CURVES_2D[0], CURVES_2D[1], tol=0.001)
         assert iso is not None
         assert len(iso) >= 1
         # Verify all results
@@ -190,5 +198,188 @@ class TestNurbsCCXPair:
             control_points=np.array([[0., 10., 0.], [1., 10., 0.]]),
             weights=np.array([1., 1.]),
         )
-        iso, ovl = nurbs_ccx(c1, c2, tol=0.001)
+        iso, ovl, _status = nurbs_ccx(c1, c2, tol=0.001)
         assert iso is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: bounded Bezier solver status must not be lost at the NURBS boundary
+# ---------------------------------------------------------------------------
+
+def _overlapping_lines():
+    c1 = NURBSCurveTuple(
+        order=2,
+        knot=np.array([0., 0., 1., 1.]),
+        control_points=np.array([[0., 0., 0.], [1., 0., 0.]]),
+        weights=np.ones(2),
+    )
+    c2 = NURBSCurveTuple(
+        order=2,
+        knot=np.array([0., 0., 1., 1.]),
+        control_points=np.array([[0., 0., 0.], [1., 0., 0.]]),
+        weights=np.ones(2),
+    )
+    return c1, c2
+
+
+def _partial_ccx_result(*args, **kwargs):
+    return {
+        'isolated': [],
+        'overlaps': [],
+        'budget_exhausted': True,
+        'cells_processed': 7,
+        'boundary_topology_complete': False,
+    }
+
+
+def test_nurbs_ccx_default_returns_status_on_partial_result(monkeypatch):
+    # Ledger L41 (review finding 2): the raise-on-incomplete default crashed
+    # production callers (boolean2d, public ccx) on near-coincident input.
+    # The default is now always-return-status, ssx5-core philosophy: partial
+    # output ships with an explicit status instead of a RuntimeError.
+    c1, c2 = _overlapping_lines()
+    monkeypatch.setattr(nccx4, 'bez_ccx_v4', _partial_ccx_result)
+
+    isolated, overlaps, status = nurbs_ccx(c1, c2)
+    assert isolated is None
+    assert overlaps is None
+    assert status['complete'] is False
+    assert status['budget_exhausted'] is True
+    assert status['boundary_topology_complete'] is False
+    assert status['cells_processed'] == 7
+    assert status['partial_results'] == 1
+
+
+def test_nurbs_ccx_fail_fast_optin_still_raises(monkeypatch):
+    c1, c2 = _overlapping_lines()
+    monkeypatch.setattr(nccx4, 'bez_ccx_v4', _partial_ccx_result)
+
+    with pytest.raises(RuntimeError, match='incomplete Bezier CCX'):
+        nurbs_ccx(c1, c2, return_status=False)
+
+
+def test_nurbs_ccx_multiple_default_returns_status_on_partial_result(monkeypatch):
+    c1, c2 = _overlapping_lines()
+    monkeypatch.setattr(nccx4, 'bez_ccx_v4', _partial_ccx_result)
+
+    isolated, overlaps, status = nurbs_ccx_multiple([c1, c2])
+    assert isolated is None
+    assert overlaps is None
+    assert status['complete'] is False
+    assert status['budget_exhausted'] is True
+    assert status['partial_results'] >= 1
+
+    with pytest.raises(RuntimeError, match='incomplete Bezier CCX'):
+        nurbs_ccx_multiple([c1, c2], return_status=False)
+
+
+def test_nurbs_ccx_shares_max_cells_across_all_span_pairs(monkeypatch):
+    calls = []
+
+    def complete_but_spends_allowance(*_args, **kwargs):
+        allowance = int(kwargs['max_cells'])
+        calls.append(allowance)
+        return {
+            'isolated': [],
+            'overlaps': [],
+            'budget_exhausted': False,
+            'cells_processed': allowance,
+            'boundary_topology_complete': True,
+        }
+
+    monkeypatch.setattr(nccx4, 'bez_ccx_v4', complete_but_spends_allowance)
+    isolated, overlaps, status = nurbs_ccx(
+        CURVES_2D[0], CURVES_2D[0], max_cells=3,
+        return_status=True,
+    )
+
+    assert isolated is None and overlaps is None
+    assert calls == [3]
+    assert status['cells_processed'] == 3
+    assert status['max_cells'] == 3
+    assert status['complete'] is False
+    assert status['budget_exhausted'] is True
+
+
+def test_nurbs_ccx_multiple_shares_max_cells_across_candidates(monkeypatch):
+    calls = []
+
+    def complete_but_spends_allowance(*_args, **kwargs):
+        allowance = int(kwargs['max_cells'])
+        calls.append(allowance)
+        return {
+            'isolated': [],
+            'overlaps': [],
+            'budget_exhausted': False,
+            'cells_processed': allowance,
+            'boundary_topology_complete': True,
+        }
+
+    monkeypatch.setattr(nccx4, 'bez_ccx_v4', complete_but_spends_allowance)
+    isolated, overlaps, status = nurbs_ccx_multiple(
+        [CURVES_2D[0], CURVES_2D[0]], max_cells=2,
+        return_status=True,
+    )
+
+    assert isolated is None and overlaps is None
+    assert calls == [2]
+    assert status['cells_processed'] == 2
+    assert status['complete'] is False
+    assert status['budget_exhausted'] is True
+
+
+def test_nurbs_ccx_shares_max_results_across_span_pairs(monkeypatch):
+    calls = []
+
+    def one_overlap(*_args, **kwargs):
+        calls.append(int(kwargs['max_results']))
+        return {
+            'isolated': [],
+            'overlaps': [{
+                'u_range': (0.0, 1.0),
+                'v_range': (0.0, 1.0),
+            }],
+            'budget_exhausted': False,
+            'cells_processed': 0,
+            'boundary_topology_complete': True,
+        }
+
+    monkeypatch.setattr(nccx4, 'bez_ccx_v4', one_overlap)
+    _isolated, overlaps, status = nurbs_ccx(
+        CURVES_2D[0], CURVES_2D[0], max_cells=100,
+        max_results=2, return_status=True,
+    )
+
+    assert calls == [2, 1]
+    assert overlaps is not None and len(overlaps) == 2
+    assert status['results_processed'] == 2
+    assert status['max_results'] == 2
+    assert status['complete'] is False
+    assert status['budget_exhausted'] is True
+
+
+def test_nurbs_ccx_sanitizes_one_span_to_remaining_result_budget(monkeypatch):
+    c1, c2 = _overlapping_lines()
+
+    def overproduces(*_args, **_kwargs):
+        return {
+            'isolated': [],
+            'overlaps': [
+                {'u_range': (0.0, 0.2), 'v_range': (0.0, 0.2)},
+                {'u_range': (0.3, 0.5), 'v_range': (0.3, 0.5)},
+                {'u_range': (0.6, 0.8), 'v_range': (0.6, 0.8)},
+            ],
+            'budget_exhausted': False,
+            'cells_processed': 1,
+            'boundary_topology_complete': True,
+        }
+
+    monkeypatch.setattr(nccx4, 'bez_ccx_v4', overproduces)
+    _isolated, overlaps, status = nurbs_ccx(
+        c1, c2, max_cells=10, max_results=2, return_status=True,
+    )
+
+    assert overlaps is not None and len(overlaps) == 2
+    assert status['results_processed'] == 2
+    assert status['complete'] is False
+    assert status['budget_exhausted'] is True

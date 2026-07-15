@@ -10,11 +10,14 @@ dimension larger (trivariate sq-dist net).
 """
 from __future__ import annotations
 
+from math import comb
+
 import numpy as np
 
 from .._bezier_common import _compute_remaining_intervals
 from mmcore.numeric.aabb import aabb_offset
 from mmcore.numeric._aabb import aabb_intersect, aabb
+from mmcore.numeric._work_budget import DownCounter
 from mmcore.numeric.bern import (
     de_casteljau_split_nd, bernstein_boundary_nd,
     bernstein_partial_derivative_coeffs,
@@ -22,7 +25,8 @@ from mmcore.numeric.bern import (
 from mmcore.numeric.bern_sq_dist import curve_surface_distance_squared_net_homog
 from mmcore.numeric.intersection._bezier_common import (
     extract_weights, eval_curve, eval_surface, eval_curve_d1, eval_surface_d1,
-    newton_csx,
+    newton_csx, bernstein_product_1d, subdivide_curve, subdivide_sq_dist_net,
+    restrict_net_axis, restrict_net_axis_v, geometry_collapsed,
 )
 from mmcore.numeric.intersection.ccx._bez_ccx4 import bez_ccx as bez_ccx_v4
 from mmcore.numeric.intersection._sq_dist_classify import (
@@ -35,16 +39,8 @@ from mmcore.numeric.intersection._sq_dist_classify import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _subdivide_curve(ctrl, t=0.5):
-    n = ctrl.shape[0] - 1
-    tmp = ctrl.copy()
-    left = [tmp[0].copy()]
-    right_rev = [tmp[n].copy()]
-    for r in range(1, n + 1):
-        tmp[: n + 1 - r] = (1.0 - t) * tmp[: n + 1 - r] + t * tmp[1 : n + 2 - r]
-        left.append(tmp[0].copy())
-        right_rev.append(tmp[n - r].copy())
-    return np.array(left), np.array(right_rev[::-1])
+# L52 slice 7: shared implementation in _bezier_common (verbatim move).
+_subdivide_curve = subdivide_curve
 
 
 def _subdivide_surface(ctrl, axis, t=0.5):
@@ -61,10 +57,8 @@ def _subdivide_surface(ctrl, axis, t=0.5):
     return left, right
 
 
-def _subdivide_sq_dist_net(F, axis, t=0.5):
-    Fv = F[..., np.newaxis]
-    left_v, right_v = de_casteljau_split_nd(Fv, axis=axis, t=t)
-    return left_v[..., 0], right_v[..., 0]
+# L52 slice 7: shared implementation in _bezier_common (verbatim move).
+_subdivide_sq_dist_net = subdivide_sq_dist_net
 
 
 def _subdivide_surface_weights(sw, axis, t=0.5):
@@ -109,27 +103,61 @@ def _residual_vec_net(C, S, rational):
 
 
 def _residual_excludes_zero(G_cell):
-    """True if some component's Bernstein hull excludes 0 → no zero of G."""
+    """True if some component's Bernstein hull excludes 0 → no zero of G.
+
+    L52 slice 6c: exclusion only beyond the L1 roundoff margin
+    ``128·ε·max|coeff|`` (§4 invariant — margins make exclusion stricter,
+    the sound direction; ccx's identity-side twin carries a depth-scaled
+    margin, this was the one unmargined sign prune left). Fixture-first
+    measurement: 240 exact-Fraction restriction-chain comparisons on
+    tangential-graze nets produced 0 wrongful exclusions and 0 exclusions
+    within 1e-12·scale of the boundary, so the margin costs nothing in
+    practice — it is insurance for restriction chains outside that family.
+    """
+    eps = float(np.finfo(np.float64).eps)
     for c in range(3):
         comp = G_cell[..., c]
-        if float(comp.min()) > 0.0 or float(comp.max()) < 0.0:
+        margin = 128.0 * eps * float(np.abs(comp).max())
+        if float(comp.min()) > margin or float(comp.max()) < -margin:
             return True
     return False
 
 
-def _restrict_net_axis_v(Fv, axis, lo, hi, cell_lo, cell_hi):
-    """Restrict a Bernstein net WITH a trailing value dim along one axis."""
-    span = cell_hi - cell_lo
-    if span < 1e-30:
-        return Fv
-    frac_lo = (lo - cell_lo) / span
-    frac_hi = (hi - cell_lo) / span
-    if frac_lo > 1e-12:
-        _, Fv = de_casteljau_split_nd(Fv, axis=axis, t=frac_lo)
-    if frac_hi < 1.0 - 1e-12:
-        frac_hi_rescaled = (frac_hi - frac_lo) / (1.0 - frac_lo) if frac_lo > 1e-12 else frac_hi
-        Fv, _ = de_casteljau_split_nd(Fv, axis=axis, t=frac_hi_rescaled)
-    return Fv
+def _residual_aligned_excludes_zero(G_cell):
+    """Geometry-ALIGNED zero exclusion (ledger L60).
+
+    The axis-component test above converges linearly in clearance but only
+    along world axes: when the residual direction is diagonal, every axis
+    component mixes the LARGE tangential variation with the SMALL
+    clearance and nothing excludes until cells shrink to clearance scale
+    (measured: 28,961 cells proving one near-band pair empty).  Projecting
+    the net onto its own mean direction asks the same question in the
+    geometry's frame: ``dot(G, n_hat)`` is an EXACT Bernstein net (a fixed
+    linear combination of the exactly-built component nets), so a
+    margined hull exclusion on it proves ``dot(G, n_hat) != 0`` and hence
+    ``G != 0`` everywhere in the cell — sound for ANY fixed direction; the
+    mean maximizes the chance of clearing (same pair: 511 nodes, ~1000x).
+    The 128·ε·max|coeff| L1 margin covers the build, combination and
+    restriction roundoff (the 6c insurance class; margins make exclusion
+    stricter, the sound direction).
+    """
+    flat = G_cell.reshape(-1, 3)
+    n_hat = flat.mean(axis=0)
+    n_len = float(np.linalg.norm(n_hat))
+    if n_len <= 0.0 or not np.isfinite(n_len):
+        return False
+    n_hat = n_hat / n_len
+    scalar = (G_cell[..., 0] * n_hat[0]
+              + G_cell[..., 1] * n_hat[1]
+              + G_cell[..., 2] * n_hat[2])
+    margin = (128.0 * float(np.finfo(np.float64).eps)
+              * float(np.abs(scalar).max()))
+    return bool(float(scalar.min()) > margin
+                or float(scalar.max()) < -margin)
+
+
+# L52 slice 7: shared implementation in _bezier_common (verbatim move).
+_restrict_net_axis_v = restrict_net_axis_v
 
 
 def _compute_param_tols_csx(C, S, atol, rational):
@@ -180,6 +208,479 @@ def _csx_eff_atol(C, S, t, u, v, atol, rational):
     return atol * max(sin_ang, _CSX_SIN_ANG_FLOOR)
 
 
+def _cartesian_controls_for_exactness(ctrl, rational):
+    """Return finite Cartesian controls, or ``None`` for invalid weights."""
+    ctrl = np.asarray(ctrl, dtype=np.float64)
+    if rational:
+        weights = ctrl[..., -1:]
+        if (not np.all(np.isfinite(weights))
+                or np.any(weights == 0.0)):
+            return None
+        points = ctrl[..., :-1] / weights
+    else:
+        points = ctrl
+    if not np.all(np.isfinite(points)):
+        return None
+    return points
+
+
+def _center_homogeneous_for_exactness(ctrl, rational, origin):
+    """Translate homogeneous controls by a common Cartesian origin.
+
+    Normalize once before the homogeneous translation to avoid overflow in
+    ``origin * weight``, then normalize the translated net again for stable
+    evaluation.  Both normalizations are one common nonzero homogeneous
+    factor and therefore leave the represented geometry unchanged.
+    """
+    ctrl = np.asarray(ctrl, dtype=np.float64)
+    if rational:
+        homog = ctrl.copy()
+    else:
+        homog = np.concatenate(
+            [ctrl, np.ones(ctrl.shape[:-1] + (1,), dtype=np.float64)],
+            axis=-1)
+    scale = float(np.max(np.abs(homog)))
+    if not np.isfinite(scale) or scale <= 0.0:
+        return None
+    homog /= scale
+    homog[..., :-1] -= (
+        np.asarray(origin, dtype=np.float64) * homog[..., -1:])
+    local_scale = float(np.max(np.abs(homog)))
+    if not np.isfinite(local_scale) or local_scale <= 0.0:
+        return None
+    return np.ascontiguousarray(homog / local_scale)
+
+
+def _strict_csx_root_tol(C, S, rational):
+    """Translation-invariant context for exact root certification."""
+    c_pts = _cartesian_controls_for_exactness(C, rational)
+    s_pts = _cartesian_controls_for_exactness(S, rational)
+    if c_pts is None or s_pts is None:
+        return None
+    origin = np.asarray(c_pts).reshape(-1, 3)[0].copy()
+    c_centered = _center_homogeneous_for_exactness(C, rational, origin)
+    s_centered = _center_homogeneous_for_exactness(S, rational, origin)
+    if c_centered is None or s_centered is None:
+        return None
+    c_local = c_centered[..., :-1] / c_centered[..., -1:]
+    s_local = s_centered[..., :-1] / s_centered[..., -1:]
+    points = np.vstack([
+        np.asarray(c_local).reshape(-1, 3),
+        np.asarray(s_local).reshape(-1, 3),
+    ])
+    component_scale = np.max(np.abs(points), axis=0)
+    return c_centered, s_centered, component_scale
+
+
+def _strict_csx_residual_ok(C, S, t, u, v, rational, strict_context):
+    """Componentwise floating envelope for exact curve/surface equality."""
+    if strict_context is None:
+        pc = eval_curve(C, float(t), rational=rational)
+        ps = eval_surface(S, float(u), float(v), rational=rational)
+        return False, pc - ps
+    c_centered, s_centered, component_scale = strict_context
+    pc = eval_curve(c_centered, float(t), rational=True)
+    ps = eval_surface(s_centered, float(u), float(v), rational=True)
+    if not (np.all(np.isfinite(pc)) and np.all(np.isfinite(ps))):
+        return False, pc - ps
+    scale = np.maximum(
+        np.asarray(component_scale, dtype=np.float64),
+        np.maximum(np.abs(pc), np.abs(ps)))
+    degree_factor = max(
+        1, len(C) + int(S.shape[0]) + int(S.shape[1]))
+    bound = (32.0 * degree_factor * np.finfo(np.float64).eps) * scale
+    residual = pc - ps
+    return bool(np.all(np.abs(residual) <= bound)), residual
+
+
+def _polish_csx_root(C, S, t, u, v, rational, strict_tol):
+    """Unbounded polish plus a strict zero certificate.
+
+    A cell-bounded Newton may stop against a cutout wall with a zero step
+    while merely lying inside the geometric tolerance valley.  Such a stall
+    is useful for subdivision guidance but is not a distinct root.  Re-polish
+    in the full parameter domain and only type the result when the actual
+    residual reaches the roundoff-scale root tolerance.
+    """
+    root_ok, G0 = _strict_csx_residual_ok(
+        C, S, t, u, v, rational, strict_tol)
+    if root_ok:
+        return float(t), float(u), float(v), G0, True
+
+    if strict_tol is None:
+        polish_C, polish_S, polish_rational = C, S, rational
+    else:
+        polish_C, polish_S, _component_scale = strict_tol
+        polish_rational = True
+    t, u, v, G, _ = newton_csx(
+        polish_C, polish_S, t, u, v,
+        rational=polish_rational, bounds=None)
+    ok, G = _strict_csx_residual_ok(
+        C, S, t, u, v, rational, strict_tol)
+    return float(t), float(u), float(v), G, bool(ok)
+
+
+def _polish_csx_boundary_root(
+    C, S, bz, t, u, v, rational, strict_tol, max_iter=48,
+):
+    """Polish a face candidate while preserving its certified boundary.
+
+    A boundary zero has one parameter fixed exactly at 0 or 1.  Letting the
+    ordinary three-variable Newton move that coordinate can turn an exterior
+    root into an in-domain endpoint (the former case13 false positive), and
+    it perturbs exact overlap endpoints just far enough to defeat their
+    coefficient identity.  Solve the overdetermined three-residual/two-free-
+    parameter problem instead, then apply the same strict equality test.
+    """
+    params = np.array([t, u, v], dtype=np.float64)
+    params[bz.axis] = 0.0 if bz.side == 0 else 1.0
+    free = [axis for axis in (0, 1, 2) if axis != bz.axis]
+    if strict_tol is None:
+        polish_C, polish_S, polish_rational = C, S, rational
+    else:
+        polish_C, polish_S, _component_scale = strict_tol
+        polish_rational = True
+
+    for _ in range(max(0, int(max_iter))):
+        ok, G = _strict_csx_residual_ok(
+            C, S, *params, rational, strict_tol)
+        if ok:
+            return (*map(float, params), G, True)
+
+        _pc, cd = eval_curve_d1(
+            polish_C, params[0], rational=polish_rational)
+        _ps, su, sv = eval_surface_d1(
+            polish_S, params[1], params[2], rational=polish_rational)
+        J = np.column_stack([cd, -su, -sv])[:, free]
+        try:
+            delta = np.linalg.lstsq(J, -G, rcond=None)[0]
+        except np.linalg.LinAlgError:
+            break
+        if not np.all(np.isfinite(delta)):
+            break
+
+        old_norm = float(np.linalg.norm(G))
+        accepted = False
+        step = 1.0
+        for _ls in range(16):
+            candidate = params.copy()
+            candidate[free] = np.clip(
+                candidate[free] + step * delta, 0.0, 1.0)
+            candidate[bz.axis] = 0.0 if bz.side == 0 else 1.0
+            pc = eval_curve(
+                polish_C, candidate[0], rational=polish_rational)
+            ps = eval_surface(
+                polish_S, candidate[1], candidate[2],
+                rational=polish_rational)
+            if float(np.linalg.norm(pc - ps)) < old_norm:
+                params = candidate
+                accepted = True
+                break
+            step *= 0.5
+        if not accepted:
+            break
+
+    ok, G = _strict_csx_residual_ok(
+        C, S, *params, rational, strict_tol)
+    return (*map(float, params), G, bool(ok))
+
+
+def _restrict_bezier_axis_ordered(ctrl, axis, a, b):
+    """Restrict a tensor-product Bezier net to ordered interval a -> b."""
+    a = float(np.clip(a, 0.0, 1.0))
+    b = float(np.clip(b, 0.0, 1.0))
+    reverse = b < a
+    lo, hi = (b, a) if reverse else (a, b)
+    out = np.asarray(ctrl, dtype=np.float64)
+    if hi < 1.0:
+        out, _ = de_casteljau_split_nd(out, axis=axis, t=hi)
+    if lo > 0.0:
+        rel = lo / max(hi, np.finfo(np.float64).tiny)
+        _, out = de_casteljau_split_nd(out, axis=axis, t=rel)
+    if reverse:
+        out = np.flip(out, axis=axis).copy()
+    return out
+
+
+def _surface_affine_path_homogeneous(S_h, u0, v0, u1, v1):
+    """Homogeneous Bezier curve S(u(lambda), v(lambda)), affine in lambda."""
+    patch = _restrict_bezier_axis_ordered(S_h, 0, u0, u1)
+    patch = _restrict_bezier_axis_ordered(patch, 1, v0, v1)
+    p = patch.shape[0] - 1
+    q = patch.shape[1] - 1
+    degree = p + q
+    out = np.zeros((degree + 1, patch.shape[-1]), dtype=np.float64)
+    for i in range(p + 1):
+        for j in range(q + 1):
+            k = i + j
+            out[k] += (comb(p, i) * comb(q, j) / comb(degree, k)) * patch[i, j]
+    return out
+
+
+# L52 slice 6a: the shared exact product. NOTE: the shared version computes
+# the comb factor fully in longdouble (the old copy here rounded it through
+# a Python float64 first) — identical on macOS (longdouble aliases float64),
+# a last-ulp factor upgrade on true-80-bit platforms, absorbed by the
+# certificate envelope.
+_bernstein_product_1d = bernstein_product_1d
+
+
+def _certify_affine_csx_overlap(C, S, a, b, rational):
+    """Prove the affine endpoint correspondence is an exact overlap.
+
+    The public overlap schema ships only endpoint ranges, so its implied
+    correspondence is affine in one common parameter.  Certify that exact
+    path by checking every coefficient of the homogeneous residual
+    C_xyz*W_S - S_xyz*W_C, not a finite set of tolerance samples.
+    """
+    c_pts = _cartesian_controls_for_exactness(C, rational)
+    s_pts = _cartesian_controls_for_exactness(S, rational)
+    if c_pts is None or s_pts is None:
+        return False
+    origin = np.asarray(c_pts).reshape(-1, 3)[0]
+    C_h = _center_homogeneous_for_exactness(C, rational, origin)
+    S_h = _center_homogeneous_for_exactness(S, rational, origin)
+    if C_h is None or S_h is None:
+        return False
+    # The restricted affine path can contain an exactly-zero coordinate
+    # produced by cancellation of nonzero source controls (for example the
+    # y=0 line through a plane whose y controls are -0.5 and 1.5).  A
+    # roundoff bound based only on the already-cancelled product values is
+    # then identically zero and rejects the arithmetic residue of the
+    # restriction itself.  Retain a per-coordinate source-operation scale;
+    # genuinely absent coordinates still keep a zero floor, so a one-sided
+    # offset cannot hide here.
+    c_xyz_scale = np.max(np.abs(C_h[:, :-1]), axis=0)
+    s_xyz_scale = np.max(np.abs(S_h[..., :-1]), axis=(0, 1))
+    c_weight_scale = float(np.max(np.abs(C_h[:, -1])))
+    s_weight_scale = float(np.max(np.abs(S_h[..., -1])))
+    source_product_scale = (
+        c_xyz_scale * s_weight_scale
+        + s_xyz_scale * c_weight_scale)
+    ta, ua, va = (float(x) for x in a)
+    tb, ub, vb = (float(x) for x in b)
+    curve_h = _restrict_bezier_axis_ordered(C_h, 0, ta, tb)
+    surf_h = _surface_affine_path_homogeneous(S_h, ua, va, ub, vb)
+    left = _bernstein_product_1d(
+        curve_h[:, :-1], surf_h[:, -1:])
+    right = _bernstein_product_1d(
+        surf_h[:, :-1], curve_h[:, -1:])
+    residual = np.abs(left - right)
+    # L52 slice 6b — the EXPLICIT envelope reconciliation (review §10 /
+    # ledger): this certificate and ccx's `_overlap_mapping_is_identity`
+    # certify the same class ("residual explainable by roundoff of
+    # exactly-coincident sources") and now share ccx's derived two-term
+    # structure instead of this module's former folded
+    # `4096·n₁n₂·ε_f64·(|l|+|r|+src)` bound:
+    # - the OPERATOR term scales with the eps of the dtype the products
+    #   actually run in (longdouble; aliases float64 on macOS, where the
+    #   computation genuinely is float64 — platform-consistent either way)
+    #   and with n₁·n₂ accumulation terms;
+    # - the SOURCE term scales with ε_float64 (sources are float64 on
+    #   every platform) and n₁+n₂ restriction/degree-reduction steps; the
+    #   8192 constant is the family ccx's float-built-subcurve fixture
+    #   calibrated from below.
+    # Net effect is a measured tightening at gate degrees (in-axis
+    # acceptance boundary (3.0, 3.5]e-11 -> (2.6, 3.0]e-11 on the
+    # cubic/bilinear probe; single-axis offsets were and remain rejected
+    # at every magnitude by the per-coordinate source scale above) — the
+    # SOUND direction: borderline candidates fall to the L42 typed
+    # uncertified_overlap_span fallback instead of certifying.
+    op_factor = (np.longdouble(64)
+                 * np.longdouble(max(1, len(curve_h)))
+                 * np.longdouble(max(1, len(surf_h)))
+                 * np.longdouble(np.finfo(np.longdouble).eps))
+    source_factor = (np.longdouble(8192)
+                     * np.longdouble(max(1, len(curve_h) + len(surf_h)))
+                     * np.longdouble(np.finfo(np.float64).eps))
+    roundoff = (op_factor * (np.abs(left) + np.abs(right))
+                + source_factor * np.asarray(
+                    source_product_scale, dtype=np.longdouble)[None, :])
+    return bool(np.all(np.isfinite(residual))
+                and np.all(residual <= roundoff))
+
+
+def _tolerance_csx_overlap_certificate(C, S, atol, rational, ptol_t,
+                                        strict_context, n_samples=65,
+                                        on_dense=None):
+    """Theorem-first curve-on-surface overlap certification (ledger L59).
+
+    USER DECISION 2026-07-12 (rationale in the ledger): two polynomial/
+    rational arcs coinciding on any open sub-arc lie on the same algebraic
+    curve, so a maximal overlap can only terminate at a DOMAIN boundary of
+    an operand.  Numerics therefore only (1) arms on cheap endpoint
+    evidence, (2) verifies that the span's ends are domain-pinned — the
+    curve's t-ends on-surface, or points whose surface projection exits
+    the uv-domain — and (3) samples interior witnesses with a crossing
+    flip guard; the theorem, not floating point, carries the interior.
+    Tolerance-coincidence IS coincidence: within-atol membership counts,
+    and the certification field says 'exact' vs 'tolerance'.
+
+    Returns a list of overlap dicts (possibly several spans: improper
+    reparameterizations and domain clipping legitimately produce more
+    than one), or None when nothing is armed/certifiable.  The flip guard
+    preserves the never-merge invariant: a transverse (normal-side) sign
+    flip between consecutive gap samples is crossing structure and
+    refuses promotion of that span; sub-atol valley chains fail the
+    membership march before ever reaching a pinned second end.
+    """
+    diag = float(np.linalg.norm(
+        np.max(S.reshape(-1, S.shape[-1]), axis=0)
+        - np.min(S.reshape(-1, S.shape[-1]), axis=0))) or 1.0
+    tiny = max(4096.0 * float(np.finfo(np.float64).eps), 1e-12) * max(1.0, diag)
+    edge_pad = 1e-9
+
+    def _member(t, seed_uv):
+        p = eval_curve(C, float(t), rational=rational)
+        u, v, dist = _project_point_on_surface(
+            p, S, seed_uv[0], seed_uv[1], atol, rational)
+        u_cl = min(max(u, 0.0), 1.0)
+        v_cl = min(max(v, 0.0), 1.0)
+        if (u_cl, v_cl) != (u, v):
+            s_pt = eval_surface(
+                np.asarray(S, dtype=np.float64), u_cl, v_cl,
+                rational=rational)
+            dist = float(np.linalg.norm(p - s_pt))
+        return p, u_cl, v_cl, float(dist)
+
+    # --- (1) arming: coarse scan for ANY on-surface stretch -------------
+    coarse = np.linspace(0.0, 1.0, 17)
+    seed = (0.5, 0.5)
+    hits = []
+    for t in coarse:
+        _p, u, v, d = _member(float(t), seed)
+        if d <= atol:
+            hits.append(float(t))
+            seed = (u, v)
+    if not hits:
+        return None
+
+    # A no-hit arming scan costs 17 projections; the dense pass below is
+    # the expensive part and is billed separately by the caller (a flat
+    # combined price tripped the §11.5 work-drift gate on nested cut-face
+    # calls, which routinely arm-and-miss).
+    if on_dense is not None:
+        on_dense()
+
+    # --- (2) dense membership + witnesses --------------------------------
+    ts = np.linspace(0.0, 1.0, int(n_samples))
+    inside = np.zeros(len(ts), dtype=bool)
+    res = np.zeros(len(ts))
+    uvs = np.zeros((len(ts), 2))
+    signed = np.zeros(len(ts))
+    seed = (0.5, 0.5)
+    S64 = np.asarray(S, dtype=np.float64)
+    for k, t in enumerate(ts):
+        p, u, v, d = _member(float(t), seed)
+        inside[k] = d <= atol
+        res[k] = d
+        uvs[k] = (u, v)
+        if inside[k]:
+            seed = (u, v)
+        s_pt, s_du, s_dv = eval_surface_d1(S64, u, v, rational=rational)
+        n_vec = np.cross(s_du, s_dv)
+        n_len = float(np.linalg.norm(n_vec))
+        signed[k] = (float(np.dot(p - s_pt, n_vec / n_len))
+                     if n_len > 0.0 else 0.0)
+
+    # contiguous in-band runs
+    runs = []
+    k = 0
+    while k < len(ts):
+        if inside[k]:
+            j = k
+            while j + 1 < len(ts) and inside[j + 1]:
+                j += 1
+            runs.append((k, j))
+            k = j + 1
+        else:
+            k += 1
+
+    def _refine(t_in, t_out, seed_uv):
+        """Bisect the tolerance boundary between an in-band and an
+        out-of-band sample."""
+        for _ in range(40):
+            tm = 0.5 * (t_in + t_out)
+            _p, u, v, d = _member(tm, seed_uv)
+            if d <= atol:
+                t_in, seed_uv = tm, (u, v)
+            else:
+                t_out = tm
+            if abs(t_out - t_in) <= max(1e-12, 0.01 * ptol_t):
+                break
+        return t_in, seed_uv
+
+    overlaps = []
+    for k0, k1 in runs:
+        if k1 == k0:
+            # Single-sample runs are the CORNER-CONTACT signature (the
+            # CCX L47 guard's analog: a graze at one grid node whose
+            # bisection fringe can exceed 4*ptol_t is still not band
+            # evidence — measured: a ~4*atol stub at a shared corner
+            # shipped as a junk overlap branch). A genuine span must be
+            # in-band across at least one full grid interval.
+            continue
+        t_lo, t_hi = float(ts[k0]), float(ts[k1])
+        if k0 > 0:
+            t_lo, _ = _refine(t_lo, float(ts[k0 - 1]), tuple(uvs[k0]))
+        if k1 < len(ts) - 1:
+            t_hi, _ = _refine(t_hi, float(ts[k1 + 1]), tuple(uvs[k1]))
+        if t_hi - t_lo < 4.0 * ptol_t:
+            continue                    # too short to claim a 1-D overlap
+        # (2b) domain pinning: each end must sit at the CURVE's domain end
+        # or at the uv-domain edge of the surface (projected pin) — an
+        # interior fade-out on both sides is the offset-twin signature and
+        # is never promoted (the CCX L47 rule).
+        def _pinned(t_end, outward):
+            if t_end <= edge_pad or t_end >= 1.0 - edge_pad:
+                return True
+            _p, u, v, _d = _member(t_end, (0.5, 0.5))
+            if min(u, 1.0 - u) <= 1e-6 or min(v, 1.0 - v) <= 1e-6:
+                return True
+            # The tolerance boundary and the uv-domain exit can COINCIDE
+            # (measured on user data: d crosses atol at almost the same t
+            # where the projected path leaves through u=1, so the
+            # projection AT the refined boundary is still interior).
+            # Probe one grid step OUTWARD: a domain-clipped span clamps to
+            # an edge there; a genuine interior fade-out (the offset-twin
+            # signature, which must stay refused) does not.
+            t_probe = min(1.0, max(0.0, t_end + outward / (len(ts) - 1.0)))
+            _p, u, v, _d = _member(t_probe, (u, v))
+            return (min(u, 1.0 - u) <= 1e-6 or min(v, 1.0 - v) <= 1e-6)
+        if not (_pinned(t_lo, -1.0) and _pinned(t_hi, +1.0)):
+            continue
+        # (3) flip guard on the gap samples INSIDE the span: root-like
+        # samples (res <= tiny) are bridged; consecutive gap samples with
+        # opposite normal-side signs = crossing structure -> refuse.
+        # END-ADJACENT flips are exempt: a genuine touch AT a pinned span
+        # end (real-world-inexact data sits above the roundoff floor, so
+        # bridging cannot cover it) is the span's own endpoint root — the
+        # theorem terminates the overlap there anyway. INTERIOR flips
+        # still refuse (the never-merge-crossings invariant).
+        idx = [k for k in range(k0, k1 + 1) if res[k] > tiny]
+        flip = any(signed[a] * signed[b] < 0.0
+                   for a, b in zip(idx, idx[1:])
+                   if a != k0 and b != k1)
+        if flip:
+            continue
+        span_res = float(res[k0:k1 + 1].max())
+        cert = "exact" if span_res <= tiny else "tolerance"
+        u_rng = (float(uvs[k0:k1 + 1, 0].min()),
+                 float(uvs[k0:k1 + 1, 0].max()))
+        v_rng = (float(uvs[k0:k1 + 1, 1].min()),
+                 float(uvs[k0:k1 + 1, 1].max()))
+        overlaps.append({
+            "boundary_zeros": [],
+            "overlap_endpoints": [],
+            "t_range": (t_lo, t_hi),
+            "u_range": u_rng,
+            "v_range": v_rng,
+            "certification": cert,
+            "residual_max": span_res,
+        })
+    return overlaps or None
+
+
 def _boundary_zero_to_tuv(bz: BoundaryZero,
                            t0: float, t1: float,
                            u0: float, u1: float,
@@ -212,11 +713,23 @@ def _boundary_zero_to_tuv(bz: BoundaryZero,
     return pt[0], pt[1], pt[2]
 
 
+def _boundary_zero_from_tuv_like(bz: BoundaryZero, t, u, v) -> BoundaryZero:
+    """Rebuild a boundary record with strict-polished free parameters."""
+    values = [float(t), float(u), float(v)]
+    free = [i for i in (0, 1, 2) if i != bz.axis]
+    return BoundaryZero(
+        axis=bz.axis, side=bz.side,
+        param=values[free[0]], param2=values[free[1]])
+
+
 # ---------------------------------------------------------------------------
 # CSX boundary analysis: find zeros on the 6 faces of [0,1]^3
 # ---------------------------------------------------------------------------
 
-def _find_csx_boundary_zeros(F_3d, C, S, atol,ptol_t,ptol_u,ptol_v ,rational):
+def _find_csx_boundary_zeros(
+    F_3d, C, S, atol, ptol_t, ptol_u, ptol_v, rational,
+    *, max_cells=50_000, max_results=4_096,
+):
     """Find precise intersection points on the boundary faces of the CSX domain.
 
     The 6 faces of [0,1]^3 decompose into two types:
@@ -230,14 +743,23 @@ def _find_csx_boundary_zeros(F_3d, C, S, atol,ptol_t,ptol_u,ptol_v ,rational):
       Extract the surface boundary isocurve (a Bezier curve in 3D) and
       call bez_ccx(C, iso_curve) to find intersections.
 
-    Returns list of BoundaryZero objects with (axis, side, param, param2).
+    Returns ``(zeros, budget_exhausted, cells_processed)``.  When the flag
+    is true, ``zeros`` is diagnostic-only: the caller must not use a partial
+    face set to infer overlap topology or cut the Phase-2 domain.
     """
     zeros = []
+    cells = DownCounter(max_cells)
+    exhausted = False
     F_3d_v = F_3d[..., np.newaxis]
 
     # --- Type 1: Curve endpoints (t=0, t=1) ---
     # Restrict the 3D net to t=0 and t=1 → 2D nets for point-on-surface
     for t_side in (0, 1):
+        if cells.remaining <= 0:
+            exhausted = True
+            break
+        # Charge the fixed face analysis/Newton probe itself.
+        cells.spend(1)
         face_2d = bernstein_boundary_nd(F_3d_v, axis=0, side=t_side)[..., 0]
 
         # Use the 2D classifier (same as CCX) on this face
@@ -255,8 +777,22 @@ def _find_csx_boundary_zeros(F_3d, C, S, atol,ptol_t,ptol_u,ptol_v ,rational):
 
         # Find precise zeros on the 2D face using the 1D solver
         # (finds zeros on edges of the face)
-        face_zeros = _find_precise_bz_2d(face_2d, atol, w_scale)
+        from mmcore.numeric.intersection._bern_zero_1d import bernstein_zero_budget
+        with bernstein_zero_budget(
+            cells.remaining, max(0, max_results - len(zeros)),
+        ) as zero_budget:
+            face_zeros = _find_precise_bz_2d(face_2d, atol, w_scale)
+        cells.spend(zero_budget.nodes)
+        if zero_budget.exhausted:
+            exhausted = True
+            break
         for bz_2d in face_zeros:
+            if not isinstance(bz_2d, BoundaryZero):
+                exhausted = True
+                break
+            if len(zeros) >= max_results:
+                exhausted = True
+                break
             # Map 2D face zero to 3D BoundaryZero
             # bz_2d has axis (0 or 1 in the 2D face) and param
             # In the 3D net, axis=0 is t, so the face's axes map to u (1) and v (2)
@@ -267,6 +803,8 @@ def _find_csx_boundary_zeros(F_3d, C, S, atol,ptol_t,ptol_u,ptol_v ,rational):
                     float(bz_2d.side) if bz_2d.axis == 1 else None
                 ),
             ))
+        if exhausted:
+            break
 
         # Also check if the 2D face has a minimum near zero in its interior
         # (not just on its edges). Use Newton on the point-on-surface problem.
@@ -299,7 +837,7 @@ def _find_csx_boundary_zeros(F_3d, C, S, atol,ptol_t,ptol_u,ptol_v ,rational):
             else:
                 break
         G_final = eval_surface(S, u_s, v_s, rational=rational) - pt
-        if float(np.linalg.norm(G_final)) < atol:
+        if not exhausted and float(np.linalg.norm(G_final)) < atol:
             # Found a point-on-surface intersection — add as BoundaryZero
             bz = BoundaryZero(axis=0, side=t_side, param=u_s, param2=v_s)
             # Check not duplicate
@@ -308,7 +846,13 @@ def _find_csx_boundary_zeros(F_3d, C, S, atol,ptol_t,ptol_u,ptol_v ,rational):
                 for z in zeros if z.axis == 0 and z.side == t_side
             )
             if not is_dup:
-                zeros.append(bz)
+                if len(zeros) >= max_results:
+                    exhausted = True
+                else:
+                    zeros.append(bz)
+
+    if exhausted:
+        return zeros, True, cells.processed
 
     # --- Type 2: Surface boundaries (u=0, u=1, v=0, v=1) ---
     # Extract boundary isocurves and run CCX
@@ -336,9 +880,26 @@ def _find_csx_boundary_zeros(F_3d, C, S, atol,ptol_t,ptol_u,ptol_v ,rational):
             continue
 
         # Run CCX between the original curve and this isocurve
-        ccx_result = bez_ccx_v4(C, iso_curve, atol=atol, rational=rational)
+        if cells.remaining <= 0:
+            exhausted = True
+            break
+        ccx_result = bez_ccx_v4(
+            C, iso_curve, atol=atol, rational=rational,
+            max_cells=cells.remaining,
+            max_results=max(0, max_results - len(zeros)),
+        )
+        ccx_cells = int(ccx_result.get("cells_processed", 0))
+        ccx_cells = min(ccx_cells, cells.remaining)
+        cells.spend(ccx_cells)
+        if (ccx_result.get("budget_exhausted", False)
+                or not ccx_result.get("boundary_topology_complete", True)):
+            exhausted = True
+            break
 
         for iso in ccx_result['isolated']:
+            if len(zeros) >= max_results:
+                exhausted = True
+                break
             t_val = iso['u']  # parameter on C
             s_val = iso['v']  # parameter along the isocurve
 
@@ -358,6 +919,9 @@ def _find_csx_boundary_zeros(F_3d, C, S, atol,ptol_t,ptol_u,ptol_v ,rational):
                                   param=t_val, param2=s_val)
             zeros.append(bz)
 
+        if exhausted:
+            break
+
         # Overlaps from CCX also produce boundary information
         for ovl in ccx_result['overlaps']:
             # Overlap endpoints are boundary zeros too
@@ -365,11 +929,19 @@ def _find_csx_boundary_zeros(F_3d, C, S, atol,ptol_t,ptol_u,ptol_v ,rational):
             vr = ovl.get('v_range', (0.0, 1.0))
             csx_axis = surf_axis + 1
             for t_val, s_val in [(ur[0], vr[0]), (ur[1], vr[1])]:
+                if len(zeros) >= max_results:
+                    exhausted = True
+                    break
                 bz = BoundaryZero(axis=csx_axis, side=surf_side,
                                   param=t_val, param2=s_val)
                 zeros.append(bz)
+            if exhausted:
+                break
 
-    return zeros
+        if exhausted:
+            break
+
+    return zeros, exhausted, cells.processed
 
 
 def _project_point_on_surface(pt, S, u_seed, v_seed, atol, rational, max_it=20):
@@ -402,6 +974,47 @@ def _project_point_on_surface(pt, S, u_seed, v_seed, atol, rational, max_it=20):
             break
     dist = float(np.linalg.norm(eval_surface(S, u, v, rational=rational) - pt))
     return u, v, dist
+
+
+def _collapsed_point_surface_membership(
+    C, S, t, u, v, atol, rational, strict_context,
+):
+    """Certify one representative of a collapsed curve parameter fiber.
+
+    General CSX roots and overlaps use the roundoff-scale certificate in
+    :func:`_strict_csx_residual_ok`.  Collapsed fibers need one additional,
+    deliberately narrower notion of numerical identity: independently
+    rounded CAD parameterizations can describe the same singular point with
+    a few ulps of the *source decimal data* between them (case 14's two
+    eight-decimal cone nets differ by 1.36e-9 at the common apex).
+
+    The fallback is capped by both the public geometric tolerance and a
+    2e-10 relative local-coordinate envelope.  It therefore cannot turn an
+    ordinary tolerance-valley point (for example a 5e-4 offset at
+    ``atol=1e-3``) into a positive-dimensional solution.
+    """
+    point = eval_curve(C, float(t), rational=rational)
+    u, v, _dist = _project_point_on_surface(
+        point, S, u, v, atol, rational, max_it=64)
+    strict, residual = _strict_csx_residual_ok(
+        C, S, t, u, v, rational, strict_context)
+    if strict:
+        return True, float(u), float(v), residual
+
+    if strict_context is None:
+        return False, float(u), float(v), residual
+    c_centered, s_centered, component_scale = strict_context
+    point_local = eval_curve(c_centered, float(t), rational=True)
+    surface_local = eval_surface(
+        s_centered, float(u), float(v), rational=True)
+    if not (np.all(np.isfinite(point_local)) and
+            np.all(np.isfinite(surface_local))):
+        return False, float(u), float(v), residual
+    scale = np.maximum(1.0, np.asarray(component_scale, dtype=np.float64))
+    identity_bound = np.minimum(float(atol), 2.0e-10 * scale)
+    residual = point_local - surface_local
+    return (bool(np.all(np.abs(residual) <= identity_bound)),
+            float(u), float(v), residual)
 
 
 def _check_csx_overlap_valley(C, S, boundary_zeros, atol, rational):
@@ -516,22 +1129,8 @@ def _split_intervals(cut, lo, hi, ptol):
     return intervals
 
 
-def _restrict_net_axis(F_cell, axis, lo, hi, cell_lo, cell_hi):
-    """Restrict a trivariate net along one axis to [lo, hi] within [cell_lo, cell_hi]."""
-    span = cell_hi - cell_lo
-    if span < 1e-30:
-        return F_cell
-
-    frac_lo = (lo - cell_lo) / span
-    frac_hi = (hi - cell_lo) / span
-
-    Fv = F_cell[..., np.newaxis]
-    if frac_lo > 1e-12:
-        _, Fv = de_casteljau_split_nd(Fv, axis=axis, t=frac_lo)
-    if frac_hi < 1.0 - 1e-12:
-        frac_hi_rescaled = (frac_hi - frac_lo) / (1.0 - frac_lo) if frac_lo > 1e-12 else frac_hi
-        Fv, _ = de_casteljau_split_nd(Fv, axis=axis, t=frac_hi_rescaled)
-    return Fv[..., 0]
+# L52 slice 7: shared implementation in _bezier_common (verbatim move).
+_restrict_net_axis = restrict_net_axis
 
 
 def _cutout_3d(F_cell, G_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,
@@ -594,7 +1193,7 @@ def _phase2_isolated_search(
     F_sub, G_sub, C_sub, S, C_orig, S_orig,
     t_lo, t_hi, atol, rational, ptol_t, ptol_u, ptol_v,
     known_points=None,
-    max_depth=50, max_cells=50_000,
+    max_depth=64, max_cells=50_000, max_results=4_096,
 ):
     """Phase 2: find isolated intersections via subdivision + Newton + cutout.
 
@@ -609,17 +1208,21 @@ def _phase2_isolated_search(
 
     _, Pw = extract_weights(C_sub, rational=rational)
     _, Sw = extract_weights(S, rational=rational)
+    strict_root_tol = _strict_csx_root_tol(C_orig, S_orig, rational)
 
     # Start with known points from Phase 1 so pre-Newton dedup can skip them
-    isolated = known_points
+    isolated = known_points if known_points is not None else []
+    initial_results = len(isolated)
 
     cells = 0
+    exhausted = False
 
     stack = [(F_sub, G_sub, C_sub, Pw.copy(), Sw.copy(),
               t_lo, t_hi, 0.0, 1.0, 0.0, 1.0, 0)]
 
     while stack:
-        if cells >= max_cells:
+        if cells >= max_cells or len(isolated) - initial_results >= max_results:
+            exhausted = True
             break
         cells += 1
 
@@ -630,6 +1233,12 @@ def _phase2_isolated_search(
         # Cheapest and by far the most decisive prune near transversal
         # roots — run it first.
         if _residual_excludes_zero(G_cell):
+            continue
+
+        # L60: the geometry-aligned exclusion — decisive on near-band
+        # cells whose residual direction is diagonal to the axes (the
+        # axis test converges only at clearance-scale cells there).
+        if _residual_aligned_excludes_zero(G_cell):
             continue
 
         # Quick prune: min-of-net
@@ -703,11 +1312,10 @@ def _phase2_isolated_search(
 
             if float(np.linalg.norm(pt_c - pt_s)) < _csx_eff_atol(
                     C_orig, S_orig, t_mid, u_mid, v_mid, atol, rational):
-                t_r, u_r, v_r, G_r, _ = newton_csx(
-                    C_orig, S_orig, t_mid, u_mid, v_mid, rational=rational,
-                )
-                if float(np.linalg.norm(G_r)) < _csx_eff_atol(
-                        C_orig, S_orig, t_r, u_r, v_r, atol, rational):
+                t_r, u_r, v_r, G_r, root_ok = _polish_csx_root(
+                    C_orig, S_orig, t_mid, u_mid, v_mid,
+                    rational, strict_root_tol)
+                if root_ok:
                     pt_r = eval_curve(C_orig, t_r, rational=rational)
                     if not _is_duplicate(isolated,t_r, u_r, v_r, pt_r, atol,ptol_t,ptol_u,ptol_v):
                         isolated.append({
@@ -731,6 +1339,11 @@ def _phase2_isolated_search(
 
         residual_ok = float(np.linalg.norm(G)) < _csx_eff_atol(
             C_orig, S_orig, t_sol, u_sol, v_sol, atol, rational)
+
+        if residual_ok:
+            t_sol, u_sol, v_sol, G, residual_ok = _polish_csx_root(
+                C_orig, S_orig, t_sol, u_sol, v_sol,
+                rational, strict_root_tol)
 
         # Small FP slack on the in-cell test: Newton can converge to a root
         # at the cell boundary that lands ~1 ULP outside the FP-computed
@@ -784,6 +1397,10 @@ def _phase2_isolated_search(
 
 
         if depth >= max_depth:
+            # This cell survived every exclusion certificate and Newton did
+            # not resolve it.  The depth guard is therefore a soft-budget
+            # exhaustion, not evidence that the cell is root-free.
+            exhausted = True
             continue
 
         # Subdivide along the axis with the largest span
@@ -821,7 +1438,7 @@ def _phase2_isolated_search(
             stack.append((F_R, G_R, seg_c.copy(), pw.copy(), sw_R, t0, t1, u0, u1, v_split, v1, depth+1))
 
     # Return only NEW results (exclude the pre-loaded known points)
-    return isolated
+    return isolated, exhausted, cells
 
 
 # ---------------------------------------------------------------------------
@@ -834,13 +1451,26 @@ from mmcore.numeric.intersection._sq_dist_classify import (
 )
 
 
+# L42: separate Phase-2 allowance once a valley-confirmed overlap pair has
+# failed the exact affine certificate — an exact continuum cannot be turned
+# into a sound public overlap by subdivision, so it must not burn the whole
+# caller allowance failing to (CCX's non-affine fallback uses the same
+# pattern; CSX cells price ~2x a curve pair's, hence the 2x number).
+_NON_AFFINE_OVERLAP_FALLBACK_CELLS = 4_000
+
+
 def bez_csx(
     C,
     S,
     atol=1e-3,
     rational=True,
-    max_depth=50,
+    # Three independently subdivided parameters can need more than 50
+    # levels before every span reaches its computed resolution (an exact
+    # corner root in the legacy SSX overlap case needs 53).  Cell and result
+    # budgets remain the termination backstops.
+    max_depth=64,
     max_cells=100_000,
+    max_results=4_096,
 ) -> dict:
     """Bezier curve-surface intersection via two-phase architecture.
 
@@ -862,12 +1492,19 @@ def bez_csx(
     max_depth : int
         Maximum subdivision depth for Phase 2.
     max_cells : int
-        Maximum total cells processed in Phase 2 (safety limit).
+        Maximum total cells shared by boundary analysis, nested CCX calls,
+        and Phase 2 (safety limit).
+    max_results : int
+        Maximum isolated roots materialized before returning a partial
+        result. Positive-dimensional sets must be classified separately;
+        this cap prevents an unrecognized set from turning dedup quadratic.
 
     Returns
     -------
     dict
-        ``{'isolated': [...], 'overlaps': [...]}``
+        In addition to intersections, the result reports
+        ``budget_exhausted``, ``cells_processed``, and
+        ``boundary_topology_complete``.
     """
     C = np.asarray(C, dtype=np.float64)
     S = np.asarray(S, dtype=np.float64)
@@ -880,7 +1517,102 @@ def bez_csx(
         s_pts = S.reshape((-1,3))
 
     if not aabb_intersect(aabb_offset( aabb(np.ascontiguousarray(c_pts)),atol/2), aabb_offset( aabb(np.ascontiguousarray(s_pts)),atol/2)):
-        return {"isolated": [], "overlaps": []}
+        return {"isolated": [], "overlaps": [], "parameter_fibers": [],
+                "budget_exhausted": False, "cells_processed": 0,
+                "boundary_topology_complete": True}
+
+    if int(max_cells) <= 0:
+        return {"isolated": [], "overlaps": [], "parameter_fibers": [],
+                "budget_exhausted": True, "cells_processed": 0,
+                "boundary_topology_complete": False}
+
+    strict_root_tol = _strict_csx_root_tol(C, S, rational)
+
+    # A rational Bezier curve whose Euclidean control points all coincide
+    # is identically one point even when its homogeneous weights vary.  If
+    # that point lies on the surface, the CSX solution set is
+    # positive-dimensional in ``t``: every curve parameter is a solution.
+    # Treating the fiber as isolated roots made Phase 2 cut out one tiny
+    # t-neighbourhood at a time (case 14: 16,385 pseudo-roots), then paid an
+    # O(n^2) duplicate scan.  Classify the fiber explicitly and solve only
+    # the genuine point-on-surface problem.
+    if geometry_collapsed(c_pts):
+        from mmcore.numeric._bez_closest_point import bez_surface_closest_points
+
+        query = eval_curve(C, 0.5, rational=rational)
+        closest_cells = max(1, min(int(max_cells), 2_000))
+        closest_stats = {}
+        entities = bez_surface_closest_points(
+            S, query, atol=atol, rational=rational,
+            max_cells=closest_cells, stats=closest_stats,
+        )
+        closest_used = int(closest_stats.get("cells_processed", 0))
+        closest_capped = bool(closest_stats.get("budget_exhausted", False))
+        fibers = []
+        surface_collapsed = geometry_collapsed(s_pts)
+        topology_incomplete = bool(closest_capped)
+        result_limit = max(0, int(max_results))
+
+        def _append_fiber(candidate):
+            nonlocal topology_incomplete
+            if len(fibers) >= result_limit:
+                topology_incomplete = True
+                return False
+            fibers.append(candidate)
+            return True
+
+        for entity in ([] if closest_capped else entities):
+            if float(entity.get("distance", np.inf)) > atol:
+                continue
+            kind = entity.get("kind", "min")
+            if kind == "degenerate_surface":
+                if surface_collapsed:
+                    exact_member, u_member, v_member, _ = (
+                        _collapsed_point_surface_membership(
+                            C, S, 0.5, 0.5, 0.5, atol, rational,
+                            strict_root_tol))
+                    if not exact_member:
+                        continue
+                    if not _append_fiber({
+                        "t_range": (0.0, 1.0),
+                        "u_range": (0.0, 1.0),
+                        "v_range": (0.0, 1.0),
+                        "point": np.asarray(query, dtype=np.float64),
+                        "surface_kind": kind,
+                    }):
+                        break
+                else:
+                    # A closest-point band can classify a nearly
+                    # equidistant patch without proving the exact
+                    # point-on-surface parameter region.  A representative
+                    # (u,v) would understate its dimension, so surface an
+                    # honest partial result instead.
+                    topology_incomplete = True
+                continue
+            if kind == "degenerate_curve" or "u" not in entity or "v" not in entity:
+                topology_incomplete = True
+                continue
+            u_entity = float(entity.get("u", 0.5))
+            v_entity = float(entity.get("v", 0.5))
+            exact_member, u_entity, v_entity, _ = (
+                _collapsed_point_surface_membership(
+                    C, S, 0.5, u_entity, v_entity, atol, rational,
+                    strict_root_tol))
+            if not exact_member:
+                continue
+            if not _append_fiber({
+                "t_range": (0.0, 1.0),
+                "u": u_entity,
+                "v": v_entity,
+                "point": np.asarray(query, dtype=np.float64),
+                "surface_kind": kind,
+            }):
+                break
+        return {"isolated": [], "overlaps": [],
+                "parameter_fibers": fibers,
+                "budget_exhausted": bool(topology_incomplete),
+                "cells_processed": closest_used,
+                "boundary_topology_complete": not topology_incomplete}
 
 
 
@@ -897,11 +1629,34 @@ def bez_csx(
 
     isolated = []
     overlaps = []
+    budget_exhausted = False
+    cells = DownCounter(max_cells)
 
     # ===================================================================
     # PHASE 1: Boundary analysis + overlap detection (initial patch only)
     # ===================================================================
-    csx_boundary_zeros = _find_csx_boundary_zeros(F, C, S, atol,  ptol_t, ptol_u, ptol_v, rational)
+    boundary_result_cap = min(max(0, int(max_results)), 128)
+    (csx_boundary_zeros, boundary_exhausted,
+     boundary_cells) = _find_csx_boundary_zeros(
+        F, C, S, atol, ptol_t, ptol_u, ptol_v, rational,
+        max_cells=cells.remaining, max_results=boundary_result_cap,
+    )
+    cells.spend(boundary_cells)
+    if boundary_exhausted:
+        # Partial face topology cannot safely drive OVERLAP classification
+        # (the valley pairing below needs the complete boundary-zero set,
+        # so it is gated on `not boundary_exhausted`), but each zero found
+        # so far is polished through the strict per-root certificate and is
+        # individually sound — keep them (ledger L51: discarding returned
+        # `{isolated: [], budget_exhausted: True}` with certified roots in
+        # hand and ~no Phase-2 budget left to re-find them; CCX keeps its
+        # validated hits in the same situation). The public flag still
+        # records that the topology is incomplete.
+        budget_exhausted = True
+    elif not all(isinstance(bz, BoundaryZero) for bz in csx_boundary_zeros):
+        budget_exhausted = True
+        boundary_exhausted = True
+        csx_boundary_zeros = []
 
     t_exclude = []  # t-intervals to cut from the curve
 
@@ -912,10 +1667,15 @@ def bez_csx(
     # boundary. Newton refinement converges to the real root if one
     # exists nearby; otherwise the candidate is rejected.
     for bz in csx_boundary_zeros:
+        if len(isolated) >= max_results:
+            budget_exhausted = True
+            break
         t_bz, u_bz, v_bz = _boundary_zero_to_tuv(bz, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0)
-        t_r, u_r, v_r, G_r, _ = newton_csx(C, S, t_bz, u_bz, v_bz, rational=rational)
+        t_r, u_r, v_r, G_r, root_ok = _polish_csx_boundary_root(
+            C, S, bz, t_bz, u_bz, v_bz, rational,
+            strict_root_tol)
 
-        if float(np.linalg.norm(G_r)) < _csx_eff_atol(C, S, t_r, u_r, v_r, atol, rational):
+        if root_ok:
             pt_r = eval_curve(C, t_r, rational=rational)
             if not _is_duplicate(isolated,t_r, u_r, v_r, pt_r, atol,ptol_t,ptol_u,ptol_v):
                 isolated.append({
@@ -924,32 +1684,133 @@ def bez_csx(
                 })
                 t_exclude.append((t_r - ptol_t, t_r + ptol_t))
 
-    # Valley check for overlap
-    if len(csx_boundary_zeros) >= 2:
+    # Valley check for overlap — only on a COMPLETE boundary-zero set: a
+    # truncated set could pair the wrong endpoints into a false overlap
+    # claim (L51: the per-root keeps above are sound, this pairing is not).
+    non_affine_overlap_span = None
+    _valley_pair_seen = False
+    if not boundary_exhausted and len(csx_boundary_zeros) >= 2:
         overlap_pair = _check_csx_overlap_valley(C, S, csx_boundary_zeros, atol, rational)
+        _valley_pair_seen = overlap_pair is not None
         if overlap_pair is not None:
             bz_a, bz_b = overlap_pair
             t_a, u_a, v_a = _boundary_zero_to_tuv(bz_a, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0)
             t_b, u_b, v_b = _boundary_zero_to_tuv(bz_b, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0)
-            t_lo_ovl, t_hi_ovl = min(t_a, t_b), max(t_a, t_b)
-            overlaps.append({
-                "boundary_zeros": [(bz_a.axis, bz_a.side), (bz_b.axis, bz_b.side)],
-                "overlap_endpoints": [bz_a, bz_b],
-                "t_range": (t_lo_ovl, t_hi_ovl),
-                "u_range": (min(u_a, u_b), max(u_a, u_b)),
-                "v_range": (min(v_a, v_b), max(v_a, v_b)),
-            })
-            t_exclude.append((t_lo_ovl - ptol_t, t_hi_ovl + ptol_t))
-            # Remove isolated points inside the overlap
-            isolated = [iso for iso in isolated
-                        if not (t_lo_ovl - atol <= iso["t"] <= t_hi_ovl + atol)]
+            t_a, u_a, v_a, _Ga, root_a = _polish_csx_boundary_root(
+                C, S, bz_a, t_a, u_a, v_a, rational,
+                strict_root_tol)
+            t_b, u_b, v_b, _Gb, root_b = _polish_csx_boundary_root(
+                C, S, bz_b, t_b, u_b, v_b, rational,
+                strict_root_tol)
+            endpoint_a = (t_a, u_a, v_a)
+            endpoint_b = (t_b, u_b, v_b)
+            if (root_a and root_b and _certify_affine_csx_overlap(
+                    C, S, endpoint_a, endpoint_b, rational)):
+                bz_a_strict = _boundary_zero_from_tuv_like(
+                    bz_a, *endpoint_a)
+                bz_b_strict = _boundary_zero_from_tuv_like(
+                    bz_b, *endpoint_b)
+                t_lo_ovl, t_hi_ovl = min(t_a, t_b), max(t_a, t_b)
+                overlaps.append({
+                    "boundary_zeros": [
+                        (bz_a.axis, bz_a.side), (bz_b.axis, bz_b.side)],
+                    "overlap_endpoints": [bz_a_strict, bz_b_strict],
+                    "t_range": (t_lo_ovl, t_hi_ovl),
+                    "u_range": (min(u_a, u_b), max(u_a, u_b)),
+                    "v_range": (min(v_a, v_b), max(v_a, v_b)),
+                    "certification": "exact",
+                })
+                t_exclude.append(
+                    (t_lo_ovl - ptol_t, t_hi_ovl + ptol_t))
+                # Remove isolated points inside the certified overlap.
+                isolated = [iso for iso in isolated
+                            if not (t_lo_ovl - atol
+                                    <= iso["t"] <= t_hi_ovl + atol)]
+            elif root_a and root_b:
+                # Ledger L42: a valley-confirmed pair whose affine identity
+                # cannot be certified is either a curved-UV EXACT overlap
+                # (the public endpoint-range schema cannot represent it) or
+                # a broad near-tangent tolerance valley.  Neither exclusion
+                # nor tolerance merging is sound here (sub-atol valleys
+                # carry real topology), and an unrestricted Phase-2 walk of
+                # an exact continuum floods thousands of ptol-lattice
+                # "isolated" roots REPORTED COMPLETE — silent wrong
+                # topology (measured: 1,679 roots @33,685 cells on a
+                # parabola lying on a bilinear patch).  Port of the CCX
+                # non-affine fallback: Phase 2 keeps running so genuine
+                # isolated roots in a benign valley are still found, but
+                # under a separate bounded allowance, and a continuum
+                # signature in the outcome marks the topology incomplete.
+                non_affine_overlap_span = (min(t_a, t_b), max(t_a, t_b))
+
+    # L59 (USER DECISION: theorem-first tier): certify tolerance/exact
+    # overlap spans whenever cheap endpoint evidence arms — a curve t-end
+    # lying ON the surface (an axis-0 boundary zero) or a valley pair —
+    # INDEPENDENTLY of the exact-affine identity.  The real-data class has
+    # only ONE boundary zero (the other span end pins on the uv-domain
+    # edge in the projected sense: measured 6.7e-4 clearance from the edge
+    # line — no exact 3-D root exists there for the boundary phase to
+    # find).  Certified spans bypass the Phase-2 grind entirely.
+    # Arming: a curve-end zero on-surface, a valley pair, OR a pair with
+    # NO boundary zeros at all (measured on user data: a coincident
+    # stretch that enters AND exits through patch edges with sub-atol
+    # clearance produces zero exact boundary roots — the certificate must
+    # still get its 17-sample look; transversal SSX-nested calls always
+    # carry boundary zeros, so their cost profile is untouched).
+    if (not boundary_exhausted and not overlaps
+            and (_valley_pair_seen
+                 or not csx_boundary_zeros
+                 or any(bz.axis == 0 for bz in csx_boundary_zeros))):
+        # Split pricing (§11.5 drift-gate lesson): the 17-projection
+        # arming scan is billed always; the dense pass (65 witnesses +
+        # refines) only when the scan HITS — nested cut-face calls
+        # routinely arm-and-miss and must not pay the full tier.
+        _tier_price = 17
+        _dense_price = 65 + 80
+        if cells.remaining > _tier_price + _dense_price:
+            cells.spend(_tier_price)
+            _tol_overlaps = _tolerance_csx_overlap_certificate(
+                C, S, atol, rational, ptol_t, strict_root_tol,
+                on_dense=lambda: cells.spend(
+                    min(_dense_price, max(0, cells.remaining))))
+            if _tol_overlaps:
+                for _o in _tol_overlaps:
+                    overlaps.append(_o)
+                    _t_lo, _t_hi = _o["t_range"]
+                    t_exclude.append((_t_lo - ptol_t, _t_hi + ptol_t))
+                    isolated = [iso for iso in isolated
+                                if not (_t_lo - atol
+                                        <= iso["t"] <= _t_hi + atol)]
+                # the span(s) are certified: the L42 uncertified-span
+                # fallback no longer applies to them.
+                non_affine_overlap_span = None
 
     # ===================================================================
     # PHASE 2: Isolated intersection search on remaining curve intervals
     # ===================================================================
     t_intervals = _compute_remaining_intervals(t_exclude, 0.0, 1.0)
 
-    for t_lo, t_hi in t_intervals:
+    # L42 fallback allowance: with an uncertified valley pair on record,
+    # Phase 2 cannot turn the rejected candidate into a sound public
+    # overlap, so it must not burn the caller's whole allowance failing to.
+    fallback_cells_remaining = (
+        cells.tier(_NON_AFFINE_OVERLAP_FALLBACK_CELLS)
+        if non_affine_overlap_span is not None else None)
+
+    def _interval_hits_span(a, b):
+        if non_affine_overlap_span is None:
+            return False
+        s_lo, s_hi = non_affine_overlap_span
+        return not (b < s_lo - ptol_t or a > s_hi + ptol_t)
+
+    # L28 attribution: retirement of the structural overlap reason at the
+    # SSX level is sound only if the truncation touched NOTHING outside the
+    # uncertified span — record whether any disjoint interval was truncated
+    # or skipped.
+    non_span_truncation = False
+    t_intervals = list(t_intervals)
+
+    for _ii, (t_lo, t_hi) in enumerate(t_intervals):
         if (t_hi - t_lo) < ptol_t:
             continue
 
@@ -977,22 +1838,149 @@ def bez_csx(
         if _check_min_of_net(F_sub, atol, w_sc):
             continue
 
+        # L60: whole-interval geometry-aligned exclusion — a near-band
+        # interval whose residual direction rotates slowly clears here in
+        # one test instead of thousands of phase-2 cells.
+        if (_residual_excludes_zero(G_sub)
+                or _residual_aligned_excludes_zero(G_sub)):
+            cells.spend(1)
+            continue
+
         # Search for isolated intersections
-        _phase2_iso = _phase2_isolated_search(
+        _rest_has_disjoint = (
+            non_affine_overlap_span is not None
+            and any(not _interval_hits_span(a, b)
+                    for a, b in t_intervals[_ii:] if (b - a) >= ptol_t))
+        if cells.remaining <= 0 or len(isolated) >= max_results:
+            budget_exhausted = True
+            if _rest_has_disjoint:
+                non_span_truncation = True
+            break
+        if (fallback_cells_remaining is not None
+                and fallback_cells_remaining <= 0):
+            budget_exhausted = True
+            if _rest_has_disjoint:
+                non_span_truncation = True
+            break
+        phase2_cell_limit = cells.remaining
+        if fallback_cells_remaining is not None:
+            phase2_cell_limit = min(
+                phase2_cell_limit, fallback_cells_remaining)
+        _phase2_iso, _phase2_exhausted, _cells_used = _phase2_isolated_search(
             F_sub, G_sub, C_sub, S, C_orig, S_orig,
             t_lo, t_hi, atol, rational, ptol_t, ptol_u, ptol_v,
             known_points=isolated,
-            max_depth=max_depth, max_cells=max_cells,
+            max_depth=max_depth, max_cells=phase2_cell_limit,
+            max_results=max_results - len(isolated),
         )
+        cells.spend(_cells_used)
+        if fallback_cells_remaining is not None:
+            fallback_cells_remaining -= _cells_used
+        if _phase2_exhausted and not _interval_hits_span(t_lo, t_hi):
+            non_span_truncation = True
+        budget_exhausted = budget_exhausted or _phase2_exhausted
 
 
 
-    return {"isolated": isolated, "overlaps": overlaps}
+    # L42 outcome test: with an uncertified valley pair, either the bounded
+    # fallback ran dry, or the surviving roots inside the span form a
+    # ptol-lattice chain (the continuum signature — a short exact overlap
+    # can complete under the fallback cap and would otherwise revive the
+    # completeness lie).  Both directions only ADD flags (conservative);
+    # a benign near-tangent valley with finitely many transversal roots
+    # completes under the cap, forms no chain, and stays complete.
+    overlap_topology_incomplete = False
+    if non_affine_overlap_span is not None:
+        span_lo, span_hi = non_affine_overlap_span
+        in_span = sorted(
+            iso["t"] for iso in isolated
+            if span_lo - ptol_t <= iso["t"] <= span_hi + ptol_t)
+        chain = (len(in_span) > 12
+                 and all(b - a <= 4.0 * ptol_t
+                         for a, b in zip(in_span, in_span[1:])))
+        if budget_exhausted or chain:
+            budget_exhausted = True
+            overlap_topology_incomplete = True
+    if not overlap_topology_incomplete and len(isolated) >= 3:
+        # L52 slice 10a (A2's confirmed lead): a SHORT exact overlap span
+        # survives only by DOMAIN CLIPPING (a polynomial curve exactly on
+        # the surface over an open sub-interval is on it everywhere, so
+        # only the uv-domain edge can end a genuine span), and a clipped
+        # span shorter than the >12-root chain bar produced a few lattice
+        # roots reported COMPLETE (measured: 4.2·ptol_t corner-clipped
+        # continuum → 3 isolated roots, complete=True, no span). Detect
+        # the lattice: a run of ≥3 roots with every consecutive gap
+        # ≤ 4·ptol_t whose GAP MIDPOINTS all pass the STRICT residual
+        # certificate — exact continuums verify at roundoff scale, while
+        # sub-atol-valley root pairs FAIL strict (their valley floors sit
+        # far above roundoff), so distinct zeros connected by sub-atol
+        # valleys are never merged (the CSX invariant).
+        entries = sorted(
+            ((float(e["t"]), float(e["u"]), float(e["v"]))
+             for e in isolated), key=lambda x: x[0])
+        runs, run = [], [entries[0]]
+        for prev, cur in zip(entries, entries[1:]):
+            if cur[0] - prev[0] <= 4.0 * ptol_t:
+                run.append(cur)
+            else:
+                runs.append(run)
+                run = [cur]
+        runs.append(run)
+
+        def _run_is_continuum(run_entries):
+            for (ta, ua, va), (tb, ub, vb) in zip(run_entries,
+                                                  run_entries[1:]):
+                tm = 0.5 * (ta + tb)
+                pm = eval_curve(C, tm, rational=rational)
+                um, vm, _dist = _project_point_on_surface(
+                    pm, S, 0.5 * (ua + ub), 0.5 * (va + vb),
+                    atol, rational)
+                ok, _res = _strict_csx_residual_ok(
+                    C, S, tm, um, vm, rational, strict_root_tol)
+                if not ok:
+                    return False
+            return True
+
+        verified = [r for r in runs if len(r) >= 3 and _run_is_continuum(r)]
+        if verified:
+            largest = max(verified, key=len)
+            non_affine_overlap_span = (largest[0][0], largest[-1][0])
+            overlap_topology_incomplete = True
+            # more than one verified continuum: structure ALSO lives
+            # outside the exported span — the caller must not retire the
+            # incompleteness after representing the span alone.
+            non_span_truncation = len(verified) > 1
+
+    result = {"isolated": isolated, "overlaps": overlaps,
+              "parameter_fibers": [],
+              "budget_exhausted": bool(budget_exhausted),
+              "cells_processed": int(cells.processed),
+              "boundary_topology_complete": not (
+                  boundary_exhausted or overlap_topology_incomplete)}
+    if overlap_topology_incomplete:
+        # Typed L42 outcome for the SSX consumer (ledger L28): the span
+        # names WHERE the uncertifiable positive-dimensional structure
+        # lives, and `non_span_truncation` says whether anything OUTSIDE
+        # it was also truncated (in which case the caller must not retire
+        # its incompleteness even after representing the span as a region).
+        result["uncertified_overlap_span"] = (
+            float(non_affine_overlap_span[0]),
+            float(non_affine_overlap_span[1]))
+        result["non_span_truncation"] = bool(non_span_truncation)
+    return result
 
 
 def _is_duplicate(isolated, t,u,v, pt, atol, ptol_t,ptol_u,ptol_v):
     for entry in isolated:
-        if (abs(entry['t'] -t       )<ptol_t) and (abs(entry['u'] -u) )<ptol_u and (abs(entry['v'] -v) <ptol_v )and np.linalg.norm(pt-entry['point'])<atol:
+        # Two independently refined representatives of one root can each
+        # sit up to one parametric tolerance from it (boundary vs Phase-2
+        # is the common pairing), hence a 2*ptol comparison.  Retain the
+        # xyz guard so nearby parameters on distinct sheets are never
+        # merged merely because their boxes touch.
+        if (abs(entry['t'] - t) <= 2.0 * ptol_t
+                and abs(entry['u'] - u) <= 2.0 * ptol_u
+                and abs(entry['v'] - v) <= 2.0 * ptol_v
+                and np.linalg.norm(pt - entry['point']) < atol):
 
 
             return True

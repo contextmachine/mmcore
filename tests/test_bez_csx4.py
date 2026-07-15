@@ -46,6 +46,308 @@ def test_line_two_crossings():
 import time
 
 
+def test_bernstein_zero_result_budget_stops_recursive_materialization():
+    """A full result quota must stop before materializing child roots."""
+    from mmcore.numeric.intersection._bern_zero_1d import (
+        bernstein_zero_budget,
+        find_bernstein_zeros_1d,
+    )
+
+    # Both endpoints are exact roots and the derivative has three sign
+    # changes, so the uncapped algorithm would recurse into both children.
+    coeffs = np.array([0.0, -1.0, 1.0, -1.0, 0.0])
+    with bernstein_zero_budget(max_nodes=100, max_results=1) as budget:
+        roots = find_bernstein_zeros_1d(
+            coeffs, atol=1e-3, max_depth=4,
+        )
+
+    assert roots == [0.0]
+    assert budget.exhausted is True
+    assert budget.nodes == 1
+
+
+def test_bernstein_zero_unresolved_depth_limit_exhausts_scoped_budget():
+    """A Newton fallback cannot certify a multi-minimum interval complete."""
+    from mmcore.numeric.intersection._bern_zero_1d import (
+        bernstein_zero_budget,
+        find_bernstein_zeros_1d,
+    )
+
+    coeffs = np.array([1.0, -1.0, 1.0, -1.0, 1.0])
+    with bernstein_zero_budget(max_nodes=100, max_results=10) as budget:
+        roots = find_bernstein_zeros_1d(
+            coeffs, atol=1e-3, max_depth=0,
+        )
+
+    assert len(roots) <= 1
+    assert budget.exhausted is True
+
+
+def test_csx_boundary_ccx_calls_share_one_remaining_budget(monkeypatch):
+    """The four surface-edge CCX calls must not each reset max_cells."""
+    import mmcore.numeric.intersection.csx._bez_csx4 as csx_mod
+
+    C = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 0.0]])
+    S = np.array([
+        [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]],
+    ])
+    F = np.zeros((3, 3, 3), dtype=float)
+    allowances = []
+
+    # Skip the two endpoint-face root searches so the test isolates the four
+    # nested CCX calls.  The diagonal curve's AABB touches every patch edge.
+    monkeypatch.setattr(csx_mod, "_check_min_of_net", lambda *args: True)
+
+    def fake_ccx(*args, max_cells, **kwargs):
+        allowances.append(max_cells)
+        used = min(2, max_cells)
+        return {
+            "isolated": [], "overlaps": [],
+            "budget_exhausted": False, "cells_processed": used,
+            "boundary_topology_complete": True,
+        }
+
+    monkeypatch.setattr(csx_mod, "bez_ccx_v4", fake_ccx)
+    zeros, exhausted, cells = csx_mod._find_csx_boundary_zeros(
+        F, C, S, 1e-3, 1e-3, 1e-3, 1e-3, False,
+        max_cells=10, max_results=32,
+    )
+
+    assert zeros == []
+    assert exhausted is False
+    assert cells == 10
+    assert allowances == [8, 6, 4, 2]
+
+
+def test_phase2_max_depth_reports_unresolved_cell(monkeypatch):
+    """Reaching ``max_depth`` must propagate as a partial CSX result."""
+    import mmcore.numeric.intersection._sq_dist_classify as classify
+    import mmcore.numeric.intersection.csx._bez_csx4 as csx_mod
+
+    monkeypatch.setattr(classify, "_check_min_of_net", lambda *args: False)
+    monkeypatch.setattr(classify, "_check_lipschitz", lambda *args: False)
+    monkeypatch.setattr(csx_mod, "_residual_excludes_zero", lambda *args: False)
+    monkeypatch.setattr(
+        csx_mod, "bernstein_partial_derivative_coeffs",
+        lambda *args, **kwargs: np.array([[-1.0], [1.0]]),
+    )
+    monkeypatch.setattr(
+        csx_mod, "newton_csx",
+        lambda *args, **kwargs: (
+            0.5, 0.5, 0.5, np.ones(3), np.ones(3),
+        ),
+    )
+
+    C = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]])
+    S = np.array([
+        [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]],
+    ])
+    roots, exhausted, cells = csx_mod._phase2_isolated_search(
+        np.zeros((2, 2, 2)), np.zeros((2, 2, 2, 3)), C,
+        S, C, S,
+        0.0, 1.0, 1e-6, False, 1e-12, 1e-12, 1e-12,
+        max_depth=0, max_cells=10,
+    )
+
+    assert roots == []
+    assert cells == 1
+    assert exhausted is True
+
+
+def test_partial_boundary_topology_is_discarded(monkeypatch):
+    import mmcore.numeric.intersection.csx._bez_csx4 as csx_mod
+    from mmcore.numeric.intersection._sq_dist_classify import BoundaryZero
+
+    C = np.array([[0.5, 0.5, -1.0], [0.5, 0.5, 1.0]])
+    S = np.array([
+        [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]],
+    ])
+
+    def partial_boundary(*args, **kwargs):
+        return [BoundaryZero(axis=0, side=0, param=0.5, param2=0.5)], True, 1
+
+    monkeypatch.setattr(csx_mod, "_find_csx_boundary_zeros", partial_boundary)
+    monkeypatch.setattr(
+        csx_mod, "_check_csx_overlap_valley",
+        lambda *args, **kwargs: pytest.fail("partial topology reached overlap check"),
+    )
+
+    result = csx_mod.bez_csx(
+        C, S, atol=1e-3, rational=False, max_cells=1,
+    )
+    assert result["budget_exhausted"] is True
+    assert result["boundary_topology_complete"] is False
+    assert result["isolated"] == []
+
+
+def test_constant_rational_curve_on_surface_is_parameter_fiber():
+    """A collapsed rational boundary is a parameter fiber, not 16k roots.
+
+    Case 14's cone apex edge is geometrically one point although its
+    homogeneous weights vary with ``t``.  When that point lies on the other
+    surface, the CSX zero set contains every curve parameter.  Enumerating
+    the fiber as isolated roots is both topologically wrong and quadratic in
+    the number of reported samples.
+    """
+    from examples.ssx.bez_ssx5_case14 import S1, S2
+    from mmcore.numeric.intersection._bezier_common import eval_curve, eval_surface
+
+    C = S1[:, 0, :]
+    t0 = time.perf_counter()
+    result = bez_csx(C, S2, atol=1e-3, rational=True)
+    elapsed = time.perf_counter() - t0
+
+    assert elapsed < 2.0
+    assert result["isolated"] == []
+    assert result["overlaps"] == []
+    fibers = result.get("parameter_fibers", [])
+    assert len(fibers) == 1
+    fiber = fibers[0]
+    assert fiber["t_range"] == (0.0, 1.0)
+    p = eval_curve(C, 0.37, rational=True)
+    q = eval_surface(S2, fiber["u"], fiber["v"], rational=True)
+    assert np.linalg.norm(p - q) <= 1e-3
+
+
+def test_constant_curve_on_constant_surface_reports_full_parameter_region():
+    """A representative (u,v) cannot stand in for the full [0,1]^3 set."""
+    point = np.array([2.0, -3.0, 5.0])
+    C = np.tile(np.r_[point, 1.0], (2, 1))
+    S = np.tile(np.r_[point, 1.0], (2, 2, 1))
+
+    result = bez_csx(C, S, atol=1e-3, rational=True)
+    assert result["budget_exhausted"] is False
+    assert result["boundary_topology_complete"] is True
+    assert result["isolated"] == [] and result["overlaps"] == []
+    assert len(result["parameter_fibers"]) == 1
+    region = result["parameter_fibers"][0]
+    assert region["t_range"] == (0.0, 1.0)
+    assert region["u_range"] == (0.0, 1.0)
+    assert region["v_range"] == (0.0, 1.0)
+    assert np.array_equal(region["point"], point)
+    assert region["surface_kind"] == "degenerate_surface"
+
+
+def test_constant_curve_parameter_fibers_respect_result_cap(monkeypatch):
+    """The collapsed-curve fast path shares the public result budget."""
+    import mmcore.numeric._bez_closest_point as closest_mod
+
+    curve = np.array([
+        [0.0, 0.0, 0.0, 1.0],
+        [0.0, 0.0, 0.0, 2.0],
+    ])
+    surface = np.array([
+        [[-1.0, -1.0, 0.0, 1.0], [-1.0, 1.0, 0.0, 1.0]],
+        [[1.0, -1.0, 0.0, 1.0], [1.0, 1.0, 0.0, 1.0]],
+    ])
+
+    def many_closest(_surface, _query, *, stats, **_kwargs):
+        stats.update(cells_processed=1, budget_exhausted=False)
+        return [
+            {
+                # Duplicate exact representatives exercise the public result
+                # cap without relying on a lying closest-point witness.
+                "u": 0.5,
+                "v": 0.5,
+                "point": np.zeros(3),
+                "distance": 0.0,
+                "kind": "min",
+            }
+            for i in range(6)
+        ]
+
+    monkeypatch.setattr(
+        closest_mod, "bez_surface_closest_points", many_closest)
+    result = bez_csx(
+        curve, surface, atol=1e-3, rational=True,
+        max_cells=100, max_results=2,
+    )
+    assert len(result["parameter_fibers"]) == 2
+    assert result["budget_exhausted"] is True
+    assert result["boundary_topology_complete"] is False
+
+    zero = bez_csx(
+        curve, surface, atol=1e-3, rational=True,
+        max_cells=100, max_results=0,
+    )
+    assert zero["parameter_fibers"] == []
+    assert zero["budget_exhausted"] is True
+    assert zero["boundary_topology_complete"] is False
+
+
+def test_collapsed_curve_detection_is_translation_invariant():
+    """Large world coordinates must not turn a moving curve into a fiber."""
+    x0 = 1.0e15
+    curve = np.array([
+        [x0, 0.0, 0.0, 1.0],
+        [x0 + 10.0, 0.0, 0.0, 1.0],
+    ])
+    plane_x = x0 + 5.0
+    surface = np.array([
+        [[plane_x, -1.0, -1.0, 1.0], [plane_x, -1.0, 1.0, 1.0]],
+        [[plane_x, 1.0, -1.0, 1.0], [plane_x, 1.0, 1.0, 1.0]],
+    ])
+
+    result = bez_csx(curve, surface, atol=1e-3, rational=True)
+    assert result["parameter_fibers"] == []
+    assert len(result["isolated"]) == 1
+    assert abs(result["isolated"][0]["t"] - 0.5) <= 1e-6
+
+
+def test_rational_param_tolerance_is_translation_invariant_for_constant_geometry():
+    from mmcore.geom._nurbs_param_tol import (
+        bez_curve_param_tolerance, bez_surface_param_tolerance,
+    )
+
+    weights = np.array([1.0, np.sqrt(0.5), 1.0])
+    p = np.array([26.0, -11.0, 46.0])
+    C = np.concatenate([weights[:, None] * p, weights[:, None]], axis=1)
+    shift = np.array([1000.0, -2000.0, 500.0])
+    Ct = C.copy()
+    Ct[:, :3] += weights[:, None] * shift
+
+    pc = bez_curve_param_tolerance(C, 1e-3, rational=True)
+    pct = bez_curve_param_tolerance(Ct, 1e-3, rational=True)
+    assert pc == pytest.approx(1e-3)
+    assert pct == pytest.approx(pc)
+
+    W = np.array([[1.0, 0.8], [0.7, 1.2]])
+    S = np.concatenate([W[..., None] * p, W[..., None]], axis=-1)
+    St = S.copy()
+    St[..., :3] += W[..., None] * shift
+    ps = bez_surface_param_tolerance(S, 1e-3, rational=True)
+    pst = bez_surface_param_tolerance(St, 1e-3, rational=True)
+    assert ps == pytest.approx((1e-3, 1e-3))
+    assert pst == pytest.approx(ps)
+
+    # Reversing a rational Bezier curve is a pure reparameterization and
+    # must not change its resolution.  The endpoint with the small weight
+    # is the high-speed side of this degree-one example (max |C'| = 10),
+    # so a sound tolerance is at most atol/10.
+    Pe = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+    we = np.array([10.0, 1.0])
+    Ce = np.concatenate([Pe * we[:, None], we[:, None]], axis=1)
+    pe = bez_curve_param_tolerance(Ce, 1e-3, rational=True)
+    per = bez_curve_param_tolerance(Ce[::-1].copy(), 1e-3, rational=True)
+    assert pe == pytest.approx(per)
+    assert pe <= 1.01e-4
+
+    # A coordinate-scale roundoff floor must not erase genuine local
+    # motion at large world coordinates.
+    huge = 1.0e15
+    moving = np.array([
+        [[huge, 0.0, 0.0, 1.0], [huge, 1.0, 0.0, 1.0]],
+        [[huge + 10.0, 0.0, 0.0, 1.0],
+         [huge + 10.0, 1.0, 0.0, 1.0]],
+    ])
+    pu, _ = bez_surface_param_tolerance(
+        moving, 1e-3, rational=True)
+    assert pu <= 1.01e-4
+
+
 def test_tangent_curve_on_surface():
     """Curve tangent to surface at one point -- should find exactly 1 intersection."""
     S = np.array([
@@ -196,14 +498,16 @@ def test_degree_one_line_no_false_positive_variants():
         )
 
 def test_case_13():
-    """missing second isolated intersection"""
-    # may vary slightly (values taken from third-party software)
+    """A tolerance-only endpoint near miss must not become topology.
+
+    The formerly expected ``t=0`` item came from third-party tolerance
+    matching.  With ``t`` fixed at zero, the closest point on this surface
+    remains 2.328e-8 away from the curve endpoint, so it is not a root of
+    the supplied floating-point coefficients.  The interior root is real.
+    """
 
 
-    excepted=[
-        {   't':0.0, 'u':0.326507, 'v':0.356348},
-        {   't':0.654374, 'u':0.633137, 'v':0.163511}
-    ]
+    expected = {'t': 0.654374, 'u': 0.633137, 'v': 0.163511}
 
 
 
@@ -216,11 +520,25 @@ def test_case_13():
     S =np.array( [[[7.4968198, -34.44808135, 6.627417], [4.89170045910665, -39.13729615771332, -4.42516829776066], [-0.016883173357102876, -44.594332395950104, 0.8101986397153593]], [[11.989753624247342, -35.42881907275406, 6.6274169999999994], [7.443691937074275, -40.76501466713547, -4.882652796843839], [3.454490070369776, -44.96214894393917, 0.5694145013516874]], [[14.847212913305142, -36.95471497775948, 6.6274169999999994], [9.56529033335222, -42.536197535294875, -4.488016026845241], [5.924649611832621, -46.255670751572566, 0.7771204997432491]], [[16.23843504869012, -39.53348121435317, 6.6274169999999994], [11.830092620085596, -44.58445479257182, -3.241257987764865], [8.72332454261908, -47.47050603984768, -0.38590063418195103]]]
                           )
     result = bez_csx(C, S, atol=1e-3, rational=False)
-    assert (len(result["isolated"]) == 2) and (len(result["overlaps"]) == 0), f"expected 2 isolated intersections, {len(result['isolated'])} found {result}"
-    for i, inter in enumerate(   sorted(result["isolated"], key=lambda x: x["t"])):
-        assert np.allclose(
-            [inter[key] for key in ["t", "u", "v"]],
-       [excepted[i][key]  for key in ["t", "u", "v"]]), f"expected {excepted[i]}, got {inter}"
+    assert len(result["isolated"]) == 1, result
+    assert result["overlaps"] == []
+    inter = result["isolated"][0]
+    assert np.allclose(
+        [inter[key] for key in ["t", "u", "v"]],
+        [expected[key] for key in ["t", "u", "v"]],
+    ), f"expected {expected}, got {inter}"
+
+    # Exact-set membership and polishing must not depend on a common world
+    # translation: preserve the real interior root without reviving the
+    # tolerance-only endpoint near miss.
+    translated = bez_csx(
+        C + 1.0e6, S + 1.0e6, atol=1e-3, rational=False)
+    assert len(translated["isolated"]) == 1, translated
+    translated_inter = translated["isolated"][0]
+    assert np.allclose(
+        [translated_inter[key] for key in ["t", "u", "v"]],
+        [expected[key] for key in ["t", "u", "v"]],
+    ), f"expected {expected}, got {translated_inter}"
 
 
 def test_case_14():
@@ -262,6 +580,33 @@ def test_case_14():
             [inter[key] for key in ["t", "u", "v"]],
             [excepted[i][key] for key in ["t", "u", "v"]]), \
             f"expected {excepted[i]}, got {inter}"
+
+
+def test_exact_corner_root_reaches_resolution_before_depth_stop():
+    """A known endpoint root must not leave a false partial Phase-2 tail.
+
+    The remaining interval ends one parameter tolerance before the root.
+    Three subdivision axes need 53 levels to reach the same resolution;
+    the former depth-50 default stopped just before that certificate.
+    """
+    curve = np.array([
+        [-128.25, -129.86, 0.0],
+        [-128.25, 129.86, 0.0],
+    ])
+    surface = np.array([
+        [[-128.25, -129.86, 67.44], [-128.25, 129.86, 0.0]],
+        [[128.25, -46.98, 0.0], [128.25, 129.86, 0.0]],
+    ])
+
+    result = bez_csx(curve, surface, atol=1e-3, rational=False)
+
+    assert not result["budget_exhausted"], result
+    assert result["boundary_topology_complete"]
+    assert len(result["isolated"]) == 1
+    assert np.allclose(
+        [result["isolated"][0][key] for key in ("t", "u", "v")],
+        [1.0, 0.0, 1.0], atol=1e-12,
+    )
 
 
 def test_case_15():
@@ -483,3 +828,239 @@ def test_case_19_interior_root_not_pruned_by_outside_basin():
     assert len(ts) == 2, f"expected 2 isolated roots (t=0.0 and t~0.5356), got {result['isolated']}"
     assert abs(ts[0] - 0.0) < 1e-3, f"boundary root at t=0 missing: {ts}"
     assert abs(ts[1] - 0.535593) < 1e-3, f"interior root at t~0.5356 missing: {ts}"
+
+
+def test_bounded_newton_stall_near_tangent_is_not_a_distinct_root():
+    """A cutout-wall stall in a tangent valley must polish to one root."""
+    eps = 5e-7
+    curve = np.array([
+        [0.5, -0.125, 0.25],
+        [0.5 + 1.0 / 3.0, 0.125 + eps / 3.0, -1.0 / 12.0],
+        [0.5 + 2.0 / 3.0, -0.125 + 2.0 * eps / 3.0, -1.0 / 12.0],
+        [1.5, 0.125 + eps, 0.25],
+    ])
+    plane = np.array([
+        [[-0.5, -1.0, 0.0], [-0.5, 1.0, 0.0]],
+        [[1.5, -1.0, 0.0], [1.5, 1.0, 0.0]],
+    ])
+    curve_h = np.column_stack([curve, np.ones(len(curve))])
+    plane_h = np.concatenate(
+        [plane, np.ones(plane.shape[:-1] + (1,))], axis=-1)
+
+    result = bez_csx(
+        curve_h, plane_h, atol=1e-3, rational=True,
+        max_cells=20_000, max_results=128)
+
+    assert result["budget_exhausted"] is False
+    assert len(result["isolated"]) == 1
+    root = result["isolated"][0]
+    assert root["t"] == pytest.approx(0.5, abs=1e-7)
+    assert root["u"] == pytest.approx(0.75, abs=1e-7)
+
+
+def test_curved_uv_exact_overlap_is_certified_complete():
+    """Ledger L42 → L59: the curved-UV EXACT overlap's full history.
+
+    Parabola lying exactly on the bilinear z=0 patch: the uv-preimage is
+    curved, so the exact-AFFINE identity correctly refuses. At 5d05ddc
+    this flooded Phase 2 (1,679 lattice roots @33,685 cells, claimed
+    complete); L42 bounded it into an honest typed-partial; the L59
+    theorem-first tier now CERTIFIES it — domain-pinned span ends,
+    roundoff-level witnesses (=> 'exact'), no flips — with no Phase-2
+    grind at all. Neither wrong topology nor a partial flag remains.
+    """
+    curve = np.array([[0.2, 0.2, 0.], [1., 1.8, 0.], [1.8, 0.2, 0.]])
+    surf = np.array([[[0., 0., 0.], [0., 2., 0.]],
+                     [[2., 0., 0.], [2., 2., 0.]]])
+    result = bez_csx(curve, surf, atol=1e-3, rational=False)
+
+    assert result["boundary_topology_complete"] is True
+    assert result["budget_exhausted"] is False
+    assert result["isolated"] == []
+    assert len(result["overlaps"]) == 1
+    o = result["overlaps"][0]
+    assert o["certification"] == "exact"
+    assert o["t_range"][0] == pytest.approx(0.0, abs=1e-9)
+    assert o["t_range"][1] == pytest.approx(1.0, abs=1e-9)
+    assert result["cells_processed"] <= 1_000
+
+
+def test_boundary_exhaustion_keeps_certified_roots(monkeypatch):
+    """Ledger L51: on boundary-phase exhaustion the certified-partial contract
+    must keep the strictly certified roots already in hand (CCX keeps its
+    validated hits in the same situation). Dropping them returned
+    {isolated: [], budget_exhausted: True} with a certified root found and
+    ~no Phase-2 budget left to re-find it. Partial boundary topology still
+    must not drive overlap classification, and the result stays flagged."""
+    import mmcore.numeric.intersection.csx._bez_csx4 as csx_mod
+    from mmcore.numeric.intersection._sq_dist_classify import BoundaryZero
+
+    # cubic with its t=0 endpoint exactly ON the plane z=0 at (0.25, 0.25):
+    # z(t) = t (2 (t - 0.6)^2 + 0.001) — the ONLY root is t=0, and the
+    # sub-atol valley (6e-4 deep at t=0.6) makes a 1-cell Phase 2 provably
+    # unable to re-find/exclude anything (sub-atol valleys must be resolved,
+    # never merged).
+    def _mono2bern3(a):
+        from math import comb
+        return [sum(comb(i, k) / comb(3, k) * a[k] for k in range(i + 1))
+                for i in range(4)]
+
+    x = _mono2bern3([0.25, 0.5, 0.0, 0.0])
+    y = _mono2bern3([0.25, 0.5, 0.0, 0.0])
+    z = _mono2bern3([0.0, 0.721, -2.4, 2.0])
+    curve = np.column_stack([x, y, z])
+    surf = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                     [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]])
+
+    bz = BoundaryZero(axis=0, side=0, param=0.25, param2=0.25)
+    # the exhausted boundary phase consumed ~all of the allowance: Phase 2
+    # has 1 cell left and cannot re-find the discarded root
+    monkeypatch.setattr(
+        csx_mod, "_find_csx_boundary_zeros",
+        lambda *a, **k: ([bz], True, 99))
+
+    result = bez_csx(curve, surf, atol=1e-3, rational=False, max_cells=100)
+
+    assert result["budget_exhausted"] is True
+    assert result["boundary_topology_complete"] is False
+    assert len(result["isolated"]) == 1, result["isolated"]
+    iso = result["isolated"][0]
+    assert iso["t"] == pytest.approx(0.0, abs=1e-9)
+    assert iso["u"] == pytest.approx(0.25, abs=1e-6)
+    assert iso["v"] == pytest.approx(0.25, abs=1e-6)
+    assert len(result["overlaps"]) == 0
+
+
+def test_zero_allowance_preflights_before_net_build(monkeypatch):
+    """L52 (zero-allowance preflight): bez_csx(max_cells=0) must refuse
+    BEFORE building the superlinear distance/residual nets — the SSX top
+    entry has preflighted since L32, but the CSX entry still paid the full
+    net construction for an allowance it did not have."""
+    import mmcore.numeric.intersection.csx._bez_csx4 as csx_mod
+
+    calls = {"n": 0}
+    orig = csx_mod.curve_surface_distance_squared_net_homog
+
+    def counting(*a, **k):
+        calls["n"] += 1
+        return orig(*a, **k)
+
+    monkeypatch.setattr(
+        csx_mod, "curve_surface_distance_squared_net_homog", counting)
+    curve = np.array([[0.25, 0.25, -1.0], [0.75, 0.75, 1.0]])
+    surf = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                     [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]])
+    r = bez_csx(curve, surf, atol=1e-3, rational=False, max_cells=0)
+    assert r["budget_exhausted"] is True
+    assert r["boundary_topology_complete"] is False
+    assert r["cells_processed"] == 0
+    assert r["isolated"] == [] and r["overlaps"] == []
+    assert calls["n"] == 0, "net built despite zero allowance"
+
+
+def test_short_clipped_overlap_span_is_certified():
+    """L52 slice 10a → L59: the domain-clipped short span's full history.
+
+    A coincident span of 4.2*ptol_t ended by DOMAIN CLIPPING at u=1 used
+    to ship as 3 lattice roots claimed complete; slice 10a's lattice-
+    cluster detection made it a typed uncertified span; the L59 tier now
+    CERTIFIES it as one tolerance overlap. The span's upper end extends
+    past the exact-coincidence limit t=0.5 to the within-atol fringe of
+    the patch edge (~0.58) — tolerance-coincidence semantics (USER
+    DECISION 2026-07-12)."""
+    S = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                  [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]])
+    C = np.array([[0.994, 0.5, 0.0],
+                  [1.000, 0.5, 0.0],
+                  [1.006, 0.506, 0.0]])
+
+    r = bez_csx(C, S, atol=1e-3, rational=False)
+
+    assert r["boundary_topology_complete"] is True
+    assert r["budget_exhausted"] is False
+    assert "uncertified_overlap_span" not in r
+    assert r["isolated"] == []
+    assert len(r["overlaps"]) == 1
+    o = r["overlaps"][0]
+    assert o["certification"] == "tolerance"
+    assert o["t_range"][0] == pytest.approx(0.0, abs=1e-9)
+    assert 0.5 <= o["t_range"][1] <= 0.62
+    assert r["cells_processed"] <= 500
+
+
+def test_sub_atol_valley_root_chain_is_never_merged_by_the_cluster():
+    """Invariant control for the lattice-cluster detection: three strict-
+    distinct roots connected by SUB-ATOL valleys (depth ~5e-4 between
+    roots ~0.15 apart at ptol_t ~0.04) form a gap-qualified cluster, but
+    the STRICT gap-midpoint certificate fails on the valley floors — the
+    roots must ship isolated with complete topology (never merged into a
+    span: sub-tolerance topology is preserved, the CSX invariant)."""
+    S = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                  [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]])
+    # cubic z(t) = 0.25*(t-0.35)(t-0.5)(t-0.65): roots 0.35/0.5/0.65,
+    # valley depth ~4.3e-4 (sub-atol, far above strict roundoff scale);
+    # x spans 0.02 so ptol_t ~ 0.045 and the 0.15 gaps qualify (< 4*ptol).
+    from numpy.polynomial import polynomial as P
+    coeffs = 0.25 * np.array(P.polyfromroots([0.35, 0.5, 0.65]))
+    # convert power basis -> Bernstein-3 control values for z(t)
+    M = np.array([[1.0, 0.0, 0.0, 0.0],
+                  [1.0, 1.0 / 3.0, 0.0, 0.0],
+                  [1.0, 2.0 / 3.0, 1.0 / 3.0, 0.0],
+                  [1.0, 1.0, 1.0, 1.0]])
+    zc = M @ coeffs
+    C = np.column_stack([
+        np.array([0.49, 0.4967, 0.5033, 0.51]),   # x affine, speed 0.02
+        np.full(4, 0.5),
+        zc])
+
+    r = bez_csx(C, S, atol=1e-3, rational=False)
+
+    ts = sorted(x["t"] for x in r["isolated"])
+    assert len(ts) == 3, r["isolated"]
+    assert ts == pytest.approx([0.35, 0.5, 0.65], abs=1e-3)
+    assert r["boundary_topology_complete"] is True
+    assert "uncertified_overlap_span" not in r
+    assert r["budget_exhausted"] is False
+
+
+def test_near_band_pair_certifies_cheaply():
+    """L60: the worst profiled pair (28,961 cells) certifies cheaply.
+
+    Real user geometry (overlap_nurbs_intersection_3_new): CORRECTED
+    diagnosis — the curve TOUCHES the patch at its t=0 end (1.6e-9) and
+    runs sub-atol (2.5e-5..7.7e-4) until the projected path exits through
+    the u=1 patch edge at t~0.44, then departs. A one-side-pinned
+    tolerance band whose far end is domain-clipped: under the L59
+    theorem-first semantics this is ONE tolerance overlap (the endpoint
+    touch is the span's own end; end-adjacent sign flips are the endpoint
+    root, not interior crossing structure). Phase 2 then only scans the
+    far, empty remainder — with the L60 geometry-aligned exclusion
+    (scalar Bernstein net dot(G, n_mean), exact linear combination,
+    L1-margined) handling diagonal-residual cells the axis test cannot
+    clear until clearance-scale depth."""
+    C_NEAR = np.array([
+        [92.51428091, 102.781436125, 5.719709275],
+        [91.27842704, 104.13179098, 6.58025473],
+        [89.7844795, 105.2243694, 7.46164544],
+        [88.15200982059918, 105.9854260265158, 8.363880612681537]])
+    S_NEAR = np.array([
+        [[92.51539241324699, 102.7802214952655, 41.41100531879138],
+         [92.51539241324699, 102.7802214952655, 0.10498601801243446]],
+        [[91.96619518531281, 103.38044393393321, 41.41100531879138],
+         [91.96619518531281, 103.38044393393321, 0.10498601801243446]],
+        [[91.36636523847328, 103.93038701100394, 41.41100531879138],
+         [91.36636523847328, 103.93038701100394, 0.10498601801243446]],
+        [[90.72572752430331, 104.42241106003442, 41.41100531879138],
+         [90.72572752430331, 104.42241106003442, 0.10498601801243446]]])
+
+    r = bez_csx(C_NEAR, S_NEAR, atol=1e-3, rational=False)
+
+    assert r["budget_exhausted"] is False
+    assert r["boundary_topology_complete"] is True
+    assert r["isolated"] == []          # the t=0 touch is the span's end
+    assert len(r["overlaps"]) == 1
+    o = r["overlaps"][0]
+    assert o["certification"] == "tolerance"
+    assert o["t_range"][0] == pytest.approx(0.0, abs=1e-9)
+    assert 0.40 <= o["t_range"][1] <= 0.50
+    assert r["cells_processed"] <= 2_000, r["cells_processed"]

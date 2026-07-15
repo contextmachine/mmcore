@@ -14,6 +14,16 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import NDArray
 
+# The scoped budget lives in the shared budget module (ledger L52 — the
+# 8-way accounting merge).  Re-imported here because CCX/CSX and the test
+# suites construct it via this module's namespace, and the solver below
+# reads the SAME ContextVar object.
+from mmcore.numeric._work_budget import (  # noqa: F401
+    BernsteinZeroBudget,
+    bernstein_zero_budget,
+    _ZERO_BUDGET,
+)
+
 
 def _count_sign_changes(coeffs: NDArray) -> int:
     """Count the number of sign changes in a 1D coefficient array.
@@ -137,6 +147,55 @@ def _longest_positive_run_center(coeffs: NDArray) -> float:
 def find_bernstein_zeros_1d(coeffs: NDArray, atol: float,
                              t_start: float = 0.0, t_end: float = 1.0,
                              max_depth: int = 30) -> list[float]:
+    """Budget-aware wrapper around the univariate Bernstein zero finder."""
+
+    budget = _ZERO_BUDGET.get()
+    top_level = budget is not None and budget.active_depth == 0
+    result_limit = None
+    if top_level:
+        result_limit = budget.remaining_results()
+        if result_limit <= 0:
+            budget.exhausted = True
+            return []
+
+    values = _find_bernstein_zeros_1d_node(
+        coeffs, atol, t_start=t_start, t_end=t_end,
+        max_depth=max_depth, result_limit=result_limit,
+    )
+    if top_level:
+        values = budget.cap_top_level_results(values)
+    return values
+
+
+def _find_bernstein_zeros_1d_node(
+    coeffs: NDArray,
+    atol: float,
+    *,
+    t_start: float,
+    t_end: float,
+    max_depth: int,
+    result_limit: int | None,
+) -> list[float]:
+    """Run one recursive node while charging the active scoped budget."""
+
+    budget = _ZERO_BUDGET.get()
+    if budget is not None and not budget.enter():
+        return []
+    try:
+        return _find_bernstein_zeros_1d_impl(
+            coeffs, atol, t_start=t_start, t_end=t_end,
+            max_depth=max_depth, result_limit=result_limit,
+        )
+    finally:
+        if budget is not None:
+            budget.leave()
+
+
+def _find_bernstein_zeros_1d_impl(coeffs: NDArray, atol: float,
+                                   t_start: float = 0.0,
+                                   t_end: float = 1.0,
+                                   max_depth: int = 30,
+                                   result_limit: int | None = None) -> list[float]:
     """Find all parameter values where a 1D Bernstein polynomial touches zero.
 
     The polynomial is assumed to represent a squared-distance restriction,
@@ -168,6 +227,11 @@ def find_bernstein_zeros_1d(coeffs: NDArray, atol: float,
     # Single coefficient (degree 0)
     if len(coeffs) == 1:
         if abs(coeffs[0]) < atol_sq:
+            if result_limit is not None and result_limit <= 0:
+                budget = _ZERO_BUDGET.get()
+                if budget is not None:
+                    budget.exhausted = True
+                return []
             return [0.5 * (t_start + t_end)]
         return []
 
@@ -177,6 +241,11 @@ def find_bernstein_zeros_1d(coeffs: NDArray, atol: float,
     if abs(coeffs[0]) < atol_sq:
         zeros.append(t_start)
     if abs(coeffs[-1]) < atol_sq:
+        if result_limit is not None and len(zeros) >= result_limit:
+            budget = _ZERO_BUDGET.get()
+            if budget is not None:
+                budget.exhausted = True
+            return zeros[:result_limit]
         zeros.append(t_end)
 
     # 2. Quick exit: all coefficients positive and above threshold → no interior zeros
@@ -208,12 +277,23 @@ def find_bernstein_zeros_1d(coeffs: NDArray, atol: float,
             if (not zeros or
                 (abs(t_global - t_start) > atol * 0.01 and
                  abs(t_global - t_end) > atol * 0.01)):
+                if result_limit is not None and len(zeros) >= result_limit:
+                    budget = _ZERO_BUDGET.get()
+                    if budget is not None:
+                        budget.exhausted = True
+                    return zeros[:result_limit]
                 zeros.append(t_global)
 
         return zeros
 
     # 4. 3+ sign changes: subdivide
     if max_depth <= 0:
+        # Multiple derivative sign changes leave this interval unresolved.
+        # Preserve the legacy Newton representative, but never advertise a
+        # scoped solve that reached this fallback as topologically complete.
+        budget = _ZERO_BUDGET.get()
+        if budget is not None:
+            budget.exhausted = True
         # Fallback: try Newton from argmin
         degree = len(coeffs) - 1
         seed_idx = int(np.argmin(coeffs))
@@ -224,6 +304,8 @@ def find_bernstein_zeros_1d(coeffs: NDArray, atol: float,
             t_global = t_start + t_min * (t_end - t_start)
             if not zeros or (abs(t_global - t_start) > atol * 0.01 and
                              abs(t_global - t_end) > atol * 0.01):
+                if result_limit is not None and len(zeros) >= result_limit:
+                    return zeros[:result_limit]
                 zeros.append(t_global)
         return zeros
 
@@ -233,9 +315,32 @@ def find_bernstein_zeros_1d(coeffs: NDArray, atol: float,
     left, right = _de_casteljau_split_1d(coeffs, t_split)
     t_mid = t_start + t_split * (t_end - t_start)
 
-    # Recurse on both halves (but don't re-report the shared endpoint at t_mid)
-    left_zeros = find_bernstein_zeros_1d(left, atol, t_start, t_mid, max_depth - 1)
-    right_zeros = find_bernstein_zeros_1d(right, atol, t_mid, t_end, max_depth - 1)
+    # Recurse left-to-right while carrying the remaining result quota.  Once a
+    # child fills it, the other child is deliberately left unresolved instead
+    # of constructing a large list that would only be truncated at top level.
+    left_zeros = _find_bernstein_zeros_1d_node(
+        left, atol, t_start=t_start, t_end=t_mid,
+        max_depth=max_depth - 1, result_limit=result_limit,
+    )
+    budget = _ZERO_BUDGET.get()
+    if budget is not None and budget.exhausted:
+        return sorted(left_zeros)
+
+    right_limit = result_limit
+    if right_limit is not None:
+        right_limit -= len(left_zeros)
+        if right_limit <= 0:
+            # The right child has not been classified, so the capped result is
+            # partial even when the left child happened to return exactly the
+            # configured number of roots.
+            if budget is not None:
+                budget.exhausted = True
+            return sorted(left_zeros[:result_limit])
+
+    right_zeros = _find_bernstein_zeros_1d_node(
+        right, atol, t_start=t_mid, t_end=t_end,
+        max_depth=max_depth - 1, result_limit=right_limit,
+    )
 
     # Merge, deduplicating near the split point
     all_zeros = []
@@ -245,5 +350,10 @@ def find_bernstein_zeros_1d(coeffs: NDArray, atol: float,
         # Skip if too close to an existing zero
         if not any(abs(z - ez) < atol * 0.01 for ez in all_zeros):
             all_zeros.append(z)
+
+    if result_limit is not None and len(all_zeros) > result_limit:
+        if budget is not None:
+            budget.exhausted = True
+        all_zeros = all_zeros[:result_limit]
 
     return sorted(all_zeros)

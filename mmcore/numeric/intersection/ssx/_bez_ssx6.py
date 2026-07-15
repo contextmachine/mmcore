@@ -1,4 +1,24 @@
-"""Bezier surface-surface intersection v5.
+"""Bezier surface-surface intersection v5 — STALE PRE-BUDGET FORK (ledger L53).
+
+.. warning::
+   **Not maintained. Superseded by `_bez_ssx5.py`** (user decision
+   2026-07-12, ledger L53: repair + document). This module is a frozen
+   comparison fork from before the budget/status/singularity work:
+
+   - NO work budgets: every nested CSX call gets a fresh 100k-cell
+     allowance; there is no call-wide no-hang guarantee, no ``complete`` /
+     ``status.reasons`` schema, and exhaustion semantics differ from the
+     maintained engine.
+   - NO typed singularities (``result['singularities']`` / ``SSXBranch.kind``
+     do not exist here); none of the C1/C2/C3 machinery, the L-series
+     soundness fixes, or the overlap-region contract ever landed.
+   - Its CSX-contract guard (``_require_complete_csx_result``) hard-RAISES
+     on any incomplete or fiber-bearing nested result instead of degrading
+     honestly.
+
+   Use it only as a historical comparison baseline; do not extend it, and
+   do not file review findings against it beyond keeping it importable
+   (its contract test pins the guard + the interior cut-face path).
 
 Combines three approaches:
 1. Sq-dist Bernstein net for Lipschitz pruning (from CCX/CSX v4)
@@ -194,6 +214,21 @@ def _aabb_disjoint(S1_h, S2_h, atol):
 # Level 2: Boundary analysis (8 CSX problems)
 # ---------------------------------------------------------------------------
 
+def _require_complete_csx_result(result, context):
+    """Reject CSX output that is unsafe to use as SSX boundary topology."""
+    if (bool(result.get('budget_exhausted', False)) or
+            not bool(result.get('boundary_topology_complete', True))):
+        raise RuntimeError(
+            f"{context}: incomplete Bezier CSX result cannot drive SSX "
+            "topology (budget exhausted or boundary topology incomplete)"
+        )
+    if result.get('parameter_fibers'):
+        raise RuntimeError(
+            f"{context}: positive-dimensional parameter fiber requires "
+            "explicit SSX overlap-region handling"
+        )
+    return result
+
 def _map_csx_to_stuv(s1_axis, side, t_crv, u_other, v_other, owner_is_s1):
     """Map CSX result parameters to stuv in [0,1]⁴."""
     stuv = np.zeros(4, dtype=np.float64)
@@ -230,6 +265,7 @@ def _find_ssx_boundary_zeros(S1_h, S2_h, atol, rational=True):
     ptol=np.array([ptol_s,ptol_t,ptol_u,ptol_v])
     def _process_face(iso, other_surf, axis, side, owner_is_s1):
         result = bez_csx(iso, other_surf, atol=atol, rational=rational)
+        _require_complete_csx_result(result, 'SSX boundary face')
 
         for iso_pt in result.get('isolated', []):
             t_crv = float(iso_pt['t'])
@@ -1882,7 +1918,13 @@ def _csx_on_cut_face(cell, cut_axis: int, cut_global_val: float, atol: float):
     else:
         isoline = _extract_isoline(cell.g2.surface, local_axis, cut_local)
         csx_result = bez_csx(isoline, cell.g1.surface, atol=atol, rational=True)
-    csx_result['isolated'] = list((lambda x: not (((1 - x['t']) < 1e-6) or (x['t'] < 1e-6)), csx_result['isolated']))
+    _require_complete_csx_result(csx_result, 'SSX cut face')
+    # Ledger L53: this was `list((lambda, seq))` — a 2-element list, not a
+    # filter call — crashing the first interior cut of any run. Same
+    # t-endpoint filter as the maintained v5 engine.
+    csx_result['isolated'] = list(filter(
+        lambda x: not (((1 - x['t']) < 1e-6) or (x['t'] < 1e-6)),
+        csx_result['isolated']))
     return _isoline_csx_to_global(
         csx_result, cut_axis, cut_global_val, cell.box, surf_to_split,
         S1_local=cell.g1.surface, S2_local=cell.g2.surface, rational=True,
@@ -3592,6 +3634,7 @@ def bez_ssx(
             for s2_idx in range(n2):
                 s2_piece_surf = g2_pieces[s2_idx].surface
                 csx_r = bez_csx(isoline_s1, s2_piece_surf, atol=atol, rational=True)
+                _require_complete_csx_result(csx_r, 'SSX S1 multi-cut face')
                 ##print(csx_r)
                 csx_r['isolated'] = list(csx_r['isolated'])
 
@@ -3632,6 +3675,7 @@ def bez_ssx(
             for s1_idx in range(n1):
                 s1_piece_surf = g1_pieces[s1_idx].surface
                 csx_r = bez_csx(isoline_s2, s1_piece_surf, atol=atol, rational=True)
+                _require_complete_csx_result(csx_r, 'SSX S2 multi-cut face')
                 csx_r['isolated'] = list(csx_r['isolated'])
 
                 s1_lo = cell.box[s1_axis][0] if s1_idx == 0 else s1_cuts[s1_idx - 1]

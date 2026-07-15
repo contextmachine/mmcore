@@ -216,13 +216,13 @@ else:
         viewer.add(curve, color=color)
     for pt in isolated['point']:
 
-        viewer.add(pt, color=(0.0, 1.0, 0.5,1.0),size_px=13)
+        viewer.add(pt, color=(0.0, 1.0, 0.5,1.0),size_px=6)
     if overlaps is not None:
 
 
         for start,end in overlaps['point']:
-            viewer.add(start, color=(0.0, 1.0, 0.5, 1.0), size_px=13)
-            viewer.add(end, color=(0.0, 1.0, 0.5, 1.0), size_px=13)
+            viewer.add(start, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
+            viewer.add(end, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
 
 
 

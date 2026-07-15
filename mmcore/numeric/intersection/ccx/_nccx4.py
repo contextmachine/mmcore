@@ -41,6 +41,45 @@ def _map_local_to_global(u_loc, v_loc, u0, u1, v0, v1):
     return (u0 + (u1 - u0) * u_loc, v0 + (v1 - v0) * v_loc)
 
 
+_BEZIER_LIMIT_KWARGS = ('max_depth',)
+_DEFAULT_MAX_CELLS = 100_000
+_DEFAULT_MAX_RESULTS = 4_096
+
+
+def _bezier_limit_kwargs(kwargs):
+    """Forward only the bounded-solver controls understood by bez_ccx v4."""
+    return {name: kwargs[name] for name in _BEZIER_LIMIT_KWARGS
+            if name in kwargs}
+
+
+# Shared aggregate-status ledger (ledger L52): the implementation lives in
+# `_adapter_status`; these thin wrappers keep the adapter's historical
+# private names and message texts.
+from mmcore.numeric.intersection._adapter_status import (
+    consume_bezier_status as _shared_consume_bezier_status,
+    mark_incomplete as _mark_incomplete,
+    new_status as _new_status,
+    reject_unknown_kwargs as _reject_unknown_kwargs,
+    remaining_allowances as _remaining_allowances,
+)
+
+
+def _consume_bezier_status(
+    result, status, context, return_status, cell_allowance, result_allowance,
+):
+    return _shared_consume_bezier_status(
+        result, status,
+        incomplete_message=(
+            f"{context}: incomplete Bezier CCX result "
+            "(budget exhausted or boundary topology incomplete); "
+            "pass return_status=True to receive explicit partial status"),
+        return_status=return_status,
+        cell_allowance=cell_allowance,
+        result_allowance=result_allowance,
+        list_keys=('isolated', 'overlaps'),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Parametric deduplication
 # ---------------------------------------------------------------------------
@@ -149,7 +188,10 @@ def _dedup_isolated_pair(entries, curve1, curve2, tol):
 # nurbs_ccx: two-curve intersection
 # ---------------------------------------------------------------------------
 from mmcore.geom._nurbs_eval import evaluate_nurbs_curve
-def nurbs_ccx(curve1, curve2, tol: float = 1e-3, **kwargs):
+def nurbs_ccx(
+    curve1, curve2, tol: float = 1e-3, *, return_status: bool = True,
+    **kwargs,
+):
     """Find all intersections between two NURBS curves.
 
     Parameters
@@ -164,7 +206,17 @@ def nurbs_ccx(curve1, curve2, tol: float = 1e-3, **kwargs):
         Structured array with fields 'u', 'v', 'point'.
     overlaps : ndarray or None
         Structured array with fields 'u', 'v', 'point' (endpoint pairs).
+    status : dict
+        Third value, returned by default: aggregate bounded-solver
+        diagnostics; read ``status['complete']`` before trusting the
+        output as the whole truth (ledger L41 — the former
+        raise-on-incomplete default crashed production callers on
+        near-coincident input). Pass ``return_status=False`` for the
+        legacy two-value shape, which raises ``RuntimeError`` on any
+        incomplete sub-solve instead (fail-fast opt-in).
     """
+    _reject_unknown_kwargs(
+        "nurbs_ccx", kwargs, ("max_cells", "max_results") + _BEZIER_LIMIT_KWARGS)
     dim = max(crv.control_points.shape[1] for crv in (curve1, curve2))
     if isinstance(curve1, NURBSCurve):
         curve1 = _nurbs_to_tuple(curve1)
@@ -182,8 +234,24 @@ def nurbs_ccx(curve1, curve2, tol: float = 1e-3, **kwargs):
 
     raw_isolated = []
     raw_overlaps_u, raw_overlaps_v, raw_overlaps_xyz = [], [], []
+    candidates = list(bvh_intersect(bvh1, bvh2, exact=False))
+    # The DEFAULT aggregate allowance scales with the candidate-pair count:
+    # a flat per-call total that a handful of ordinary rational span pairs
+    # can exhaust (~25k cells each, ledger L41 / review finding 2) is a
+    # mispriced exchange rate, not a safety property. The scaled default
+    # matches the pre-aggregate per-pair budgets in the worst case while
+    # staying one SHARED ledger (a hog pair may borrow from cheap ones).
+    # An explicit ``max_cells`` remains an absolute promise.
+    aggregate_max_cells = kwargs.get('max_cells')
+    if aggregate_max_cells is None:
+        aggregate_max_cells = _DEFAULT_MAX_CELLS * max(1, len(candidates))
+    aggregate_max_cells = max(0, int(aggregate_max_cells))
+    aggregate_max_results = max(
+        0, int(kwargs.get('max_results', _DEFAULT_MAX_RESULTS)))
+    status = _new_status(aggregate_max_cells, aggregate_max_results)
+    bezier_kwargs = _bezier_limit_kwargs(kwargs)
 
-    for a, b in bvh_intersect(bvh1, bvh2, exact=False):
+    for a, b in candidates:
         _c1 = curves1[a.object]
         _c2 = curves2[b.object]
 
@@ -194,7 +262,24 @@ def nurbs_ccx(curve1, curve2, tol: float = 1e-3, **kwargs):
             pts1 = _c1.control_points
             pts2 = _c2.control_points
 
-        result = bez_ccx_v4(pts1, pts2, atol=tol, rational=rational)
+        context = (f"nurbs_ccx spans {_c1.interval()} x "
+                   f"{_c2.interval()}")
+        remaining_cells, remaining_results = _remaining_allowances(status)
+        if remaining_cells <= 0 or remaining_results <= 0:
+            _mark_incomplete(
+                status, context, return_status,
+                "aggregate CCX cell/result budget exhausted")
+            break
+        call_kwargs = dict(bezier_kwargs)
+        call_kwargs['max_cells'] = remaining_cells
+        call_kwargs['max_results'] = remaining_results
+        result = bez_ccx_v4(
+            pts1, pts2, atol=tol, rational=rational, **call_kwargs,
+        )
+        result, stop_after_span = _consume_bezier_status(
+            result, status, context, return_status,
+            remaining_cells, remaining_results,
+        )
 
         for inter in result['isolated']:
             u_glob, v_glob = _map_local_to_global(
@@ -219,6 +304,8 @@ def nurbs_ccx(curve1, curve2, tol: float = 1e-3, **kwargs):
             pt0 = eval_curve(pts1, ur[0], rational=rational)
             pt1 = eval_curve(pts1, ur[1], rational=rational)
             raw_overlaps_xyz.append([pt0, pt1])
+        if stop_after_span:
+            break
 
     # Dedup isolated
     deduped = _dedup_isolated_pair(raw_isolated, curve1, curve2, tol)
@@ -240,6 +327,8 @@ def nurbs_ccx(curve1, curve2, tol: float = 1e-3, **kwargs):
         overlaps['v'] = raw_overlaps_v
         overlaps['point'] = raw_overlaps_xyz
 
+    if return_status:
+        return isolated, overlaps, status
     return isolated, overlaps
 
 
@@ -251,6 +340,8 @@ def nurbs_ccx_multiple(
     curves: list[NURBSCurveTuple],
     tol: float = 1e-3,
     self_intersections: bool = False,
+    *,
+    return_status: bool = True,
     **kwargs,
 ):
     """Find all pairwise intersections among multiple NURBS curves.
@@ -269,7 +360,15 @@ def nurbs_ccx_multiple(
         Structured array with 'u', 'v', 'point', 'curve1_i', 'curve2_i'.
     overlaps : ndarray or None
         Structured array with 'u', 'v', 'point', 'curve1_i', 'curve2_i'.
+    status : dict
+        Third value, returned by default; read ``status['complete']``
+        before trusting the output as the whole truth. Pass
+        ``return_status=False`` for the legacy two-value shape, which
+        raises ``RuntimeError`` on any incomplete Bezier pair instead.
     """
+    _reject_unknown_kwargs(
+        "nurbs_ccx_multiple", kwargs,
+        ("max_cells", "max_results") + _BEZIER_LIMIT_KWARGS)
     dim = max(crv.control_points.shape[1] for crv in curves)
 
     # Decompose all curves into Bezier segments, build segment map
@@ -295,6 +394,15 @@ def nurbs_ccx_multiple(
 
     raw_isolated = []
     raw_overlaps = []
+    # Candidate-scaled default allowance — see nurbs_ccx (ledger L41).
+    aggregate_max_cells = kwargs.get('max_cells')
+    if aggregate_max_cells is None:
+        aggregate_max_cells = _DEFAULT_MAX_CELLS * max(1, len(int_candidates))
+    aggregate_max_cells = max(0, int(aggregate_max_cells))
+    aggregate_max_results = max(
+        0, int(kwargs.get('max_results', _DEFAULT_MAX_RESULTS)))
+    status = _new_status(aggregate_max_cells, aggregate_max_results)
+    bezier_kwargs = _bezier_limit_kwargs(kwargs)
 
     for first, second in int_candidates:
         segm1_i = bvh.nodes[first].object
@@ -327,7 +435,25 @@ def nurbs_ccx_multiple(
             pts1 = segm1.control_points
             pts2 = segm2.control_points
 
-        result = bez_ccx_v4(pts1, pts2, atol=tol, rational=rational)
+        context = (
+            f"nurbs_ccx_multiple curves {curve1_i} x {curve2_i}, "
+            f"spans {segm1.interval()} x {segm2.interval()}")
+        remaining_cells, remaining_results = _remaining_allowances(status)
+        if remaining_cells <= 0 or remaining_results <= 0:
+            _mark_incomplete(
+                status, context, return_status,
+                "aggregate CCX cell/result budget exhausted")
+            break
+        call_kwargs = dict(bezier_kwargs)
+        call_kwargs['max_cells'] = remaining_cells
+        call_kwargs['max_results'] = remaining_results
+        result = bez_ccx_v4(
+            pts1, pts2, atol=tol, rational=rational, **call_kwargs,
+        )
+        result, stop_after_span = _consume_bezier_status(
+            result, status, context, return_status,
+            remaining_cells, remaining_results,
+        )
 
         for inter in result['isolated']:
             u_glob, v_glob = _map_local_to_global(
@@ -357,6 +483,8 @@ def nurbs_ccx_multiple(
                 'point': [pt0, pt1],
                 'curve1_i': curve1_i, 'curve2_i': curve2_i,
             })
+        if stop_after_span:
+            break
 
     # Dedup isolated using parametric tolerances
     deduped = _dedup_isolated(raw_isolated, curves, tol)
@@ -382,4 +510,6 @@ def nurbs_ccx_multiple(
         overlaps['curve1_i'] = [e['curve1_i'] for e in raw_overlaps]
         overlaps['curve2_i'] = [e['curve2_i'] for e in raw_overlaps]
 
+    if return_status:
+        return isolated, overlaps, status
     return isolated, overlaps

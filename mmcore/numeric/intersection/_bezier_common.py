@@ -395,3 +395,121 @@ def _compute_remaining_intervals(excludes, lo, hi):
         result.append((cursor, hi))
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Exact Bernstein product (ledger L52 slice 6a)
+# ---------------------------------------------------------------------------
+
+def bernstein_product_1d(A, B):
+    """Exact same-parameter Bernstein product with broadcast value axes.
+
+    The single implementation of the degree-reduction identity
+    ``B_i^m * B_j^n = [C(m,i)C(n,j)/C(m+n,i+j)] * B_{i+j}^{m+n}`` that the
+    ccx/csx exact-affine overlap identity certificates both build on
+    (previously two diverged private copies).  Shape handling follows the
+    csx generalization (axis 0 is the degree axis; trailing value axes
+    broadcast), factor arithmetic follows the ccx convention (every term
+    converted to longdouble BEFORE multiply/divide — on platforms with a
+    true 80-bit longdouble the ``int*int/int`` Python-float route rounds
+    the factor to float64 first, a last-ulp difference that matters to
+    eps-scale certificate envelopes).
+    """
+    import math as _math
+    A = np.asarray(A, dtype=np.longdouble)
+    B = np.asarray(B, dtype=np.longdouble)
+    m = A.shape[0] - 1
+    n = B.shape[0] - 1
+    out = np.zeros((m + n + 1,) + np.broadcast_shapes(
+        A.shape[1:], B.shape[1:]), dtype=np.longdouble)
+    for i in range(m + 1):
+        for j in range(n + 1):
+            k = i + j
+            factor = (np.longdouble(_math.comb(m, i))
+                      * np.longdouble(_math.comb(n, j))
+                      / np.longdouble(_math.comb(m + n, k)))
+            out[k] += factor * A[i] * B[j]
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Shared subdivision / restriction helpers (ledger L52 slice 7)
+# ---------------------------------------------------------------------------
+from mmcore.numeric.bern import de_casteljau_split_nd as _dc_split_nd
+
+
+def subdivide_curve(ctrl, t=0.5):
+    """Split a Bezier curve at parameter t using de Casteljau.
+
+    Parameters
+    ----------
+    ctrl : ndarray, shape (n+1, D)
+        Control polygon of a degree-n Bezier curve.
+    t : float
+        Split parameter in [0, 1].
+
+    Returns
+    -------
+    left, right : ndarray
+        Control polygons of the two halves.
+    """
+    n = ctrl.shape[0] - 1
+    tmp = ctrl.copy()
+    left = [tmp[0].copy()]
+    right_rev = [tmp[n].copy()]
+    for r in range(1, n + 1):
+        tmp[: n + 1 - r] = (1.0 - t) * tmp[: n + 1 - r] + t * tmp[1 : n + 2 - r]
+        left.append(tmp[0].copy())
+        right_rev.append(tmp[n - r].copy())
+    return np.array(left), np.array(right_rev[::-1])
+
+
+def subdivide_sq_dist_net(F, axis, t=0.5):
+    """Subdivide the scalar sq-dist Bernstein net along *axis*.
+
+    ``de_casteljau_split_nd`` requires a trailing value dimension, so we
+    temporarily add one and squeeze it back off.
+    """
+    Fv = F[..., np.newaxis]
+    left_v, right_v = _dc_split_nd(Fv, axis=axis, t=t)
+    return left_v[..., 0], right_v[..., 0]
+
+
+def restrict_net_axis_v(Fv, axis, lo, hi, cell_lo, cell_hi):
+    """Restrict a Bernstein net WITH a trailing value dim along one axis."""
+    span = cell_hi - cell_lo
+    if span < 1e-30:
+        return Fv
+    frac_lo = (lo - cell_lo) / span
+    frac_hi = (hi - cell_lo) / span
+    if frac_lo > 1e-12:
+        _, Fv = _dc_split_nd(Fv, axis=axis, t=frac_lo)
+    if frac_hi < 1.0 - 1e-12:
+        frac_hi_rescaled = (frac_hi - frac_lo) / (1.0 - frac_lo) if frac_lo > 1e-12 else frac_hi
+        Fv, _ = _dc_split_nd(Fv, axis=axis, t=frac_hi_rescaled)
+    return Fv
+
+
+def restrict_net_axis(F, axis, lo, hi, cell_lo, cell_hi):
+    """Restrict a scalar Bernstein net (no value dim) along one axis."""
+    return restrict_net_axis_v(
+        F[..., np.newaxis], axis, lo, hi, cell_lo, cell_hi)[..., 0]
+
+
+def geometry_collapsed(points) -> bool:
+    """All Cartesian control points coincide within 128·ε of their extent.
+
+    The single collapsed-geometry predicate (ledger L52 slice 7 — it was
+    hand-rolled three ways: ssx `_curve_geometry_collapsed`, plus two
+    inline csx sites for the collapsed-curve fiber path).  Uses LOCAL
+    motion, not absolute coordinate magnitude: at x=1e15 a global-scale
+    epsilon is ~28 model units and misclassified a 10-unit line as a
+    point/fiber, deleting its isolated intersection (ssx ledger note).
+    Callers dehomogenize/flatten first; `points` is (..., dim) Cartesian.
+    """
+    pts = np.asarray(points, dtype=np.float64)
+    pts = pts.reshape(-1, pts.shape[-1])
+    delta = pts - pts[0]
+    scale = max(1.0, float(np.max(np.abs(delta))))
+    eps = 128.0 * np.finfo(float).eps * scale
+    return float(np.max(np.linalg.norm(delta, axis=-1))) <= eps
