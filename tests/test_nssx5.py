@@ -897,30 +897,36 @@ def test_multiplicity_kept_when_postprocess_starved():
 # ---------------------------------------------------------------------------
 
 def _load_case(num):
+    """Return the (s1, s2) surface pair from fixture `num`.
+
+    Fixtures were saved by earlier nurbs_ssx sessions
+    (examples/ssx/nurbs_nurbs_intersection_*.py produced them); the
+    surface pairs are the durable content. The stored reference curve
+    lists in data[1:] are deliberately ignored (old-engine artifacts —
+    see the certificate test docstring).
+    """
     path = FIXTURE_DIR / f"nurbs_nurbs_intersection_{num}.pkl"
     if not path.exists():
         pytest.skip(f"fixture {path.name} not present")
     with open(path, "rb") as f:
         data = pickle.load(f)
     s1, s2 = data[0]
-    # data[1:] holds reference curve lists (xyz + the two 2-D preimage
-    # lists, order unspecified) — pick the 3-D one by control-point width
-    curves_xyz = next(
-        lst for lst in data[1:]
-        if lst and np.asarray(lst[0].control_points).shape[1] == 3)
-    return s1, s2, curves_xyz
+    return s1, s2
 
 
 @pytest.mark.parametrize("case,expect_complete,expect_reasons", [
     (5, True, set()),
     (8, True, set()),
+    # pins CURRENT engine truth: if bez_ssx later resolves this tangential
+    # zone, update this expectation (an improvement will fail this line, by
+    # design)
     (10, False, {'unresolved_tangential_zone'}),
 ])
 def test_fixture_case_residual_certificate(case, expect_complete,
                                            expect_reasons):
-    """Real-NURBS fixture gate: every reported branch vertex must lie on
-    BOTH surfaces (the on-intersection certificate), and the status must
-    match per-case engine truth.
+    """Real-NURBS fixture gate: sampled branch vertices (every len//10-th)
+    must lie on BOTH surfaces (the on-intersection certificate), and the
+    status must match per-case engine truth.
 
     The pickles' stored reference CURVES are deliberately unused: they
     are old-engine artifacts (case 5 stores a non-rational polynomial
@@ -935,7 +941,7 @@ def test_fixture_case_residual_certificate(case, expect_complete,
     """
     from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
     atol = 1e-3
-    s1, s2, _curves = _load_case(case)
+    s1, s2 = _load_case(case)
     res = nurbs_ssx(s1, s2, atol=atol)
     assert res['branches'], f"case {case}: no branches"
     assert res['complete'] is expect_complete, res['status']['reasons']
