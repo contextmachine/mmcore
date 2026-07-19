@@ -424,11 +424,13 @@ def _collect_pair(raw: _RawResults, result: dict, rect, pair) -> None:
     for entry in result.get('unresolved_regions', []) or []:
         mapped = dict(entry)
         if 'stuv_min' in mapped:
-            mapped['stuv_min'] = tuple(_remap4(
-                np.asarray(mapped['stuv_min'], dtype=np.float64), rect))
+            mapped['stuv_min'] = tuple(
+                float(x) for x in _remap4(
+                    np.asarray(mapped['stuv_min'], dtype=np.float64), rect))
         if 'stuv_max' in mapped:
-            mapped['stuv_max'] = tuple(_remap4(
-                np.asarray(mapped['stuv_max'], dtype=np.float64), rect))
+            mapped['stuv_max'] = tuple(
+                float(x) for x in _remap4(
+                    np.asarray(mapped['stuv_max'], dtype=np.float64), rect))
         raw.unresolved.append(mapped)
 
 
@@ -444,11 +446,215 @@ def _skip_box(p1: NURBSSurfaceTuple, p2: NURBSSurfaceTuple) -> dict:
 # Assembly stage stubs (Tasks 3-5 replace these)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Branch assembly: containment dedup -> endpoint graph -> chains
+# ---------------------------------------------------------------------------
+
+def _arc_len(xyz) -> float:
+    xyz = np.asarray(xyz, dtype=np.float64)
+    if len(xyz) < 2:
+        return 0.0
+    return float(np.linalg.norm(np.diff(xyz, axis=0), axis=1).sum())
+
+
+def _bbox_overlap(xyz_a, xyz_b, pad: float) -> bool:
+    a = np.asarray(xyz_a, dtype=np.float64)
+    b = np.asarray(xyz_b, dtype=np.float64)
+    return bool(np.all(a.min(axis=0) - pad <= b.max(axis=0))
+                and np.all(b.min(axis=0) - pad <= a.max(axis=0)))
+
+
+def _containment_dedup(frags, atol, agg):
+    """Drop fragments geometrically contained in a longer kept fragment
+    (every sample within 2*atol of its polyline — the Bezier-level rule
+    applied cross-pair). Longest-first; deterministic tie-break by index.
+    On postprocess exhaustion the remaining fragments are kept
+    unexamined (honest: dupes possible, reason already recorded)."""
+    if len(frags) <= 1:
+        return list(frags)
+    order = sorted(range(len(frags)),
+                   key=lambda k: (-_arc_len(frags[k].xyz), k))
+    kept_idx = []
+    for k in order:
+        f = frags[k]
+        dup = False
+        if len(f.xyz) >= 1 and not agg.postprocess_exhausted:
+            for m in kept_idx:
+                g = frags[m]
+                if len(g.xyz) < 2:
+                    continue
+                if not _bbox_overlap(f.xyz, g.xyz, 2.0 * atol):
+                    continue
+                if not agg.charge_postprocess(max(1, len(f.xyz))):
+                    break
+                if all(_dist_point_polyline(
+                        np.asarray(p, dtype=np.float64), g.xyz)
+                        <= 2.0 * atol for p in f.xyz):
+                    dup = True
+                    break
+        if not dup:
+            kept_idx.append(k)
+    kept_idx.sort()
+    return [frags[k] for k in kept_idx]
+
+
+def _build_chains(frags, ctx, atol, agg, kind_barrier=True):
+    """Endpoint-graph chain assembly.
+
+    Endpoints of all fragments are clustered by the matching predicate
+    (wrap-aware). A cluster with EXACTLY two endpoint members becomes an
+    edge; >2 members is a junction (never chained through); a cluster
+    holding both ends of one fragment is a self-loop (closed).
+
+    Returns list of ``(chain, closed)`` where ``chain`` is an ordered
+    list of ``(frag_index, flip)``.
+    """
+    n = len(frags)
+    ends = []
+    for fi, f in enumerate(frags):
+        if len(f.stuv) < 2:
+            continue
+        ends.append((fi, 0, f.stuv[0], f.xyz[0]))
+        ends.append((fi, 1, f.stuv[-1], f.xyz[-1]))
+
+    parent = list(range(len(ends)))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[max(ra, rb)] = min(ra, rb)
+
+    stop = False
+    for a in range(len(ends)):
+        if stop:
+            break
+        for b in range(a + 1, len(ends)):
+            fa, fb = ends[a][0], ends[b][0]
+            if kind_barrier and frags[fa].kind != frags[fb].kind:
+                continue
+            if not agg.charge_postprocess(1):
+                stop = True
+                break
+            if _match_stuv(ends[a][2], ends[b][2],
+                           ends[a][3], ends[b][3], ctx, atol):
+                union(a, b)
+
+    clusters = {}
+    for e in range(len(ends)):
+        clusters.setdefault(find(e), []).append(e)
+
+    # edge per two-member cluster: (fi, end_i) <-> (fj, end_j)
+    edge_of = {}       # (fi, end) -> (fj, end_j)
+    self_loops = set()
+    for members in clusters.values():
+        if len(members) != 2:
+            continue
+        (fi, ei) = ends[members[0]][0], ends[members[0]][1]
+        (fj, ej) = ends[members[1]][0], ends[members[1]][1]
+        if fi == fj:
+            self_loops.add(fi)
+            continue
+        edge_of[(fi, ei)] = (fj, ej)
+        edge_of[(fj, ej)] = (fi, ei)
+
+    visited = [False] * n
+    chains = []
+
+    def _walk(start_fi, start_end):
+        """Walk from a fragment oriented so ``start_end`` is its FREE end."""
+        chain = [(start_fi, start_end == 1)]
+        visited[start_fi] = True
+        cur_fi, cur_out = start_fi, 1 - start_end
+        while True:
+            nxt = edge_of.get((cur_fi, cur_out))
+            if nxt is None:
+                return chain, False
+            nfi, nend = nxt
+            if visited[nfi]:
+                return chain, nfi == start_fi
+            chain.append((nfi, nend == 1))
+            visited[nfi] = True
+            cur_fi, cur_out = nfi, 1 - nend
+
+    # single-fragment closed loops first
+    for fi in sorted(self_loops):
+        if len(frags[fi].stuv) >= 2 and not visited[fi]:
+            visited[fi] = True
+            chains.append(([(fi, False)], True))
+
+    # open chains: start at fragments with a free end
+    for fi in range(n):
+        if visited[fi] or len(frags[fi].stuv) < 2:
+            continue
+        for end in (0, 1):
+            if (fi, end) not in edge_of:
+                chain, closed = _walk(fi, end)
+                chains.append((chain, closed))
+                break
+
+    # remaining unvisited fragments participate in multi-fragment cycles
+    for fi in range(n):
+        if visited[fi] or len(frags[fi].stuv) < 2:
+            continue
+        chain, _ = _walk(fi, 0)
+        chains.append((chain, True))
+
+    # degenerate (<2 vertex) fragments pass through untouched
+    for fi in range(n):
+        if not visited[fi] and len(frags[fi].stuv) < 2:
+            visited[fi] = True
+            chains.append(([(fi, False)], False))
+    return chains
+
+
+def _concat_chain(frags, chain, closed, ctx, atol):
+    """Concatenate an oriented chain into one (stuv, xyz) polyline.
+
+    Joint rule: a plain (non-wrap) destructive duplicate collapses to one
+    vertex; a wrap-only or gap joint keeps both vertices (the periodic
+    vertex-pair contract / honest small gap <= 2*atol).
+    Closed chains end with an explicit copy of the first vertex (or the
+    wrapped seam preimage pair when the closure crosses a seam).
+    """
+    stuv_parts, xyz_parts = [], []
+    for fi, flip in chain:
+        S = frags[fi].stuv[::-1] if flip else frags[fi].stuv
+        X = frags[fi].xyz[::-1] if flip else frags[fi].xyz
+        if stuv_parts and len(S) and _joint_plain_dup(
+                stuv_parts[-1][-1], S[0], xyz_parts[-1][-1], X[0],
+                ctx, atol):
+            S, X = S[1:], X[1:]
+        if len(S):
+            stuv_parts.append(np.asarray(S, dtype=np.float64))
+            xyz_parts.append(np.asarray(X, dtype=np.float64))
+    stuv = np.concatenate(stuv_parts, axis=0)
+    xyz = np.concatenate(xyz_parts, axis=0)
+    if closed and len(stuv) >= 2 and not _joint_plain_dup(
+            stuv[-1], stuv[0], xyz[-1], xyz[0], ctx, atol):
+        stuv = np.concatenate([stuv, stuv[:1]], axis=0)
+        xyz = np.concatenate([xyz, xyz[:1]], axis=0)
+    return stuv, xyz
+
+
 def _assemble_branches(frags, ctx, atol, agg):
-    """Task 3 replaces this: containment dedup + endpoint-graph stitching.
-    Naive passthrough keeps single-pair parity exact."""
-    return [SSXBranch(curve=(f.stuv, f.xyz), kind=f.kind,
-                      overlap=f.overlap) for f in frags]
+    """Containment dedup -> chain assembly -> SSXBranch list."""
+    frags = _containment_dedup(frags, atol, agg)
+    chains = _build_chains(frags, ctx, atol, agg, kind_barrier=True)
+    out = []
+    for chain, closed in sorted(
+            chains, key=lambda c: min(fi for fi, _ in c[0])):
+        stuv, xyz = _concat_chain(frags, chain, closed, ctx, atol)
+        kind = frags[chain[0][0]].kind
+        overlap = any(frags[fi].overlap for fi, _ in chain)
+        out.append(SSXBranch(curve=(stuv, xyz), closed=bool(closed),
+                             overlap=overlap, kind=kind))
+    return out
 
 
 def _assemble_points(points, branches, ctx, atol, agg):

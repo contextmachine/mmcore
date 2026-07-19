@@ -271,7 +271,7 @@ def test_params_are_global_after_remap():
     s2 = plane_tilted()
     res = nurbs_ssx(s1, s2, atol=1e-3)
     assert res['complete'] is True
-    assert len(res['branches']) >= 1
+    assert len(res['branches']) == 1
     for stuv, xyz in _branch_paths(res):
         for k in range(0, len(stuv), max(1, len(stuv) // 8)):
             s, t, u, v = stuv[k]
@@ -302,3 +302,103 @@ def test_aggregate_work_counters_populated():
     assert work['cells_processed'] > 0
     assert work['max_cells'] == 250_000  # 1 candidate pair
     assert work['postprocess_work'] >= 0
+
+
+# ---------------------------------------------------------------------------
+# Task 3: branch assembly
+# ---------------------------------------------------------------------------
+
+def test_multispan_crossing_stitches_to_one_branch():
+    """Seams on BOTH surfaces cut the intersection line; the wrapper must
+    return ONE continuous branch spanning the full line."""
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+    s1 = insert_midknot(plane_z0(), axis=1)      # seam crossing the line
+    s2 = insert_midknot(plane_tilted(), axis=1)
+    res = nurbs_ssx(s1, s2, atol=1e-3)
+    assert res['complete'] is True
+    assert len(res['branches']) == 1
+    stuv, xyz = _branch_paths(res)[0]
+    # continuity: no vertex gap wildly above the largest in-fragment step
+    gaps = np.linalg.norm(np.diff(xyz, axis=0), axis=1)
+    assert gaps.max() <= 10 * np.median(gaps) + 1e-12
+    # full extent: line x=0,z=0 runs y in [-1,1] -> t from 0 to 1
+    ts = stuv[:, 1]
+    assert ts.min() <= 1e-6 and ts.max() >= 1 - 1e-6
+    # geometry: on both planes
+    assert np.abs(xyz[:, 0]).max() <= 2e-3
+    assert np.abs(xyz[:, 2]).max() <= 2e-3
+
+
+def test_knot_line_curve_reported_once():
+    """SSI curve exactly ON a decomposition seam is traced by both
+    adjacent pairs; containment dedup must keep exactly one branch."""
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+    s1 = insert_midknot(plane_z0(), axis=0)      # seam s=0.5 IS the curve
+    s2 = plane_tilted()
+    res = nurbs_ssx(s1, s2, atol=1e-3)
+    assert res['complete'] is True
+    assert len(res['branches']) == 1
+    stuv, xyz = _branch_paths(res)[0]
+    assert np.abs(xyz[:, 0]).max() <= 2e-3    # x == 0
+    assert np.abs(xyz[:, 2]).max() <= 2e-3    # z == 0
+    # spec delta 3: seam-coincident curve carries kind='overlap'
+    assert res['branches'][0].kind == 'overlap'
+
+
+def test_cylinder_plane_closed_loop_with_seam_pair():
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+    res = nurbs_ssx(cylinder(), big_plane(0.5), atol=1e-3)
+    assert res['complete'] is True
+    assert len(res['branches']) == 1
+    br = res['branches'][0]
+    assert br.closed is True
+    stuv, xyz = _branch_paths(res)[0]
+    # circle of radius 1 at z=0.5
+    r = np.linalg.norm(xyz[:, :2], axis=1)
+    assert np.abs(r - 1.0).max() <= 2e-3
+    assert np.abs(xyz[:, 2] - 0.5).max() <= 2e-3
+    # closed polyline convention: first == last vertex in xyz
+    assert np.linalg.norm(xyz[0] - xyz[-1]) <= 2e-3
+    # periodic vertex-pair contract: some consecutive pair jumps the u-seam
+    # (|ds| ~ full span) while xyz stays put
+    ds = np.abs(np.diff(stuv[:, 0]))
+    gaps = np.linalg.norm(np.diff(xyz, axis=0), axis=1)
+    seam_jumps = (ds > 0.9) & (gaps <= 2e-3)
+    assert seam_jumps.any()
+
+
+def test_junction_cluster_is_not_chained_through():
+    """Unit test on the assembler: 4 fragment ends meeting at one point
+    (X-junction) must stay 4 separate branches."""
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _Frag, _assemble_branches, _domain_ctx, _make_aggregate)
+    ctx = _domain_ctx(plane_z0(), plane_tilted(), atol=1e-3)
+    agg = _make_aggregate({}, 1)
+    center_s = np.array([0.5, 0.5, 0.5, 0.5])
+    center_x = np.zeros(3)
+    frags = []
+    for d in (np.array([1.0, 0, 0]), np.array([-1.0, 0, 0]),
+              np.array([0, 1.0, 0]), np.array([0, -1.0, 0])):
+        stuv = np.vstack([center_s + np.concatenate([0.3 * d[:2], [0, 0]]),
+                          center_s])
+        xyz = np.vstack([center_x + 0.3 * d, center_x])
+        frags.append(_Frag(stuv=stuv, xyz=xyz, kind='transversal',
+                           overlap=False))
+    out = _assemble_branches(frags, ctx, atol=1e-3, agg=agg)
+    assert len(out) == 4
+    assert all(not b.closed for b in out)
+
+
+def test_kind_conflict_blocks_stitching():
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _Frag, _assemble_branches, _domain_ctx, _make_aggregate)
+    ctx = _domain_ctx(plane_z0(), plane_tilted(), atol=1e-3)
+    agg = _make_aggregate({}, 1)
+    a = _Frag(stuv=np.array([[0.0, 0.5, 0.5, 0.5], [0.5, 0.5, 0.5, 0.5]]),
+              xyz=np.array([[-0.5, 0, 0], [0, 0, 0]]),
+              kind='transversal', overlap=False)
+    b = _Frag(stuv=np.array([[0.5, 0.5, 0.5, 0.5], [1.0, 0.5, 0.5, 0.5]]),
+              xyz=np.array([[0, 0, 0], [0.5, 0, 0]]),
+              kind='tangential', overlap=False)
+    out = _assemble_branches([a, b], ctx, atol=1e-3, agg=agg)
+    assert len(out) == 2
