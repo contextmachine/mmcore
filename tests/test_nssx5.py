@@ -530,3 +530,258 @@ def test_branch_links_recomputed_against_final_branches():
     out = _assemble_singularities([sing], [br], ctx, 1e-3, agg)
     assert len(out) == 1
     assert out[0].branch_links == [(0, 1)]   # nearest vertex of branch 0
+
+
+def test_branch_link_anchors_mid_segment_cusp():
+    """L12: a cusp ON the polyline but far from every vertex must still
+    link (point-to-SEGMENT distance), anchored at the nearer endpoint of
+    the nearest segment."""
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _recompute_branch_links, _make_aggregate)
+    from mmcore.numeric.intersection.ssx._ssx4 import SSXBranch
+    agg = _make_aggregate({}, 1)
+    xyz_path = np.array([[0, -1, 0], [0, 1, 0]], dtype=float)  # one segment
+    stuv_path = np.array([[.5, 0, .5, 0], [.5, 1, .5, 1]], dtype=float)
+    br = SSXBranch(curve=(stuv_path, xyz_path))
+    target = np.array([0.0, 0.4, 0.0])   # on-segment, 0.6 from v1, 1.4 from v0
+    links = _recompute_branch_links(target, [br], 1e-3, agg)
+    assert links == [(0, 1)]
+
+
+def test_cloud_dedup_uses_surf1_preimage():
+    """cusp_curve clouds with identical (s,t) but different (u,v) samples
+    evaluate to the same S1 points and must collapse (SSI samples satisfy
+    S1(s,t)==S2(u,v), so the s1 preimage determines the 3D locus)."""
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _clouds_near_identical, _make_aggregate)
+    agg = _make_aggregate({}, 1)
+    s1 = plane_z0()
+    a = np.array([[0.2, 0.3, 0.1, 0.9], [0.6, 0.7, 0.2, 0.8]])
+    b = np.array([[0.2, 0.3, 0.9, 0.1], [0.6, 0.7, 0.8, 0.2]])
+    assert _clouds_near_identical(a, b, s1, 1e-3, agg)
+    c = np.array([[0.9, 0.9, 0.1, 0.9]])   # different (s,t): far on S1
+    assert not _clouds_near_identical(a, c, s1, 1e-3, agg)
+
+
+def test_self_intersection_mate_discriminates():
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _assemble_singularities, _domain_ctx, _make_aggregate)
+    from mmcore.numeric.intersection.ssx._bez_ssx5 import SSXSingularity
+    ctx = _domain_ctx(plane_z0(), plane_tilted(), atol=1e-3)
+    xyz = np.zeros(3)
+    stuv = np.array([.5, .5, .5, .5])
+
+    def sing(mate):
+        return SSXSingularity(kind='self_intersection', stuv=stuv.copy(),
+                              xyz=xyz.copy(),
+                              stuv_mate=np.asarray(mate, dtype=float),
+                              branch_links=[])
+
+    near = stuv + 0.5 * ctx.ptol
+    far = stuv + np.array([50.0 * ctx.ptol[0], 0, 0, 0])
+    agg = _make_aggregate({}, 1)
+    merged = _assemble_singularities(
+        [sing(stuv), sing(near)], [], ctx, 1e-3, agg)
+    assert len(merged) == 1
+    agg = _make_aggregate({}, 1)
+    kept = _assemble_singularities(
+        [sing(stuv), sing(far)], [], ctx, 1e-3, agg)
+    assert len(kept) == 2
+
+
+def test_points_kept_when_postprocess_starved():
+    """Zero postprocess budget: the on-branch filter must OVER-include
+    (keep the point) and record the typed reason — never silently drop."""
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _assemble_points, _domain_ctx, _make_aggregate)
+    from mmcore.numeric._work_budget import REASON_POSTPROCESS_CAP
+    from mmcore.numeric.intersection.ssx._ssx4 import SSXPoint, SSXBranch
+    ctx = _domain_ctx(plane_z0(), plane_tilted(), atol=1e-3)
+    agg = _make_aggregate({'max_postprocess_work': 0}, 1)
+    xyz_path = np.array([[0, -1, 0], [0, 1, 0]], dtype=float)
+    stuv_path = np.array([[.5, 0, .5, 0], [.5, 1, .5, 1]], dtype=float)
+    br = SSXBranch(curve=(stuv_path, xyz_path))
+    on = SSXPoint(stuv=np.array([.5, .5, .5, .5]),
+                  xyz=np.array([0.0, 0.0, 0.0]))
+    out = _assemble_points([on], [br], ctx, 1e-3, agg)
+    assert len(out) == 1
+    assert REASON_POSTPROCESS_CAP in agg.reasons
+
+
+# ---------------------------------------------------------------------------
+# Task 5: overlap-region unification
+# ---------------------------------------------------------------------------
+
+def _assert_unified_plane_twin(res, n_tiles_expected_dissolved_seams):
+    """Common asserts for plane-twin unification: ONE region whose outer
+    uv1 loop spans the full domain, valid boundary refs, no surviving
+    branch pinned to an interior seam, and the honest typed reason from
+    the off-diagonal seam-curve pairs (engine truth: adjacent coplanar
+    patches overlap along their shared edge and bez_ssx types that as
+    overlap_region_unsupported; the wrapper surfaces it — no silent
+    completeness claims)."""
+    assert len(res['overlap_regions']) == 1
+    assert res['complete'] is False
+    assert set(res['status']['reasons']) == {'overlap_region_unsupported'}
+    region = res['overlap_regions'][0]
+    outer = np.asarray(region.uv1_loops[0], dtype=float)
+    assert outer[:, 0].min() <= 1e-3 and outer[:, 0].max() >= 1 - 1e-3
+    assert outer[:, 1].min() <= 1e-3 and outer[:, 1].max() >= 1 - 1e-3
+    assert len(region.uv1_loops) == 1          # no holes
+    for loop in region.boundary:
+        for bi, _rev in loop:
+            assert 0 <= bi < len(res['branches'])
+            assert res['branches'][bi].kind == 'overlap'
+    for cut in n_tiles_expected_dissolved_seams:
+        axis, value = cut
+        for b in res['branches']:
+            stuv = np.asarray(b.curve[0], dtype=float)
+            assert not np.all(np.abs(stuv[:, axis] - value) <= 1e-3), \
+                f"interior seam rim (axis {axis} @ {value}) survived"
+
+
+def test_twin_planes_single_axis_unify_to_one_region():
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+    a = insert_midknot(plane_z0(), axis=0)
+    b = insert_midknot(plane_z0(), axis=0)
+    res = nurbs_ssx(a, b, atol=1e-3)
+    _assert_unified_plane_twin(res, [(0, 0.5)])
+
+
+def test_twin_planes_both_axes_unify_to_one_region():
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+    a = insert_midknot(insert_midknot(plane_z0(), axis=0), axis=1)
+    b = insert_midknot(insert_midknot(plane_z0(), axis=0), axis=1)
+    res = nurbs_ssx(a, b, atol=1e-3)
+    _assert_unified_plane_twin(res, [(0, 0.5), (1, 0.5)])
+
+
+# --- synthetic-tile unit tests: unifier bookkeeping without the engine ---
+
+def _synthetic_edge(p0, p1, n=5):
+    """Rim polyline from stuv p0 to p1 with n samples; xyz embeds the
+    (s, t) preimage on a curved twin surface z = s*t."""
+    p0 = np.asarray(p0, dtype=float)
+    p1 = np.asarray(p1, dtype=float)
+    ts = np.linspace(0.0, 1.0, n)[:, None]
+    stuv = p0[None, :] * (1 - ts) + p1[None, :] * ts
+    xyz = np.stack([stuv[:, 0], stuv[:, 1],
+                    stuv[:, 0] * stuv[:, 1]], axis=1)
+    return stuv, xyz
+
+
+def _synthetic_tile_pair():
+    """Two tiles left/right of the s=0.5 seam over a curved coincidence;
+    each tile one CCW loop of 4 edge rims; the two seam rims are
+    opposite-orientation partners."""
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _Frag, _Tile, _RawResults)
+
+    def frag(p0, p1):
+        stuv, xyz = _synthetic_edge(
+            [p0[0], p0[1], p0[0], p0[1]], [p1[0], p1[1], p1[0], p1[1]])
+        return _Frag(stuv=stuv, xyz=xyz, kind='overlap', overlap=True)
+
+    raw = _RawResults()
+    # left tile CCW: bottom, seam (t 0->1), top, left (t 1->0)
+    left = [frag((0, 0), (.5, 0)), frag((.5, 0), (.5, 1)),
+            frag((.5, 1), (0, 1)), frag((0, 1), (0, 0))]
+    # right tile CCW: bottom, right, top, seam (t 1->0)
+    right = [frag((.5, 0), (1, 0)), frag((1, 0), (1, 1)),
+             frag((1, 1), (.5, 1)), frag((.5, 1), (.5, 0))]
+    raw.rim_frags = left + right
+    cert = {'boundary_resid_max': 0.1, 'interior_resid': 0.05,
+            'n_samples': 20, 'orientation_consistent': True}
+    raw.tiles = [
+        _Tile(pair=(0, 0), rect=(0, .5, 0, 1, 0, .5, 0, 1),
+              loops=[[(0, False), (1, False), (2, False), (3, False)]],
+              agreement=1,
+              interior_stuv=np.array([.25, .5, .25, .5]),
+              certification=dict(cert)),
+        _Tile(pair=(1, 1), rect=(.5, 1, 0, 1, .5, 1, 0, 1),
+              loops=[[(4, False), (5, False), (6, False), (7, False)]],
+              agreement=1,
+              interior_stuv=np.array([.75, .5, .75, .5]),
+              certification=dict(cert)),
+    ]
+    return raw
+
+
+def test_synthetic_tiles_dissolve_and_chain():
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _assemble_regions, _domain_ctx, _make_aggregate)
+    ctx = _domain_ctx(plane_z0(), plane_z0(), atol=1e-3)
+    agg = _make_aggregate({}, 1)
+    raw = _synthetic_tile_pair()
+    branches, regions = _assemble_regions(
+        raw, [], ctx, 1e-3, agg, (0.5,), (), (0.5,), ())
+    assert len(regions) == 1
+    region = regions[0]
+    # two seam rims dissolved: 6 surviving rim branches
+    assert len(branches) == 6
+    for b in branches:
+        stuv = np.asarray(b.curve[0], dtype=float)
+        assert not np.all(np.abs(stuv[:, 0] - 0.5) <= 4e-3)
+    # single closed outer loop spanning the union
+    assert len(region.uv1_loops) == 1
+    outer = np.asarray(region.uv1_loops[0], dtype=float)
+    assert np.allclose(outer[0], outer[-1])
+    assert outer[:, 0].min() <= 1e-9 and outer[:, 0].max() >= 1 - 1e-9
+    # conservative certification merge
+    cert = region.certification
+    assert cert['n_samples'] == 40
+    assert cert['boundary_resid_max'] == 0.1
+    assert cert['orientation_consistent'] is True
+    # boundary refs valid and pointing at rim branches
+    for loop in region.boundary:
+        for bi, _rev in loop:
+            assert 0 <= bi < len(branches)
+
+
+def test_synthetic_tiles_agreement_mismatch_never_merges():
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _assemble_regions, _domain_ctx, _make_aggregate)
+    ctx = _domain_ctx(plane_z0(), plane_z0(), atol=1e-3)
+    agg = _make_aggregate({}, 1)
+    raw = _synthetic_tile_pair()
+    raw.tiles[1].agreement = -1
+    branches, regions = _assemble_regions(
+        raw, [], ctx, 1e-3, agg, (0.5,), (), (0.5,), ())
+    assert len(regions) == 2
+    assert len(branches) == 8          # nothing dissolved
+    assert {r.normal_agreement for r in regions} == {1, -1}
+
+
+def test_synthetic_interior_absorption_and_ref_shift():
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _Frag, _RawResults, _assemble_regions, _domain_ctx,
+        _make_aggregate)
+    from mmcore.numeric.intersection.ssx._ssx4 import SSXBranch
+    ctx = _domain_ctx(plane_z0(), plane_z0(), atol=1e-3)
+    agg = _make_aggregate({}, 1)
+    raw = _synthetic_tile_pair()
+    raw.tiles = raw.tiles[:1]          # single LEFT tile only
+    raw.rim_frags = raw.rim_frags[:4]
+
+    def stitched_branch(s_val, kind):
+        stuv, xyz = _synthetic_edge(
+            [s_val, 0.2, s_val, 0.2], [s_val, 0.8, s_val, 0.8])
+        return SSXBranch(curve=(stuv, xyz), kind=kind,
+                         overlap=(kind == 'overlap'))
+
+    inside_ovl = stitched_branch(0.25, 'overlap')      # absorbed
+    outside_ovl = stitched_branch(0.75, 'overlap')     # outside left tile
+    inside_trans = stitched_branch(0.25, 'transversal')  # kind-guarded
+    branches, regions = _assemble_regions(
+        raw, [inside_ovl, outside_ovl, inside_trans],
+        ctx, 1e-3, agg, (0.5,), (), (0.5,), ())
+    assert len(regions) == 1
+    kept_kinds = [(b.kind, float(np.asarray(b.curve[0])[0, 0]))
+                  for b in branches[:2]]
+    assert (('overlap', 0.75) in kept_kinds
+            and ('transversal', 0.25) in kept_kinds)
+    assert len(branches) == 2 + 4      # 2 kept stitched + 4 rims
+    for loop in regions[0].boundary:
+        for bi, _rev in loop:
+            assert 2 <= bi < len(branches)
+            assert branches[bi].overlap
