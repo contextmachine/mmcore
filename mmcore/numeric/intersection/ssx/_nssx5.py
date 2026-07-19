@@ -105,10 +105,10 @@ def _axis_closed(surf: NURBSSurfaceTuple, axis: int) -> bool:
     first and last control-point/weight rows coincide."""
     cp, w = surf.control_points, surf.weights
     if axis == 0:
-        return bool(np.allclose(cp[0], cp[-1], atol=1e-10)
-                    and np.allclose(w[0], w[-1], atol=1e-10))
-    return bool(np.allclose(cp[:, 0], cp[:, -1], atol=1e-10)
-                and np.allclose(w[:, 0], w[:, -1], atol=1e-10))
+        return bool(np.allclose(cp[0], cp[-1], rtol=0.0, atol=1e-10)
+                    and np.allclose(w[0], w[-1], rtol=0.0, atol=1e-10))
+    return bool(np.allclose(cp[:, 0], cp[:, -1], rtol=0.0, atol=1e-10)
+                and np.allclose(w[:, 0], w[:, -1], rtol=0.0, atol=1e-10))
 
 
 @dataclass
@@ -143,7 +143,7 @@ def _axis_diff(a: float, b: float, axis: int, ctx: _DomainCtx) -> float:
     """|a-b| per stuv axis, modulo the domain span on C0-closed axes."""
     d = abs(float(a) - float(b))
     if ctx.closed[axis] and ctx.spans[axis] > 0.0:
-        d = min(d, float(ctx.spans[axis]) - d)
+        d = min(d, max(0.0, float(ctx.spans[axis]) - d))
     return d
 
 
@@ -228,6 +228,9 @@ class _AggregateStatus:
     every truncation or partiality records a REASON_* string.
     The wrapper's own assembly work charges ``post`` (a SoftWorkBudget
     used only for its postprocess pool).
+    Not `_adapter_status` (it emits the older CCX/CSX status shape, not
+    schema v2) and not a plain SoftWorkBudget (whose counters are
+    check-then-charge, not fold-what-pairs-report).
     """
     max_cells: int
     max_csx_calls: int
@@ -325,8 +328,260 @@ def _make_aggregate(kwargs: dict, n_candidates: int) -> _AggregateStatus:
         max_output_items=agg_out, post=post)
 
 
+# ---------------------------------------------------------------------------
+# Per-pair collection (remap + routing)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class _Frag:
+    """A remapped branch fragment awaiting assembly."""
+    stuv: NDArray[np.float64]     # (N,4) global
+    xyz: NDArray[np.float64]      # (N,3)
+    kind: str
+    overlap: bool
+
+
+@dataclass
+class _Tile:
+    """One per-pair overlap region awaiting unification (Task 5).
+
+    ``loops``: list of loops, each a list of ``(rim_id, reversed)`` where
+    ``rim_id`` indexes the shared ``raw.rim_frags`` list.
+    """
+    pair: tuple
+    rect: tuple
+    loops: list
+    agreement: int
+    interior_stuv: NDArray[np.float64]
+    certification: dict
+
+
+@dataclass
+class _RawResults:
+    frags: list = field(default_factory=list)        # list[_Frag] (non-rim)
+    rim_frags: list = field(default_factory=list)    # list[_Frag]
+    tiles: list = field(default_factory=list)        # list[_Tile]
+    points: list = field(default_factory=list)       # list[SSXPoint], global
+    singularities: list = field(default_factory=list)
+    unresolved: list = field(default_factory=list)
+
+
+def _collect_pair(raw: _RawResults, result: dict, rect, pair) -> None:
+    """Remap one bez_ssx result into global params and route entities."""
+    rim_local = set()
+    for region in result.get('overlap_regions', []) or []:
+        for loop in region.boundary:
+            for idx, _rev in loop:
+                rim_local.add(int(idx))
+
+    branches = result.get('branches', []) or []
+    rim_map = {}
+    for idx in sorted(rim_local):
+        b = branches[idx]
+        stuv_g = _remap4(np.asarray(b.curve[0], dtype=np.float64), rect)
+        xyz = np.array(b.curve[1], dtype=np.float64, copy=True)
+        rim_map[idx] = len(raw.rim_frags)
+        raw.rim_frags.append(
+            _Frag(stuv=stuv_g, xyz=xyz, kind='overlap', overlap=True))
+
+    for idx, b in enumerate(branches):
+        if idx in rim_local:
+            continue
+        stuv_g = _remap4(np.asarray(b.curve[0], dtype=np.float64), rect)
+        xyz = np.array(b.curve[1], dtype=np.float64, copy=True)
+        raw.frags.append(_Frag(stuv=stuv_g, xyz=xyz,
+                               kind=str(b.kind), overlap=bool(b.overlap)))
+
+    for region in result.get('overlap_regions', []) or []:
+        loops = [[(rim_map[int(idx)], bool(rev)) for idx, rev in loop]
+                 for loop in region.boundary]
+        interior = (None if region.interior_stuv is None
+                    else _remap4(np.asarray(region.interior_stuv,
+                                            dtype=np.float64), rect))
+        raw.tiles.append(_Tile(
+            pair=pair, rect=rect, loops=loops,
+            agreement=int(region.normal_agreement),
+            interior_stuv=interior,
+            certification=dict(region.certification)))
+
+    for p in result.get('points', []) or []:
+        raw.points.append(SSXPoint(
+            stuv=_remap4(np.asarray(p.stuv, dtype=np.float64), rect),
+            xyz=np.array(p.xyz, dtype=np.float64, copy=True)))
+
+    for s in result.get('singularities', []) or []:
+        raw.singularities.append(SSXSingularity(
+            kind=str(s.kind),
+            stuv=_remap4(np.asarray(s.stuv, dtype=np.float64), rect),
+            xyz=np.array(s.xyz, dtype=np.float64, copy=True),
+            stuv_mate=(None if s.stuv_mate is None else _remap4(
+                np.asarray(s.stuv_mate, dtype=np.float64), rect)),
+            branch_links=[],   # recomputed globally in Task 4
+            samples=(None if s.samples is None else _remap4(
+                np.asarray(s.samples, dtype=np.float64), rect)),
+            surface=s.surface))
+
+    for entry in result.get('unresolved_regions', []) or []:
+        mapped = dict(entry)
+        if 'stuv_min' in mapped:
+            mapped['stuv_min'] = tuple(_remap4(
+                np.asarray(mapped['stuv_min'], dtype=np.float64), rect))
+        if 'stuv_max' in mapped:
+            mapped['stuv_max'] = tuple(_remap4(
+                np.asarray(mapped['stuv_max'], dtype=np.float64), rect))
+        raw.unresolved.append(mapped)
+
+
+def _skip_box(p1: NURBSSurfaceTuple, p2: NURBSSurfaceTuple) -> dict:
+    (s0, s1), (t0, t1) = p1.interval()
+    (u0, u1), (v0, v1) = p2.interval()
+    return {'stuv_min': (float(s0), float(t0), float(u0), float(v0)),
+            'stuv_max': (float(s1), float(t1), float(u1), float(v1)),
+            'reason': REASON_WORK_BUDGET}
+
+
+# ---------------------------------------------------------------------------
+# Assembly stage stubs (Tasks 3-5 replace these)
+# ---------------------------------------------------------------------------
+
+def _assemble_branches(frags, ctx, atol, agg):
+    """Task 3 replaces this: containment dedup + endpoint-graph stitching.
+    Naive passthrough keeps single-pair parity exact."""
+    return [SSXBranch(curve=(f.stuv, f.xyz), kind=f.kind,
+                      overlap=f.overlap) for f in frags]
+
+
+def _assemble_points(points, branches, ctx, atol, agg):
+    """Task 4 replaces this with wrap-aware dedup + on-branch filter."""
+    return list(points)
+
+
+def _assemble_singularities(sings, branches, ctx, atol, agg):
+    """Task 4 replaces this with cross-pair dedup + link recompute."""
+    return list(sings)
+
+
+def _assemble_regions(raw, stitched, ctx, atol, agg,
+                      s_cuts, t_cuts, u_cuts, v_cuts):
+    """Task 5 replaces this with seam-rim dissolution + unification.
+
+    Passthrough: rims append after the stitched branches; per-tile
+    regions get their refs offset to the final branch list.
+    """
+    base = len(stitched)
+    rim_branches = [SSXBranch(curve=(f.stuv, f.xyz), kind='overlap',
+                              overlap=True) for f in raw.rim_frags]
+    regions = []
+    for tile in raw.tiles:
+        loops = [[(base + rid, rev) for rid, rev in loop]
+                 for loop in tile.loops]
+        uv1_loops, uv2_loops = [], []
+        for loop in tile.loops:
+            pts = []
+            for rid, rev in loop:
+                seg = raw.rim_frags[rid].stuv
+                pts.append(seg[::-1] if rev else seg)
+            chained = np.concatenate(pts, axis=0)
+            closed4 = np.concatenate([chained, chained[:1]], axis=0)
+            uv1_loops.append(closed4[:, :2].copy())
+            uv2_loops.append(closed4[:, 2:].copy())
+        regions.append(SSXOverlapRegion(
+            boundary=loops, uv1_loops=uv1_loops, uv2_loops=uv2_loops,
+            normal_agreement=tile.agreement,
+            interior_stuv=tile.interior_stuv,
+            certification=dict(tile.certification)))
+    return stitched + rim_branches, regions
+
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+
 def nurbs_ssx(surf1, surf2, atol=1e-3, **kwargs) -> dict:
+    """NURBS x NURBS surface intersection over bez_ssx v5.
+
+    See the module docstring for the contract; expert knobs and their
+    aggregate semantics are in the spec's "Expert knobs" table.
+    """
     _reject_unknown_kwargs("nurbs_ssx", kwargs, _ALLOWED_KWARGS)
     s1 = _as_surface_tuple(surf1)
     s2 = _as_surface_tuple(surf2)
-    raise NotImplementedError("pipeline lands in Task 2")
+    atol = float(atol)
+    rational = _is_rational(s1) or _is_rational(s2)
+    ctx = _domain_ctx(s1, s2, atol)
+
+    patches1 = decompose_surface(s1, "uv")
+    patches2 = decompose_surface(s2, "uv")
+
+    def _patch_aabb(patch):
+        pts = patch.control_points.reshape(
+            -1, patch.control_points.shape[-1])
+        bb = AABB.from_points(np.asarray(pts, dtype=np.float64))
+        bb.offset_inplace(atol)
+        return bb
+
+    tree1 = build_bvh([_patch_aabb(p) for p in patches1])
+    tree2 = build_bvh([_patch_aabb(p) for p in patches2])
+    candidates = sorted(set(
+        (int(a.object), int(b.object))
+        for a, b in bvh_intersect(tree1, tree2, exact=False)))
+
+    agg = _make_aggregate(kwargs, len(candidates))
+    forward = {k: kwargs[k] for k in _FORWARD_KWARGS if k in kwargs}
+
+    raw = _RawResults()
+    for k, (i, j) in enumerate(candidates):
+        if (agg.remaining_cells <= 0 or agg.remaining_csx_calls <= 0
+                or agg.remaining_output_items <= 0):
+            agg.mark(REASON_WORK_BUDGET)
+            for a, b in candidates[k:]:
+                raw.unresolved.append(_skip_box(patches1[a], patches2[b]))
+            break
+        p1, p2 = patches1[i], patches2[j]
+        if rational:
+            P1 = to_homogeneous_2d(p1.control_points, p1.weights)
+            P2 = to_homogeneous_2d(p2.control_points, p2.weights)
+        else:
+            P1 = np.ascontiguousarray(p1.control_points, dtype=np.float64)
+            P2 = np.ascontiguousarray(p2.control_points, dtype=np.float64)
+        result = bez_ssx(
+            P1, P2, atol=atol, rational=rational,
+            max_cells=min(_BEZ_DEFAULT_MAX_CELLS, agg.remaining_cells),
+            max_csx_calls=min(_BEZ_DEFAULT_MAX_CSX_CALLS,
+                              agg.remaining_csx_calls),
+            max_output_items=min(_BEZ_DEFAULT_MAX_OUTPUT_ITEMS,
+                                 agg.remaining_output_items),
+            **forward)
+        agg.consume(result)
+        _collect_pair(raw, result, _pair_rect(p1, p2), pair=(i, j))
+
+    # Interior decomposition cut coordinates per stuv axis (for Task 5's
+    # seam-rim classification).
+    def _cuts(patches, side):
+        vals = set()
+        for p in patches:
+            (a0, a1), (b0, b1) = p.interval()
+            vals.update((a0, a1) if side == 0 else (b0, b1))
+        lo = min(vals) if vals else 0.0
+        hi = max(vals) if vals else 1.0
+        return tuple(sorted(v for v in vals if lo < v < hi))
+
+    s_cuts, t_cuts = _cuts(patches1, 0), _cuts(patches1, 1)
+    u_cuts, v_cuts = _cuts(patches2, 0), _cuts(patches2, 1)
+
+    stitched = _assemble_branches(raw.frags, ctx, atol, agg)
+    branches, regions = _assemble_regions(
+        raw, stitched, ctx, atol, agg, s_cuts, t_cuts, u_cuts, v_cuts)
+    points = _assemble_points(raw.points, branches, ctx, atol, agg)
+    singularities = _assemble_singularities(
+        raw.singularities, branches, ctx, atol, agg)
+
+    out = {
+        'branches': branches,
+        'points': points,
+        'singularities': singularities,
+        'overlap_regions': regions,
+        'unresolved_regions': raw.unresolved,
+    }
+    out.update(agg.result_fields())
+    return out

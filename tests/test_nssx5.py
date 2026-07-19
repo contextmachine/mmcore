@@ -154,6 +154,22 @@ def test_match_and_dup_predicates():
     assert not _match_stuv(p, q, x, x, ctx, atol)
 
 
+def test_wrap_dup_vs_joint_plain_dup():
+    """Periodic vertex-pair contract: opposite-seam preimages are the SAME
+    point for destructive dedup (wrap-aware) but DISTINCT at stitch joints
+    (no wrap), so both seam vertices survive concatenation."""
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _domain_ctx, _dup_stuv, _joint_plain_dup)
+    atol = 1e-3
+    ctx = _domain_ctx(cylinder(), big_plane(0.5), atol=atol)
+    eps = 0.1 * float(ctx.ptol[0])
+    p = np.array([0.0 + eps, 0.5, 0.5, 0.5])
+    q = np.array([1.0 - eps, 0.5, 0.5, 0.5])
+    x = np.array([1.0, 0.0, 0.5])
+    assert _dup_stuv(p, q, x, x, ctx, atol)
+    assert not _joint_plain_dup(p, q, x, x, ctx, atol)
+
+
 def test_remap4():
     from mmcore.numeric.intersection.ssx._nssx5 import _remap4
     rect = (0.0, 0.5, 0.5, 1.0, 0.25, 0.75, 0.0, 1.0)
@@ -202,3 +218,87 @@ def test_aggregate_postprocess_cap_reason():
     fields = agg.result_fields()
     assert fields['complete'] is False
     assert REASON_POSTPROCESS_CAP in fields['status']['reasons']
+
+
+# ---------------------------------------------------------------------------
+# Task 2: pipeline core
+# ---------------------------------------------------------------------------
+
+def _branch_paths(res):
+    return [(np.asarray(b.curve[0], dtype=float),
+             np.asarray(b.curve[1], dtype=float)) for b in res['branches']]
+
+
+def test_single_patch_parity_with_bez_ssx():
+    """One Bezier pair, identity remap: adapter == direct bez_ssx."""
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+    from mmcore.numeric.intersection.ssx._bez_ssx5 import bez_ssx
+    s1, s2 = plane_z0(), plane_tilted()
+    res = nurbs_ssx(s1, s2, atol=1e-3)
+    ref = bez_ssx(np.asarray(s1.control_points, dtype=float),
+                  np.asarray(s2.control_points, dtype=float),
+                  atol=1e-3, rational=False)
+    assert res['complete'] is True and ref['complete'] is True
+    assert len(res['branches']) == len(ref['branches']) == 1
+    assert len(res['points']) == len(ref['points'])
+    got_s, got_x = _branch_paths(res)[0]
+    ref_s = np.asarray(ref['branches'][0].curve[0], dtype=float)
+    ref_x = np.asarray(ref['branches'][0].curve[1], dtype=float)
+    # identical vertex data up to orientation
+    if not np.allclose(got_x[0], ref_x[0]):
+        ref_s, ref_x = ref_s[::-1], ref_x[::-1]
+    assert np.allclose(got_s, ref_s, atol=1e-9)
+    assert np.allclose(got_x, ref_x, atol=1e-9)
+
+
+def test_empty_result_when_disjoint():
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+    far = bezier_surface([[[-1, -1, 5], [-1, 1, 5]],
+                          [[1, -1, 5], [1, 1, 5]]])
+    res = nurbs_ssx(plane_z0(), far, atol=1e-3)
+    assert res['complete'] is True
+    assert res['branches'] == [] and res['points'] == []
+    assert res['singularities'] == [] and res['overlap_regions'] == []
+    assert res['unresolved_regions'] == []
+    assert res['status']['reasons'] == []
+
+
+def test_params_are_global_after_remap():
+    """Multi-span surf1 (seam at t=0.5): every branch vertex satisfies
+    S1(s,t) == S2(u,v) == xyz at the GLOBAL parameters."""
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+    s1 = insert_midknot(plane_z0(), axis=1)
+    s2 = plane_tilted()
+    res = nurbs_ssx(s1, s2, atol=1e-3)
+    assert res['complete'] is True
+    assert len(res['branches']) >= 1
+    for stuv, xyz in _branch_paths(res):
+        for k in range(0, len(stuv), max(1, len(stuv) // 8)):
+            s, t, u, v = stuv[k]
+            p1 = evaluate_nurbs_surface(s1, s, t, d_order=0)['S']
+            p2 = evaluate_nurbs_surface(s2, u, v, d_order=0)['S']
+            assert np.linalg.norm(np.asarray(p1) - xyz[k]) <= 2e-3
+            assert np.linalg.norm(np.asarray(p2) - xyz[k]) <= 2e-3
+
+
+def test_starvation_is_soft_and_typed():
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+    from mmcore.numeric._work_budget import REASON_WORK_BUDGET
+    s1 = insert_midknot(plane_z0(), axis=1)
+    s2 = insert_midknot(plane_tilted(), axis=1)
+    res = nurbs_ssx(s1, s2, atol=1e-3, max_cells=1)
+    assert res['complete'] is False
+    assert REASON_WORK_BUDGET in res['status']['reasons']
+    assert len(res['unresolved_regions']) >= 1
+    for entry in res['unresolved_regions']:
+        assert 'stuv_min' in entry and 'stuv_max' in entry
+        assert 'reason' in entry
+
+
+def test_aggregate_work_counters_populated():
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+    res = nurbs_ssx(plane_z0(), plane_tilted(), atol=1e-3)
+    work = res['status']['work']
+    assert work['cells_processed'] > 0
+    assert work['max_cells'] == 250_000  # 1 candidate pair
+    assert work['postprocess_work'] >= 0
