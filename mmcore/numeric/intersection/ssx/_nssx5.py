@@ -24,6 +24,14 @@ exactly on a decomposition knot line is reported by the adjacent pairs'
 boundary CSX as a curve-on-surface overlap and therefore carries
 ``kind='overlap'`` even when the surfaces cross transversally there.
 
+Two further contract notes. Unified overlap regions guarantee loop
+ORDERING (outer first) but not winding direction on the multi-tile path
+(see ``_assemble_regions``). And ``complete`` may be True even though a
+pair reported ``unresolved_multiplicity`` mid-search: the reason is
+retired — mirroring the engine's own L28 rule — only when a certified
+unified region explains every such pair's whole parameter rect in both
+planes (see ``_retire_multiplicity_if_region_explained``).
+
 Incompleteness is always soft: certified partial output is returned with
 ``complete=False`` and typed ``status['reasons']``; exceptions are for
 caller errors only.
@@ -207,15 +215,6 @@ def _remap4(stuv_local, rect):
     scale = np.array([s1 - s0, t1 - t0, u1 - u0, v1 - v0],
                      dtype=np.float64)
     return low + x * scale
-
-
-def _remap2(uv_local, rect2):
-    """Affine map of (N,2) local uv by (lo0, hi0, lo1, hi1)."""
-    x = np.array(uv_local, dtype=np.float64, copy=True)
-    lo0, hi0, lo1, hi1 = rect2
-    x[..., 0] = lo0 + x[..., 0] * (hi0 - lo0)
-    x[..., 1] = lo1 + x[..., 1] * (hi1 - lo1)
-    return x
 
 
 # ---------------------------------------------------------------------------
