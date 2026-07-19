@@ -23,6 +23,9 @@ The gate PASSes iff no row is FAIL. An empty reference cloud (no
 transversal crossings — the tangential-contact class) makes coverage
 vacuously 100%; the status check still applies unchanged.
 
+The gate certifies transversal-branch coverage only; points/
+singularities/overlap_regions are reported but not coverage-checked.
+
 Usage:
     .venv/bin/python examples/ssx/nurbs_ssx5_coverage_check.py           # all cases
     .venv/bin/python examples/ssx/nurbs_ssx5_coverage_check.py 5 8      # subset
@@ -52,15 +55,15 @@ N_SLICES = 100
 #   REASON_OVERLAP_REGION    = "overlap_region_unsupported"
 #   REASON_PARAMETER_FIBER   = "parameter_fiber"
 #   REASON_SINGULAR_SET      = "unresolved_singular_set"
+#   REASON_TRACE_UNVERIFIED  = "trace_unverified"  (in _work_budget.py's
+#     documented "Structural family — raising budgets cannot help"; its
+#     omission from the plan's set was an enumeration oversight)
 STRUCTURAL_REASONS = {
     'unresolved_tangential_zone',
     'unresolved_multiplicity',
     'overlap_region_unsupported',
     'parameter_fiber',
     'unresolved_singular_set',
-    # REASON_TRACE_UNVERIFIED is in _work_budget.py's documented
-    # "Structural family — raising budgets cannot help"; its omission
-    # from the plan's set was an enumeration oversight.
     'trace_unverified',
 }
 
@@ -68,8 +71,9 @@ STRUCTURAL_REASONS = {
 CASE_NOTES = {
     6: ("typed partial: bez-level trace continuation loses an SSI arm; "
         "honestly reported complete=False"),
-    10: ("tangential contact at z=5: transversal reference cloud is "
-         "empty by nature"),
+    10: ("tangential contact at z=5: the u-family cloud is empty; the "
+         "v-family samples the tangential curve, covered by the "
+         "tangential branch (verified 100%, no longer vacuous)"),
     11: ("far-coordinate geometry; work_budget at candidate-scaled "
          "defaults — see budget probe in the Task-7 report"),
 }
@@ -82,19 +86,27 @@ def load_pair(num):
 
 
 def reference_cloud(s1, s2, atol=ATOL, n=N_SLICES):
-    (u0, u1), _ = s1.interval()
+    """Union of u-sliced and v-sliced independent reference clouds.
+
+    Two slice families close the orientation blind spot: an SSI fragment
+    running parallel to one isoline family is transversal to the other.
+    """
+    (u0, u1), (v0, v1) = s1.interval()
     pts = []
     incomplete_slices = 0
-    for w in np.linspace(u0 + 1e-9, u1 - 1e-9, n):
-        iso = extract_isocurve(s1, float(w), direction="u")
-        isolated, _overlaps, status = nurbs_csx(iso, s2, tol=atol)
-        if not status.get('complete', True):
-            incomplete_slices += 1
-        for entry in (isolated if isolated is not None else []):
-            pts.append(np.asarray(entry['point'], dtype=np.float64)[:3])
+    total_slices = 0
+    for direction, (w0, w1) in (("u", (u0, u1)), ("v", (v0, v1))):
+        for w in np.linspace(w0 + 1e-9, w1 - 1e-9, n):
+            iso = extract_isocurve(s1, float(w), direction=direction)
+            isolated, _overlaps, status = nurbs_csx(iso, s2, tol=atol)
+            total_slices += 1
+            if not status.get('complete', True):
+                incomplete_slices += 1
+            for entry in (isolated if isolated is not None else []):
+                pts.append(np.asarray(entry['point'], dtype=np.float64)[:3])
     if incomplete_slices:
-        print(f"    [warn] {incomplete_slices}/{n} CSX slices incomplete "
-              "(reference cloud may be partial there)")
+        print(f"    [warn] {incomplete_slices}/{total_slices} CSX slices "
+              "incomplete (reference cloud may be partial there)")
     return np.asarray(pts) if pts else np.zeros((0, 3))
 
 
@@ -145,8 +157,8 @@ def run_case(num):
           f"ssx {dt:.1f}s + ref {dt_ref:.1f}s | "
           f"{verdict}")
     if len(cloud) == 0:
-        print("    reference cloud EMPTY (no transversal crossings — "
-              "tangential-contact class); coverage vacuous")
+        print("    reference cloud EMPTY (tangential contact, or reference "
+              "found no crossings); coverage vacuous")
     if num in CASE_NOTES:
         print(f"    note: {CASE_NOTES[num]}")
     for p, d in misses[:5]:
