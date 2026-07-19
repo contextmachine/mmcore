@@ -951,6 +951,10 @@ def _shoelace_area(poly2):
 
 
 def _merge_certifications(tiles):
+    """Conservative certification merge: max residuals, summed
+    n_samples, AND of orientation flags — no re-verification.
+    orientation_consistent is inherited from the tiles (ANDed), not
+    re-verified against the re-chained unified loops."""
     cert = {
         'boundary_resid_max': max(
             float(t.certification.get('boundary_resid_max', 0.0))
@@ -1021,13 +1025,49 @@ def _rect_inside_region_2d(lo, hi, loops, eps):
     return True
 
 
+def _retire_multiplicity_if_region_explained(raw, regions, ctx, agg):
+    """Engine L28 rule lifted to the unified assembly: a pair-level
+    `unresolved_multiplicity` whose WHOLE pair rect is interior to one
+    unified region (both parameter planes, same region — the two-sided
+    site rule) can only have its unexposed ambiguity site inside the
+    region's certified 2-D C2 set — resolved by the region. Retire only
+    when EVERY such pair rect is contained; any rect escaping all
+    regions (case-14 class) or a starved containment check keeps the
+    reason (honest: never retire on unverified evidence)."""
+    if not (regions and raw.mult_rects
+            and REASON_MULTIPLICITY in agg.reasons):
+        return
+    eps12 = 8.0 * max(float(ctx.ptol[0]), float(ctx.ptol[1]))
+    eps34 = 8.0 * max(float(ctx.ptol[2]), float(ctx.ptol[3]))
+    for rect in raw.mult_rects:
+        cost = sum(len(lp) for reg in regions
+                   for lp in reg.uv1_loops + reg.uv2_loops)
+        if not agg.charge_postprocess(max(1, cost // 4)):
+            return
+        s0, s1, t0, t1, u0, u1, v0, v1 = rect
+        if not any(
+                _rect_inside_region_2d((s0, t0), (s1, t1),
+                                       reg.uv1_loops, eps12)
+                and _rect_inside_region_2d((u0, v0), (u1, v1),
+                                           reg.uv2_loops, eps34)
+                for reg in regions):
+            return
+    agg.retire(REASON_MULTIPLICITY)
+
+
 def _assemble_regions(raw, stitched, ctx, atol, agg,
                       s_cuts, t_cuts, u_cuts, v_cuts):
     """Unify per-pair region tiles into one region per connected
     coincidence component; dissolve interior-seam rims; drop stitched
     overlap branches absorbed by a unified region's interior; retire
     pair-level multiplicity marks whose whole pair rect is region
-    interior (engine L28 rule)."""
+    interior (engine L28 rule).
+
+    Unified regions guarantee loop ORDERING (outer loop first, by |area|
+    in the uv1 plane) but not winding direction; the per-tile
+    passthrough path preserves the engine's outer-CCW/holes-CW winding,
+    the multi-tile path does not re-normalize it (no current consumer
+    reads winding — revisit before building region trimming on top)."""
     if not raw.tiles:
         return stitched, []
 
@@ -1221,36 +1261,8 @@ def _assemble_regions(raw, stitched, ctx, atol, agg,
             reg.boundary = [[(bi + shift, rev) for bi, rev in loop]
                             for loop in reg.boundary]
 
-    # --- (d) multiplicity retirement (engine L28 rule lifted to the
-    # unified assembly): a pair-level `unresolved_multiplicity` whose
-    # WHOLE pair rect is interior to one unified region (both parameter
-    # planes, same region — the two-sided site rule) can only have its
-    # unexposed ambiguity site inside the region's certified 2-D C2 set
-    # — resolved by the region. Retire only when EVERY such pair rect is
-    # contained; any rect escaping all regions keeps the reason
-    # (case-14 class stays honest).
-    if (final_regions and raw.mult_rects
-            and REASON_MULTIPLICITY in agg.reasons):
-        eps12 = 8.0 * max(float(ctx.ptol[0]), float(ctx.ptol[1]))
-        eps34 = 8.0 * max(float(ctx.ptol[2]), float(ctx.ptol[3]))
-        all_in = True
-        for rect in raw.mult_rects:
-            cost = sum(len(lp) for reg in final_regions
-                       for lp in reg.uv1_loops + reg.uv2_loops)
-            if not agg.charge_postprocess(max(1, cost // 4)):
-                all_in = False
-                break
-            s0, s1, t0, t1, u0, u1, v0, v1 = rect
-            if not any(
-                    _rect_inside_region_2d((s0, t0), (s1, t1),
-                                           reg.uv1_loops, eps12)
-                    and _rect_inside_region_2d((u0, v0), (u1, v1),
-                                               reg.uv2_loops, eps34)
-                    for reg in final_regions):
-                all_in = False
-                break
-        if all_in:
-            agg.retire(REASON_MULTIPLICITY)
+    # --- (d) multiplicity retirement (engine L28 rule; see helper) ----
+    _retire_multiplicity_if_region_explained(raw, final_regions, ctx, agg)
     return kept_stitched + final_rim_branches, final_regions
 
 

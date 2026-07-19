@@ -785,3 +785,108 @@ def test_synthetic_interior_absorption_and_ref_shift():
         for bi, _rev in loop:
             assert 2 <= bi < len(branches)
             assert branches[bi].overlap
+
+
+def test_synthetic_parallel_seam_rims_dissolve():
+    """Fix-B isolation: the engine's rim sampler emits every edge in
+    increasing local parameter (loop orientation lives in the rev
+    flags), so adjacent tiles' seam rims arrive PARALLEL — dissolution
+    must fire on the parallel endpoint pairing too."""
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _Frag, _assemble_regions, _domain_ctx, _make_aggregate)
+    ctx = _domain_ctx(plane_z0(), plane_z0(), atol=1e-3)
+    agg = _make_aggregate({}, 1)
+    raw = _synthetic_tile_pair()
+    # re-emit the RIGHT tile's seam rim parallel to the left's (t 0->1),
+    # flipping its loop entry so the CCW traversal stays head-to-tail
+    stuv, xyz = _synthetic_edge([.5, 0, .5, 0], [.5, 1, .5, 1])
+    raw.rim_frags[7] = _Frag(stuv=stuv, xyz=xyz, kind='overlap',
+                             overlap=True)
+    raw.tiles[1].loops[0][3] = (7, True)
+    branches, regions = _assemble_regions(
+        raw, [], ctx, 1e-3, agg, (0.5,), (), (0.5,), ())
+    assert len(regions) == 1
+    assert len(branches) == 6
+
+
+# --- Fix-C retirement machinery: regression suite ------------------------
+
+def _unified_region_fixture():
+    """One unified full-domain region (standard two-tile pair) + ctx,
+    for driving the retirement helper directly."""
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _assemble_regions, _domain_ctx, _make_aggregate)
+    ctx = _domain_ctx(plane_z0(), plane_z0(), atol=1e-3)
+    agg = _make_aggregate({}, 1)
+    raw = _synthetic_tile_pair()
+    _branches, regions = _assemble_regions(
+        raw, [], ctx, 1e-3, agg, (0.5,), (), (0.5,), ())
+    assert len(regions) == 1
+    return ctx, regions
+
+
+def test_multiplicity_retired_when_rect_region_interior():
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _RawResults, _make_aggregate,
+        _retire_multiplicity_if_region_explained)
+    from mmcore.numeric._work_budget import REASON_MULTIPLICITY
+    ctx, regions = _unified_region_fixture()
+    raw = _RawResults()
+    raw.mult_rects.append((0.2, 0.4, 0.2, 0.4, 0.2, 0.4, 0.2, 0.4))
+    agg = _make_aggregate({}, 1)
+    agg.mark(REASON_MULTIPLICITY)
+    _retire_multiplicity_if_region_explained(raw, regions, ctx, agg)
+    assert REASON_MULTIPLICITY not in agg.reasons
+    assert agg.result_fields()['complete'] is True
+
+
+def test_multiplicity_kept_when_any_rect_escapes():
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _RawResults, _make_aggregate,
+        _retire_multiplicity_if_region_explained)
+    from mmcore.numeric._work_budget import REASON_MULTIPLICITY
+    ctx, regions = _unified_region_fixture()
+    raw = _RawResults()
+    raw.mult_rects.append((0.2, 0.4, 0.2, 0.4, 0.2, 0.4, 0.2, 0.4))
+    raw.mult_rects.append((2.0, 2.4, 2.0, 2.4, 2.0, 2.4, 2.0, 2.4))
+    agg = _make_aggregate({}, 1)
+    agg.mark(REASON_MULTIPLICITY)
+    _retire_multiplicity_if_region_explained(raw, regions, ctx, agg)
+    assert REASON_MULTIPLICITY in agg.reasons
+    assert agg.result_fields()['complete'] is False
+
+
+def test_multiplicity_kept_when_one_sided():
+    """Two-sided site rule: a rect inside the region in uv1 but outside
+    in uv2 must NOT retire."""
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _RawResults, _make_aggregate,
+        _retire_multiplicity_if_region_explained)
+    from mmcore.numeric._work_budget import REASON_MULTIPLICITY
+    ctx, regions = _unified_region_fixture()
+    raw = _RawResults()
+    raw.mult_rects.append((0.2, 0.4, 0.2, 0.4, 2.0, 2.4, 2.0, 2.4))
+    agg = _make_aggregate({}, 1)
+    agg.mark(REASON_MULTIPLICITY)
+    _retire_multiplicity_if_region_explained(raw, regions, ctx, agg)
+    assert REASON_MULTIPLICITY in agg.reasons
+    assert agg.result_fields()['complete'] is False
+
+
+def test_multiplicity_kept_when_postprocess_starved():
+    """Zero postprocess budget: containment unverified — never retire on
+    unverified evidence; the typed cap reason is recorded."""
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _RawResults, _make_aggregate,
+        _retire_multiplicity_if_region_explained)
+    from mmcore.numeric._work_budget import (
+        REASON_MULTIPLICITY, REASON_POSTPROCESS_CAP)
+    ctx, regions = _unified_region_fixture()
+    raw = _RawResults()
+    raw.mult_rects.append((0.2, 0.4, 0.2, 0.4, 0.2, 0.4, 0.2, 0.4))
+    agg = _make_aggregate({'max_postprocess_work': 0}, 1)
+    agg.mark(REASON_MULTIPLICITY)
+    _retire_multiplicity_if_region_explained(raw, regions, ctx, agg)
+    assert REASON_MULTIPLICITY in agg.reasons
+    assert REASON_POSTPROCESS_CAP in agg.reasons
+    assert agg.result_fields()['complete'] is False
