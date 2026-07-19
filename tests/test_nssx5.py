@@ -464,7 +464,17 @@ def test_seam_straddling_tangency_dedups_to_one():
     tp = tps[0]
     assert np.linalg.norm(np.asarray(tp.xyz) - np.zeros(3)) <= 5e-3
     assert abs(tp.stuv[0] - 0.5) <= 0.05 and abs(tp.stuv[1] - 0.5) <= 0.05
-    assert res['complete'] is True
+    # The certified tangent_point ships WITH typed structural caveats:
+    # bez_ssx reports complete=False + unresolved_multiplicity (split
+    # patches; the unsplit single-patch case additionally reports
+    # unresolved_tangential_zone) for isolated C2 tangencies — verified
+    # against a direct bez_ssx call on the unsplit surfaces. The adapter
+    # must surface that honestly (spec: AND of completes, union of
+    # reasons), never claim completeness the engine didn't certify.
+    assert res['complete'] is False
+    assert set(res['status']['reasons']) <= {
+        'unresolved_multiplicity', 'unresolved_tangential_zone'}
+    assert len(res['status']['reasons']) >= 1
 
 
 def test_point_on_neighbor_pair_branch_is_filtered():
