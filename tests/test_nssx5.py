@@ -890,3 +890,73 @@ def test_multiplicity_kept_when_postprocess_starved():
     assert REASON_MULTIPLICITY in agg.reasons
     assert REASON_POSTPROCESS_CAP in agg.reasons
     assert agg.result_fields()['complete'] is False
+
+
+# ---------------------------------------------------------------------------
+# Task 6: pickle fixtures (small cases; the Task-7 harness covers all 10)
+# ---------------------------------------------------------------------------
+
+def _load_case(num):
+    path = FIXTURE_DIR / f"nurbs_nurbs_intersection_{num}.pkl"
+    if not path.exists():
+        pytest.skip(f"fixture {path.name} not present")
+    with open(path, "rb") as f:
+        data = pickle.load(f)
+    s1, s2 = data[0]
+    # data[1:] holds reference curve lists (xyz + the two 2-D preimage
+    # lists, order unspecified) — pick the 3-D one by control-point width
+    curves_xyz = next(
+        lst for lst in data[1:]
+        if lst and np.asarray(lst[0].control_points).shape[1] == 3)
+    return s1, s2, curves_xyz
+
+
+@pytest.mark.parametrize("case,expect_complete,expect_reasons", [
+    (5, True, set()),
+    (8, True, set()),
+    (10, False, {'unresolved_tangential_zone'}),
+])
+def test_fixture_case_residual_certificate(case, expect_complete,
+                                           expect_reasons):
+    """Real-NURBS fixture gate: every reported branch vertex must lie on
+    BOTH surfaces (the on-intersection certificate), and the status must
+    match per-case engine truth.
+
+    The pickles' stored reference CURVES are deliberately unused: they
+    are old-engine artifacts (case 5 stores a non-rational polynomial
+    'circle' deviating up to 76*atol from the true circle the new engine
+    reproduces exactly; case 8 stores corrupt control points at +-5e6).
+    The surface pairs are the valuable fixture. Independent completeness
+    coverage runs in examples/ssx/nurbs_ssx5_coverage_check.py (Task 7)
+    against an isoline x nurbs_csx reference cloud.
+
+    Case 10 is a genuine tangential contact (s1 has z>=5, s2 has z<=5,
+    touching at z=5): typed-partial per established engine truth.
+    """
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+    atol = 1e-3
+    s1, s2, _curves = _load_case(case)
+    res = nurbs_ssx(s1, s2, atol=atol)
+    assert res['branches'], f"case {case}: no branches"
+    assert res['complete'] is expect_complete, res['status']['reasons']
+    assert set(res['status']['reasons']) == expect_reasons
+    for b in res['branches']:
+        stuv = np.asarray(b.curve[0], dtype=float)
+        xyz = np.asarray(b.curve[1], dtype=float)
+        step = max(1, len(stuv) // 10)
+        for k in range(0, len(stuv), step):
+            s, t, u, v = stuv[k]
+            p1 = np.asarray(evaluate_nurbs_surface(
+                s1, s, t, d_order=0)['S'], dtype=float)[:3]
+            p2 = np.asarray(evaluate_nurbs_surface(
+                s2, u, v, d_order=0)['S'], dtype=float)[:3]
+            assert np.linalg.norm(p1 - xyz[k]) <= 2 * atol
+            assert np.linalg.norm(p2 - xyz[k]) <= 2 * atol
+    if case == 5:
+        # geometry invariant: the SSI is the unit circle at z=1 — the
+        # new engine reproduces it exactly; the stored reference did not
+        xyz_all = np.vstack([np.asarray(b.curve[1], dtype=float)
+                             for b in res['branches']])
+        assert np.abs(np.linalg.norm(xyz_all[:, :2], axis=1) - 1.0).max() \
+            <= 2 * atol
+        assert np.abs(xyz_all[:, 2] - 1.0).max() <= 2 * atol
