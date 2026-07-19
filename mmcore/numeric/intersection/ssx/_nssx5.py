@@ -38,6 +38,7 @@ from numpy.typing import NDArray
 from mmcore.geom import nurbs
 from mmcore.geom._nurbs_eval import (
     NURBSSurfaceTuple, _nurbs_to_tuple, to_homogeneous_2d,
+    evaluate_nurbs_surface,
 )
 from mmcore.geom._nurbs_knots import decompose_surface
 from mmcore.geom._nurbs_param_tol import nurbs_surface_param_tolerance
@@ -487,6 +488,7 @@ def _containment_dedup(frags, atol, agg):
                     continue
                 if not agg.charge_postprocess(max(1, len(f.xyz))):
                     break
+                # xyz-only by design (mirrors the Bezier-level rule): duplicate seam traces coincide parametrically anyway; no param guard here, unlike _dup_stuv.
                 if all(_dist_point_polyline(
                         np.asarray(p, dtype=np.float64), g.xyz)
                         <= 2.0 * atol for p in f.xyz):
@@ -508,6 +510,12 @@ def _build_chains(frags, ctx, atol, agg, kind_barrier=True):
 
     Returns list of ``(chain, closed)`` where ``chain`` is an ordered
     list of ``(frag_index, flip)``.
+
+    On postprocess-cap exhaustion mid-pairing, already-made unions keep
+    their edges while untested pairs stay unmatched — stitching may then
+    be incomplete or (at a junction) wrong; the recorded
+    REASON_POSTPROCESS_CAP marks the result partial, mirroring
+    ``_containment_dedup``'s honesty rule.
     """
     n = len(frags)
     ends = []
@@ -633,6 +641,9 @@ def _concat_chain(frags, chain, closed, ctx, atol):
         if len(S):
             stuv_parts.append(np.asarray(S, dtype=np.float64))
             xyz_parts.append(np.asarray(X, dtype=np.float64))
+    if not stuv_parts:
+        return (np.zeros((0, 4), dtype=np.float64),
+                np.zeros((0, 3), dtype=np.float64))
     stuv = np.concatenate(stuv_parts, axis=0)
     xyz = np.concatenate(xyz_parts, axis=0)
     if closed and len(stuv) >= 2 and not _joint_plain_dup(
@@ -657,14 +668,156 @@ def _assemble_branches(frags, ctx, atol, agg):
     return out
 
 
+# ---------------------------------------------------------------------------
+# Points: wrap-aware dedup + global on-branch filter
+# ---------------------------------------------------------------------------
+
 def _assemble_points(points, branches, ctx, atol, agg):
-    """Task 4 replaces this with wrap-aware dedup + on-branch filter."""
-    return list(points)
+    """Wrap-aware destructive dedup, then the global on-branch filter
+    (4*atol — the Bezier-level constant). If the postprocess cap fires
+    mid-dedup, the unexamined remainder passes through undropped (honest:
+    duplicates possible, REASON_POSTPROCESS_CAP already recorded).
+    Membership is by object identity — SSXPoint holds ndarrays, so
+    equality-based membership would raise."""
+    kept = []
+    for p in points:
+        dup = False
+        for q in kept:
+            if not agg.charge_postprocess(1):
+                break
+            if _dup_stuv(p.stuv, q.stuv, p.xyz, q.xyz, ctx, atol):
+                dup = True
+                break
+        if not dup:
+            kept.append(p)
+
+    if agg.postprocess_exhausted:
+        kept_ids = {id(p) for p in kept}
+        pool = kept + [p for p in points if id(p) not in kept_ids]
+    else:
+        pool = kept
+
+    out = []
+    for p in pool:
+        on_branch = False
+        pxyz = np.asarray(p.xyz, dtype=np.float64)
+        for b in branches:
+            xyz = np.asarray(b.curve[1], dtype=np.float64)
+            if len(xyz) < 2:
+                continue
+            if not _bbox_overlap(pxyz[None, :], xyz, 4.0 * atol):
+                continue
+            if not agg.charge_postprocess(max(1, len(xyz) // 8)):
+                break
+            if _dist_point_polyline(pxyz, xyz) <= 4.0 * atol:
+                on_branch = True
+                break
+        if not on_branch:
+            out.append(p)
+    return out
 
 
-def _assemble_singularities(sings, branches, ctx, atol, agg):
-    """Task 4 replaces this with cross-pair dedup + link recompute."""
-    return list(sings)
+# ---------------------------------------------------------------------------
+# Singularities: cross-pair dedup + branch_links recompute (L11/L12)
+# ---------------------------------------------------------------------------
+
+def _clouds_near_identical(a, b, s1, atol, agg):
+    """cusp_curve near-duplicate: every sample of the smaller cloud lies
+    within 2*atol (xyz, via surf1 evaluation) of some sample of the
+    larger."""
+    a = np.asarray(a, dtype=np.float64)
+    b = np.asarray(b, dtype=np.float64)
+    small, large = (a, b) if len(a) <= len(b) else (b, a)
+    if len(small) == 0 or len(large) == 0:
+        return len(small) == len(large)
+    if not agg.charge_postprocess(len(small) + len(large)):
+        return False
+    def _xyz(cloud):
+        return np.array([
+            np.asarray(evaluate_nurbs_surface(
+                s1, float(x[0]), float(x[1]), d_order=0)['S'],
+                dtype=np.float64)
+            for x in cloud])
+    xs, xl = _xyz(small), _xyz(large)
+    for p in xs:
+        if float(np.min(np.linalg.norm(xl - p[None, :], axis=1))) \
+                > 2.0 * atol:
+            return False
+    return True
+
+
+def _recompute_branch_links(target_xyz, branches, atol, agg):
+    """L11 vertex contract via L12 point-to-SEGMENT distance (mirrors the
+    inline linker in _bez_ssx5's C1 pass): a branch links when its
+    polyline passes within 4*atol; the link anchors at the nearer
+    endpoint of the nearest segment."""
+    links = []
+    cost = sum(max(1, len(np.asarray(b.curve[1])) - 1) for b in branches)
+    if not agg.charge_postprocess(max(1, cost)):
+        return links
+    target = np.asarray(target_xyz, dtype=np.float64)
+    for bi, b in enumerate(branches):
+        xyz = np.asarray(b.curve[1], dtype=np.float64)
+        if len(xyz) < 2:
+            continue
+        if _dist_point_polyline(target, xyz) > 4.0 * atol:
+            continue
+        a, bseg = xyz[:-1], xyz[1:]
+        ab = bseg - a
+        den = np.einsum("ij,ij->i", ab, ab)
+        den = np.where(den < 1e-30, 1e-30, den)
+        tt = np.clip(
+            np.einsum("ij,ij->i", target[None, :] - a, ab) / den,
+            0.0, 1.0)
+        dseg = np.linalg.norm(a + tt[:, None] * ab - target[None, :],
+                              axis=1)
+        kseg = int(dseg.argmin())
+        k = (kseg if np.linalg.norm(xyz[kseg] - target)
+             <= np.linalg.norm(xyz[kseg + 1] - target) else kseg + 1)
+        links.append((bi, k))
+    return links
+
+
+def _mate_matches(a, b, ctx):
+    if a is None or b is None:
+        return a is None and b is None
+    return all(_axis_diff(a[i], b[i], i, ctx) <= 4.0 * float(ctx.ptol[i])
+               for i in range(4))
+
+
+def _assemble_singularities(sings, branches, ctx, atol, agg, s1=None):
+    kept = []
+    for s in sings:
+        dup = False
+        for q in kept:
+            if q.kind != s.kind:
+                continue
+            if not agg.charge_postprocess(1):
+                break
+            if s.kind == 'cusp_curve':
+                if s1 is not None and _clouds_near_identical(
+                        s.samples, q.samples, s1, atol, agg):
+                    dup = True
+            else:
+                if not _match_stuv(s.stuv, q.stuv, s.xyz, q.xyz,
+                                   ctx, atol):
+                    continue
+                if (s.kind == 'self_intersection'
+                        and not _mate_matches(s.stuv_mate, q.stuv_mate,
+                                              ctx)):
+                    continue
+                dup = True
+            if dup:
+                break
+        if not dup:
+            kept.append(s)
+
+    for s in kept:
+        if s.kind == 'cusp_curve':
+            continue
+        s.branch_links = _recompute_branch_links(
+            s.xyz, branches, atol, agg)
+    return kept
 
 
 def _assemble_regions(raw, stitched, ctx, atol, agg,
@@ -780,7 +933,7 @@ def nurbs_ssx(surf1, surf2, atol=1e-3, **kwargs) -> dict:
         raw, stitched, ctx, atol, agg, s_cuts, t_cuts, u_cuts, v_cuts)
     points = _assemble_points(raw.points, branches, ctx, atol, agg)
     singularities = _assemble_singularities(
-        raw.singularities, branches, ctx, atol, agg)
+        raw.singularities, branches, ctx, atol, agg, s1=s1)
 
     out = {
         'branches': branches,

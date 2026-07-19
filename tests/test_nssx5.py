@@ -402,3 +402,121 @@ def test_kind_conflict_blocks_stitching():
               kind='tangential', overlap=False)
     out = _assemble_branches([a, b], ctx, atol=1e-3, agg=agg)
     assert len(out) == 2
+
+
+def test_chain_orientation_all_four_combinations():
+    """Stitching must produce one contiguous polyline regardless of how
+    the two fragments' endpoint orientations pair up."""
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _Frag, _assemble_branches, _domain_ctx, _make_aggregate)
+    ctx = _domain_ctx(plane_z0(), plane_tilted(), atol=1e-3)
+    A_s = np.array([[0.2, 0.5, 0.5, 0.5], [0.5, 0.5, 0.5, 0.5]])
+    A_x = np.array([[-0.6, 0.0, 0.0], [0.0, 0.0, 0.0]])
+    B_s = np.array([[0.5, 0.5, 0.5, 0.5], [0.8, 0.5, 0.5, 0.5]])
+    B_x = np.array([[0.0, 0.0, 0.0], [0.0, 0.6, 0.0]])
+    for flip_a in (False, True):
+        for flip_b in (False, True):
+            agg = _make_aggregate({}, 1)
+            fa = _Frag(stuv=A_s[::-1].copy() if flip_a else A_s.copy(),
+                       xyz=A_x[::-1].copy() if flip_a else A_x.copy(),
+                       kind='transversal', overlap=False)
+            fb = _Frag(stuv=B_s[::-1].copy() if flip_b else B_s.copy(),
+                       xyz=B_x[::-1].copy() if flip_b else B_x.copy(),
+                       kind='transversal', overlap=False)
+            out = _assemble_branches([fa, fb], ctx, atol=1e-3, agg=agg)
+            assert len(out) == 1
+            xyz = np.asarray(out[0].curve[1], dtype=float)
+            gaps = np.linalg.norm(np.diff(xyz, axis=0), axis=1)
+            assert gaps.max() <= 0.61  # contiguous: no jump across the joint
+
+
+def test_containment_dedup_identical_twins_deterministic():
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _Frag, _containment_dedup, _make_aggregate)
+    path_s = np.array([[0.1, 0.5, 0.5, 0.5], [0.9, 0.5, 0.5, 0.5]])
+    path_x = np.array([[-0.8, 0.0, 0.0], [0.8, 0.0, 0.0]])
+    twins = [
+        _Frag(stuv=path_s.copy(), xyz=path_x.copy(),
+              kind='overlap', overlap=True),
+        _Frag(stuv=path_s.copy(), xyz=path_x.copy(),
+              kind='overlap', overlap=True),
+    ]
+    for order in (twins, twins[::-1]):
+        agg = _make_aggregate({}, 1)
+        kept = _containment_dedup(list(order), 1e-3, agg)
+        assert len(kept) == 1
+
+
+# ---------------------------------------------------------------------------
+# Task 4: points & singularities
+# ---------------------------------------------------------------------------
+
+def test_seam_straddling_tangency_dedups_to_one():
+    """Paraboloid touching z=0 at (0.5, 0.5); seam inserted THROUGH the
+    tangency: both adjacent pairs certify it; wrapper reports ONE
+    tangent_point."""
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+    s1 = insert_midknot(paraboloid(), axis=0)
+    s2 = big_plane(0.0)
+    res = nurbs_ssx(s1, s2, atol=1e-3)
+    tps = [s for s in res['singularities'] if s.kind == 'tangent_point']
+    assert len(tps) == 1
+    tp = tps[0]
+    assert np.linalg.norm(np.asarray(tp.xyz) - np.zeros(3)) <= 5e-3
+    assert abs(tp.stuv[0] - 0.5) <= 0.05 and abs(tp.stuv[1] - 0.5) <= 0.05
+    assert res['complete'] is True
+
+
+def test_point_on_neighbor_pair_branch_is_filtered():
+    """Unit test: a point lying on another pair's branch polyline is
+    dropped by the global on-branch filter (4*atol)."""
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _assemble_points, _domain_ctx, _make_aggregate)
+    from mmcore.numeric.intersection.ssx._ssx4 import SSXPoint, SSXBranch
+    ctx = _domain_ctx(plane_z0(), plane_tilted(), atol=1e-3)
+    agg = _make_aggregate({}, 1)
+    xyz_path = np.array([[0, -1, 0], [0, 0, 0], [0, 1, 0]], dtype=float)
+    stuv_path = np.array([[.5, 0, .5, 0], [.5, .5, .5, .5],
+                          [.5, 1, .5, 1]], dtype=float)
+    branch = SSXBranch(curve=(stuv_path, xyz_path))
+    on = SSXPoint(stuv=np.array([.5, .25, .5, .25]),
+                  xyz=np.array([0.0, -0.5, 0.002]))     # 2e-3 < 4*atol
+    off = SSXPoint(stuv=np.array([.9, .9, .9, .9]),
+                   xyz=np.array([0.8, 0.8, 0.8]))
+    out = _assemble_points([on, off], [branch], ctx, 1e-3, agg)
+    assert len(out) == 1
+    assert np.allclose(out[0].xyz, off.xyz)
+
+
+def test_duplicate_points_dedup_wrap_aware():
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _assemble_points, _domain_ctx, _make_aggregate)
+    from mmcore.numeric.intersection.ssx._ssx4 import SSXPoint
+    ctx = _domain_ctx(cylinder(), big_plane(0.5), atol=1e-3)
+    agg = _make_aggregate({}, 1)
+    x = np.array([1.0, 0.0, 0.5])
+    eps_s = 0.1 * float(ctx.ptol[0])
+    a = SSXPoint(stuv=np.array([0.0 + eps_s, .5, .5, .5]), xyz=x)
+    b = SSXPoint(stuv=np.array([1.0 - eps_s, .5, .5, .5]), xyz=x)  # wrap dup
+    out = _assemble_points([a, b], [], ctx, 1e-3, agg)
+    assert len(out) == 1
+
+
+def test_branch_links_recomputed_against_final_branches():
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _assemble_singularities, _domain_ctx, _make_aggregate)
+    from mmcore.numeric.intersection.ssx._ssx4 import SSXBranch
+    from mmcore.numeric.intersection.ssx._bez_ssx5 import SSXSingularity
+    ctx = _domain_ctx(plane_z0(), plane_tilted(), atol=1e-3)
+    agg = _make_aggregate({}, 1)
+    xyz_path = np.array([[0, -1, 0], [0, -0.25, 0], [0, 0.5, 0],
+                         [0, 1, 0]], dtype=float)
+    stuv_path = np.array([[.5, 0, .5, 0], [.5, .375, .5, .375],
+                          [.5, .75, .5, .75], [.5, 1, .5, 1]], dtype=float)
+    br = SSXBranch(curve=(stuv_path, xyz_path))
+    sing = SSXSingularity(
+        kind='cusp', stuv=np.array([.5, .375, .5, .375]),
+        xyz=np.array([0.0, -0.25, 0.0]), branch_links=[])
+    out = _assemble_singularities([sing], [br], ctx, 1e-3, agg)
+    assert len(out) == 1
+    assert out[0].branch_links == [(0, 1)]   # nearest vertex of branch 0
