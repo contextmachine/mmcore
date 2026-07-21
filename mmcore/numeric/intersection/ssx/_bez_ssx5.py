@@ -1970,6 +1970,62 @@ def _strict_ssx_root_tol(S1, S2, rational=True):
                1e-12 * scale)
 
 
+def _ssx_normalization_context(S1, S2, rational=True):
+    """Canonical-frame context (c, k) for the whole-call preamble.
+
+    P1 invariance (2026-07-21 design): every absolute roundoff envelope in
+    this module (the strict Psi-zero certificates, the 1e-14 corrector
+    stops) is correct only for O(1) coordinates.  The whole search
+    therefore runs in a frame jointly centered at the two nets' Cartesian
+    AABB midpoint and scaled by the AABB diagonal snapped to a power of
+    two — the snap makes the scale divide mantissa-exact, so only the
+    one-time centering multiply-subtract rounds at all.  Degenerate input
+    (zero/non-finite weight, non-finite point, zero extent) falls back to
+    the identity frame: the pipeline then behaves exactly as before P1.
+    """
+    identity = (np.zeros(3, dtype=np.float64), 1.0)
+    corners = []
+    for S in (S1, S2):
+        S = np.asarray(S, dtype=np.float64)
+        if rational:
+            w = S[..., -1:]
+            if not np.all(np.isfinite(w)) or np.any(w == 0.0):
+                return identity
+            pts = S[..., :-1] / w
+        else:
+            pts = S
+        if not np.all(np.isfinite(pts)):
+            return identity
+        corners.append(pts.reshape(-1, 3))
+    pts = np.vstack(corners)
+    lo = pts.min(axis=0)
+    hi = pts.max(axis=0)
+    diag = float(np.linalg.norm(hi - lo))
+    if not np.isfinite(diag) or diag <= 0.0:
+        return identity
+    c = 0.5 * (lo + hi)
+    k = float(2.0 ** round(math.log2(diag)))
+    return c, k
+
+
+def _normalize_surface_net(S, c, k, rational=True):
+    """Map a control net into the canonical frame: x' = (x - c) / k.
+
+    Rational nets transform homogeneously (numerator -= c*w, then /k), so
+    Cartesian points map exactly as above while weights stay untouched.
+    Always returns a copy; the caller's world-frame net is never mutated.
+    """
+    S = np.asarray(S, dtype=np.float64).copy()
+    c = np.asarray(c, dtype=np.float64)
+    if rational:
+        S[..., :-1] -= c * S[..., -1:]
+        S[..., :-1] /= k
+    else:
+        S -= c
+        S /= k
+    return S
+
+
 def _march_intersection_curve(
     S1, S2,
     stuv_start, stuv_end,
