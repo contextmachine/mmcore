@@ -8,6 +8,17 @@
 
 **Tech Stack:** Python 3.14 (`.venv/bin/python`), numpy, pytest. Engine: `mmcore/numeric/intersection/ssx/_bez_ssx5.py` (7,754 lines). macOS: NO `timeout` command.
 
+> **AS-BUILT DEVIATION (2026-07-21, user-approved):** wiring the
+> unconditional frame regressed 4 near-origin singular fixtures (Task 3
+> implementer correctly BLOCKED). Root-caused by variant experiment
+> (scale-half: absolute singular-tier thresholds; center-half:
+> exact-structure rounding) and fixed by an **identity window**
+> `_NORM_IDENTITY_WINDOW = [2⁻⁵, 2⁵]` on joint coordinate magnitude in
+> `_ssx_normalization_context` — identity inside, normalize outside.
+> Task 1's helper + tests and the spec were amended accordingly; the
+> singular-tier follow-up is filed as P1b
+> (`docs/superpowers/issues/2026-07-21-ssx5-p1b-singular-tier-scale-invariance.md`).
+
 **Authority documents (read before starting):**
 - Spec: `docs/superpowers/specs/2026-07-21-ssx5-invariance-normalization-design.md`
 - Kickoff (probe evidence, anchors, gates): `docs/superpowers/plans/2026-07-20-ssx5-invariance-kickoff.md`

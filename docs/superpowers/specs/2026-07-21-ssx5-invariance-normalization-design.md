@@ -38,9 +38,12 @@ New helper in `_bez_ssx5.py`:
     only the one-time centering multiply-subtract rounds.
   - Degenerate guard: `diag` zero or non-finite → `c = 0, k = 1`
     (identity transform; the pipeline behaves exactly as today).
-- Normalization is **unconditional** — no "already small" threshold, one
-  code path, and the invariance property test stays honest because the
-  engine always runs in the canonical frame.
+- ~~Normalization is **unconditional**~~ **AMENDED 2026-07-21 (measured;
+  user-approved): normalization is windowed.** Models whose joint
+  coordinate magnitude (max |dehomogenized coord| over both nets) lies in
+  `_NORM_IDENTITY_WINDOW = [2⁻⁵, 2⁵]` keep the identity frame; only
+  models outside it are normalized. See "Amendment" below for the
+  evidence that refuted the unconditional clause.
 
 ## 2. Entry transform
 
@@ -117,6 +120,40 @@ supported `atol`.
   change (normalization alters every run's numerical trajectory —
   expected, kickoff anticipates it); update them WITH the engine change
   per their in-file comments.
+
+## Amendment 2026-07-21: the identity window (measured, user-approved)
+
+Wiring the unconditional frame regressed 4 of the 115 singular-suite
+tests (all near-origin fixtures, native magnitudes 3–12.6), confirmed
+against the pre-preamble engine. A variant experiment (identity /
+scale-only / center-only / full, all four fixtures) split the cause:
+
+- `cusp_curve_on_split_plane` fails under **center-only**: the centering
+  subtract's ~1-ulp rounding (center contains 1/3) destroys the exact
+  derivative-zero line the fixture encodes.
+- `tangent_curve_no_point_flood` (k=16) and `positive_dim_sigma` (k=4)
+  fail under **scale-only**, which is mantissa-exact — proving the
+  singular tier's absolute thresholds (`gauss_newton_witness
+  tol_f=1e-8/1e-10`, `|F| < 1e-11` accepts) are magnitude-sensitive.
+  This is a pre-existing latent property the frame exposes, not one it
+  creates.
+- `closed_tangent_loop` fails only under the combination.
+
+A full-suite survey (identity frame: 115 passed; native magnitudes
+1–362; all fixtures above magnitude 32 also pass under the full frame)
+plus the gate probes (case 6 @1e-3: complete, one branch
+[4.37,75,1]↔[75,4.37,1]; case 11 @0.1 complete; case 11 @1e-3
+`trace_unverified` gone) bound the fix: identity inside
+`[2⁻⁵, 2⁵]` joint magnitude, normalize outside. Every measured
+constraint is satisfied: the 4 fixtures (≤12.6) sit inside, the
+trace-certificate defect is only measured at magnitudes ≥ ~71 (case 6
+recentered), and everything the suite exercises above 32 is proven on
+the normalized path.
+
+Follow-up **P1b** (not this work package): make the singular tier's
+absolute thresholds scale-aware so the window can eventually widen to
+"always" — `docs/superpowers/issues/2026-07-21-ssx5-p1b-singular-tier-scale-invariance.md`
+holds the experiment table and threshold-site inventory.
 
 ## 6. Out of scope
 
