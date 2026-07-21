@@ -966,3 +966,55 @@ def test_fixture_case_residual_certificate(case, expect_complete,
         assert np.abs(np.linalg.norm(xyz_all[:, :2], axis=1) - 1.0).max() \
             <= 2 * atol
         assert np.abs(xyz_all[:, 2] - 1.0).max() <= 2 * atol
+
+
+# ---------------------------------------------------------------------------
+# P1 invariance acceptance gates (kickoff 2026-07-20 gates 1-2; design
+# 2026-07-21).  Case 6: ~100-unit coords; case 11: ~800-unit part at
+# ~3000-unit offset — both must certify at ORIGINAL world coordinates.
+# These are the committed regressions that FAIL without the canonical
+# frame (pre-fix: case 6 lost half its curve with trace_unverified).
+# ---------------------------------------------------------------------------
+
+
+def _load_fixture_pair(num):
+    with open(FIXTURE_DIR / f"nurbs_nurbs_intersection_{num}.pkl", "rb") as f:
+        return pickle.load(f)[0]
+
+
+def test_case6_original_coords_complete_at_atol_1e3():
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+
+    s1, s2 = _load_fixture_pair(6)
+    r = nurbs_ssx(s1, s2, atol=1e-3)
+    assert r["complete"], r["status"]["reasons"]
+    assert r["status"]["reasons"] == []
+    assert len(r["branches"]) == 1
+    xyz = np.asarray(r["branches"][0].curve[1], dtype=float)
+    # Kickoff engine truth: one x=y-mirror-symmetric arm in the plane z=1
+    # from ~[4.37, 75] to ~[75, 4.37] passing through ~[5.47, 5.47].
+    assert np.all(np.abs(xyz[:, 2] - 1.0) <= 5e-3)
+    lo, hi = (xyz[0], xyz[-1]) if xyz[0][0] < xyz[-1][0] else (xyz[-1], xyz[0])
+    assert np.allclose(lo[:2], [4.37, 75.0], atol=1.0)
+    assert np.allclose(hi[:2], [75.0, 4.37], atol=1.0)
+
+
+def test_case11_original_coords_complete_at_atol_0_1():
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+
+    s1, s2 = _load_fixture_pair(11)
+    r = nurbs_ssx(s1, s2, atol=0.1)
+    assert r["complete"], r["status"]["reasons"]
+    assert r["status"]["reasons"] == []
+    assert len(r["branches"]) == 1
+
+
+def test_case11_original_coords_certificate_clean_at_atol_1e3():
+    # P1 fixes the certificate half; the knob-unreachable tier (P2) may
+    # still mark work_budget — trace_unverified specifically must be gone.
+    from mmcore.numeric._work_budget import REASON_TRACE_UNVERIFIED
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+
+    s1, s2 = _load_fixture_pair(11)
+    r = nurbs_ssx(s1, s2, atol=1e-3)
+    assert REASON_TRACE_UNVERIFIED not in r["status"]["reasons"], r["status"]
