@@ -1976,7 +1976,7 @@ def _strict_ssx_root_tol(S1, S2, rational=True):
 # magnitudes 1..362, the failing class at <= 12.6) pass bit-for-bit on the
 # identity frame — while re-framing in-window models regresses 4 singular
 # fixtures: the mantissa-exact down-scale (k=4..16) crosses the singular
-# tier's absolute thresholds (tol_f=1e-8/1e-10, |F|<1e-11 accepts), and the
+# tier's absolute thresholds (tol_f=1e-8/1e-10, |F|<1e-11 accepts), and a
 # centering subtract's ~1-ulp rounding destroys exact degenerate structure
 # (a non-dyadic center broke the exact cusp line).  The trace-certificate
 # defect this frame exists to fix is measured only at magnitudes >= ~71
@@ -1986,22 +1986,40 @@ def _strict_ssx_root_tol(S1, S2, rational=True):
 # (docs/superpowers/issues/2026-07-21-ssx5-p1b-singular-tier-scale-invariance.md).
 _NORM_IDENTITY_WINDOW = (2.0 ** -5, 2.0 ** 5)
 
+# Out-of-window models are centered and scaled INTO the native-proven band
+# around this magnitude (2026-07-21 second amendment, measured): after
+# centering at the joint AABB midpoint, the power-of-2 scale lands
+# max|coords| in [T/sqrt(2), T*sqrt(2)] ~ [5.66, 11.31], inside the
+# fixture-proven [1, 22.6].  Both halves of the map are load-bearing:
+# scaling all the way to O(1) was measured UNSAFE on the transversal path
+# (bez-harness case 10, magnitude 79.7, keeps 218/218 coverage down to
+# post-frame magnitude ~10 but silently fragments — 211/218 with
+# complete=True — below ~5; the latent bug is filed as P1c:
+# docs/superpowers/issues/2026-07-21-ssx5-p1c-silent-fragment-completeness.md),
+# and scale-only was measured UNSAFE for offset-dominated inputs (an
+# offset/extent ratio ~4e5 collapses the normalized extent to ~3e-5,
+# where the CSX ladder's absolute floors exceed the scaled atol and the
+# search bails at a few hundred cells claiming work_budget).  Centering
+# preserves extent; the band preserves the marching regime.
+_NORM_TARGET_MAG = 8.0
+
 
 def _ssx_normalization_context(S1, S2, rational=True):
     """Canonical-frame context (c, k) for the whole-call preamble.
 
-    P1 invariance (2026-07-21 design + windowed amendment): every absolute
-    roundoff envelope in this module (the strict Psi-zero certificates, the
-    1e-14 corrector stops) is correct only for coordinates inside the
-    proven magnitude band `_NORM_IDENTITY_WINDOW`.  Models inside the band
-    keep the identity frame (bit-for-bit legacy arithmetic — see the window
-    note above).  Models outside it run in a frame jointly centered at the
-    two nets' Cartesian AABB midpoint and scaled by the AABB diagonal
-    snapped to a power of two — the snap makes the scale divide
-    mantissa-exact, so only the one-time centering multiply-subtract
-    rounds at all.  Degenerate input (zero/non-finite weight, non-finite
-    point, zero extent) falls back to the identity frame: the pipeline
-    then behaves exactly as before P1.
+    P1 invariance (2026-07-21 design + windowed + target-band
+    amendments): every absolute roundoff envelope in this module (the
+    strict Psi-zero certificates, the 1e-14 corrector stops) is correct
+    only for coordinates inside the proven magnitude band.  Models inside
+    `_NORM_IDENTITY_WINDOW` keep the identity frame (bit-for-bit legacy
+    arithmetic).  Models outside it are jointly centered at the two nets'
+    Cartesian AABB midpoint and scaled by a power of two chosen so the
+    post-center magnitude (half the largest AABB diagonal) lands near
+    `_NORM_TARGET_MAG` — see the band note above for why both halves are
+    load-bearing.  The power-of-2 snap keeps the scale mantissa-exact;
+    only the one-time centering multiply-subtract rounds.  Degenerate
+    input (zero/non-finite weight, non-finite point, zero extent) falls
+    back to the identity frame: the pipeline behaves exactly as before P1.
     """
     identity = (np.zeros(3, dtype=np.float64), 1.0)
     corners = []
@@ -2027,7 +2045,7 @@ def _ssx_normalization_context(S1, S2, rational=True):
     if not np.isfinite(diag) or diag <= 0.0:
         return identity
     c = 0.5 * (lo + hi)
-    k = float(2.0 ** round(math.log2(diag)))
+    k = float(2.0 ** round(math.log2(diag / (2.0 * _NORM_TARGET_MAG))))
     return c, k
 
 

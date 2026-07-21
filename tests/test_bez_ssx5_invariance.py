@@ -19,12 +19,13 @@ def _homog(S):
 
 
 def test_context_power_of_two_scale_and_center():
-    # Joint AABB [0,160]^3 (outside the identity window) -> diag = 160*sqrt(3)
-    # ~ 277.1, log2 ~ 8.11 -> k = 256.
+    # Joint AABB [0,160]^3 (outside the identity window) -> centered at 80,
+    # scaled into the native band: diag = 160*sqrt(3) ~ 277.1,
+    # k = 2**round(log2(277.1/16)) = 16, post-center magnitude = 80/16 = 5.
     s1 = np.array([[[0.0, 0.0, 0.0], [0.0, 160.0, 0.0]], [[160.0, 0.0, 0.0], [160.0, 160.0, 0.0]]])
     s2 = np.array([[[0.0, 0.0, 160.0], [0.0, 160.0, 160.0]], [[160.0, 0.0, 160.0], [160.0, 160.0, 160.0]]])
     c, k = _ssx_normalization_context(s1, s2, rational=False)
-    assert k == 256.0
+    assert k == 16.0
     assert np.allclose(c, [80.0, 80.0, 80.0])
     # k is a power of two: scaling is mantissa-exact and reversible bit-for-bit.
     rng = np.random.default_rng(3)
@@ -47,7 +48,8 @@ def test_context_identity_window():
     tiny = inside * 1e-3
     c, k = _ssx_normalization_context(tiny, tiny, rational=False)
     assert 0.0 < k < 1.0
-    # Degenerate far point: outside the band but zero extent -> identity.
+    # Degenerate far point: outside the band but zero extent -> identity
+    # (the target-band scale is extent-derived; a point has none).
     far_pt = np.full((2, 2, 3), 1000.0)
     c, k = _ssx_normalization_context(far_pt, far_pt, rational=False)
     assert k == 1.0 and np.all(c == 0.0)
@@ -87,8 +89,9 @@ def test_normalize_surface_net_round_trip():
     s = rng.uniform(2350.0, 3200.0, (3, 4, 3))
     c, k = _ssx_normalization_context(s, s, rational=False)
     n = _normalize_surface_net(s, c, k, rational=False)
-    # Normalized coords are O(1) and the map inverts to roundoff at world scale.
-    assert np.max(np.abs(n)) <= 2.0
+    # Post-center magnitude lands in the native-proven band around
+    # _NORM_TARGET_MAG, and the map inverts to roundoff at world scale.
+    assert 4.0 <= np.max(np.abs(n)) <= 12.0
     assert np.allclose(n * k + c, s, atol=1e-9)
     assert not np.shares_memory(n, s)
 
