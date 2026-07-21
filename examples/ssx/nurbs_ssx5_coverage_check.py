@@ -69,13 +69,14 @@ STRUCTURAL_REASONS = {
 
 # Per-case context printed with the row (controller-reviewed engine truth).
 CASE_NOTES = {
-    6: ("typed partial: bez-level trace continuation loses an SSI arm; "
-        "honestly reported complete=False"),
+    6: ("OK since the P1 canonical-frame fix (2026-07-21): complete=True, "
+        "reasons=[], 100% (130/130) at original coords, atol=1e-3"),
     10: ("tangential contact at z=5: the u-family cloud is empty; the "
          "v-family samples the tangential curve, covered by the "
          "tangential branch (verified 100%, no longer vacuous)"),
-    11: ("far-coordinate geometry; work_budget at candidate-scaled "
-         "defaults — see budget probe in the Task-7 report"),
+    11: ("P1 fixed the trace certificate at original coords "
+         "(trace_unverified gone; 92.68%); work_budget remains from the "
+         "knob-unreachable internal tier (P2, open)"),
 }
 
 
