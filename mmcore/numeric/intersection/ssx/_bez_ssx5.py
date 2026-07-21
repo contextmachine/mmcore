@@ -6507,28 +6507,40 @@ def bez_ssx(
             break
         cell = queue.popleft()
 
-        # Cheap AABB pruning first: if control-point bounding boxes don't
-        # overlap, there is no intersection in this cell.
-        if _aabb_disjoint(cell.g1.surface, cell.g2.surface, atol):
-            continue
-
-
-        # GJK separability: tighter than AABB, much cheaper than the sq-dist
-        # net or Gauss separability. Test the convex hulls of the two control
-        # nets — if they're separated, the surfaces don't intersect.
-        if _trust_gjk(cell.g1) and _trust_gjk(cell.g2):
-            P1_pts = (cell.g1.surface[..., :-1] / cell.g1.surface[..., -1:]).reshape(-1, 3)
-            P2_pts = (cell.g2.surface[..., :-1] / cell.g2.surface[..., -1:]).reshape(-1, 3)
-            if not gjk(P1_pts, P2_pts, atol, 15):
+        # P1c soundness guard (2026-07-21): a cell carrying registered
+        # crossings holds strict-certified Psi roots ON it — any exclusion
+        # verdict from the approximate prunes below contradicts certified
+        # evidence and is therefore numerically wrong by construction, not
+        # a proof of emptiness (measured: at case 10 in the canonical
+        # frame, GJK declared a 2-crossing cell "separated" and the arc
+        # through it silently vanished with complete=True; the same class
+        # as the June CSX basin prunes).  Certified evidence outranks
+        # approximate exclusion: crossing-bearing cells always proceed to
+        # classification/tracing.
+        if not cell.crossings:
+            # Cheap AABB pruning first: if control-point bounding boxes
+            # don't overlap, there is no intersection in this cell.
+            if _aabb_disjoint(cell.g1.surface, cell.g2.surface, atol):
                 continue
 
-        # Sq-dist net pruning using the PROPAGATED F_sq (built once at top,
-        # split alongside TΨᵢ at every subdivision — never reconstructed).
-        if cell.F_sq is not None:
-            if _check_min_of_net(cell.F_sq, atol, cell.w_scale):
-                continue
-            if _check_lipschitz(cell.F_sq, atol, cell.w_scale):
-                continue
+            # GJK separability: tighter than AABB, much cheaper than the
+            # sq-dist net or Gauss separability. Test the convex hulls of
+            # the two control nets — if they're separated, the surfaces
+            # don't intersect.
+            if _trust_gjk(cell.g1) and _trust_gjk(cell.g2):
+                P1_pts = (cell.g1.surface[..., :-1] / cell.g1.surface[..., -1:]).reshape(-1, 3)
+                P2_pts = (cell.g2.surface[..., :-1] / cell.g2.surface[..., -1:]).reshape(-1, 3)
+                if not gjk(P1_pts, P2_pts, atol, 15):
+                    continue
+
+            # Sq-dist net pruning using the PROPAGATED F_sq (built once at
+            # top, split alongside TΨᵢ at every subdivision — never
+            # reconstructed).
+            if cell.F_sq is not None:
+                if _check_min_of_net(cell.F_sq, atol, cell.w_scale):
+                    continue
+                if _check_lipschitz(cell.F_sq, atol, cell.w_scale):
+                    continue
 
         # Ledger L4 probe descent: a probe-only cell exists solely to find
         # the Δ-touch its loop-free ancestor's center witness missed (the
