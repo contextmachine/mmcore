@@ -1970,18 +1970,38 @@ def _strict_ssx_root_tol(S1, S2, rational=True):
                1e-12 * scale)
 
 
+# The canonical frame applies ONLY outside this joint-coordinate-magnitude
+# band (2026-07-21 amendment, measured): inside it the engine's absolute
+# envelopes are already correct — all 115 singular-suite fixtures (native
+# magnitudes 1..362, the failing class at <= 12.6) pass bit-for-bit on the
+# identity frame — while re-framing in-window models regresses 4 singular
+# fixtures: the mantissa-exact down-scale (k=4..16) crosses the singular
+# tier's absolute thresholds (tol_f=1e-8/1e-10, |F|<1e-11 accepts), and the
+# centering subtract's ~1-ulp rounding destroys exact degenerate structure
+# (a non-dyadic center broke the exact cusp line).  The trace-certificate
+# defect this frame exists to fix is measured only at magnitudes >= ~71
+# (case 6 recentered) — so normalize from 2**5 up, and from 2**-5 down
+# (mirror bound; scaling tiny models up is mantissa-exact).  Making the
+# singular tier itself scale-invariant is the P1b follow-up
+# (docs/superpowers/issues/2026-07-21-ssx5-p1b-singular-tier-scale-invariance.md).
+_NORM_IDENTITY_WINDOW = (2.0 ** -5, 2.0 ** 5)
+
+
 def _ssx_normalization_context(S1, S2, rational=True):
     """Canonical-frame context (c, k) for the whole-call preamble.
 
-    P1 invariance (2026-07-21 design): every absolute roundoff envelope in
-    this module (the strict Psi-zero certificates, the 1e-14 corrector
-    stops) is correct only for O(1) coordinates.  The whole search
-    therefore runs in a frame jointly centered at the two nets' Cartesian
-    AABB midpoint and scaled by the AABB diagonal snapped to a power of
-    two — the snap makes the scale divide mantissa-exact, so only the
-    one-time centering multiply-subtract rounds at all.  Degenerate input
-    (zero/non-finite weight, non-finite point, zero extent) falls back to
-    the identity frame: the pipeline then behaves exactly as before P1.
+    P1 invariance (2026-07-21 design + windowed amendment): every absolute
+    roundoff envelope in this module (the strict Psi-zero certificates, the
+    1e-14 corrector stops) is correct only for coordinates inside the
+    proven magnitude band `_NORM_IDENTITY_WINDOW`.  Models inside the band
+    keep the identity frame (bit-for-bit legacy arithmetic — see the window
+    note above).  Models outside it run in a frame jointly centered at the
+    two nets' Cartesian AABB midpoint and scaled by the AABB diagonal
+    snapped to a power of two — the snap makes the scale divide
+    mantissa-exact, so only the one-time centering multiply-subtract
+    rounds at all.  Degenerate input (zero/non-finite weight, non-finite
+    point, zero extent) falls back to the identity frame: the pipeline
+    then behaves exactly as before P1.
     """
     identity = (np.zeros(3, dtype=np.float64), 1.0)
     corners = []
@@ -1998,6 +2018,9 @@ def _ssx_normalization_context(S1, S2, rational=True):
             return identity
         corners.append(pts.reshape(-1, 3))
     pts = np.vstack(corners)
+    mag = float(np.max(np.abs(pts)))
+    if _NORM_IDENTITY_WINDOW[0] <= mag <= _NORM_IDENTITY_WINDOW[1]:
+        return identity
     lo = pts.min(axis=0)
     hi = pts.max(axis=0)
     diag = float(np.linalg.norm(hi - lo))
@@ -6063,6 +6086,18 @@ def bez_ssx(
     """
     S1 = np.asarray(S1, dtype=np.float64)
     S2 = np.asarray(S2, dtype=np.float64)
+    # P1 invariance (2026-07-21 design): the whole search runs in a
+    # canonical frame — jointly centered, power-of-two scaled — so every
+    # absolute roundoff envelope below sees O(1) coordinates regardless of
+    # where the model sits in world space.  World-in/world-out: `_result`
+    # un-maps xyz exactly once on the way out; parameters and weights are
+    # frame-invariant.  atol and max_xyz_step are lengths and scale along.
+    _norm_c, _norm_k = _ssx_normalization_context(S1, S2, rational=rational)
+    S1 = _normalize_surface_net(S1, _norm_c, _norm_k, rational=rational)
+    S2 = _normalize_surface_net(S2, _norm_c, _norm_k, rational=rational)
+    atol = float(atol) / _norm_k
+    if max_xyz_step is not None:
+        max_xyz_step = float(max_xyz_step) / _norm_k
     budget = _SSXSoftBudget(
         max_cells=max(0, int(max_cells)),
         max_csx_calls=max(0, int(max_csx_calls)),
@@ -6086,7 +6121,7 @@ def bez_ssx(
                                    else unresolved_regions),
         }
         result.update(budget.result_fields())
-        return result
+        return _denormalize_result(result, _norm_c, _norm_k)
 
     # A zero public allowance is a hard promise that no expensive solver
     # setup runs.  In particular, the 4-D squared-distance Bernstein net can

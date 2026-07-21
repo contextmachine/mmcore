@@ -9,6 +9,7 @@ import pytest
 from mmcore.numeric.intersection.ssx._bez_ssx5 import (
     _ssx_normalization_context,
     _normalize_surface_net,
+    _NORM_IDENTITY_WINDOW,
 )
 
 
@@ -18,26 +19,49 @@ def _homog(S):
 
 
 def test_context_power_of_two_scale_and_center():
-    # Joint AABB [0,10]^3 -> diag = 10*sqrt(3) ~ 17.32, log2 ~ 4.11 -> k = 16.
-    s1 = np.array([[[0.0, 0.0, 0.0], [0.0, 10.0, 0.0]], [[10.0, 0.0, 0.0], [10.0, 10.0, 0.0]]])
-    s2 = np.array([[[0.0, 0.0, 10.0], [0.0, 10.0, 10.0]], [[10.0, 0.0, 10.0], [10.0, 10.0, 10.0]]])
+    # Joint AABB [0,160]^3 (outside the identity window) -> diag = 160*sqrt(3)
+    # ~ 277.1, log2 ~ 8.11 -> k = 256.
+    s1 = np.array([[[0.0, 0.0, 0.0], [0.0, 160.0, 0.0]], [[160.0, 0.0, 0.0], [160.0, 160.0, 0.0]]])
+    s2 = np.array([[[0.0, 0.0, 160.0], [0.0, 160.0, 160.0]], [[160.0, 0.0, 160.0], [160.0, 160.0, 160.0]]])
     c, k = _ssx_normalization_context(s1, s2, rational=False)
-    assert k == 16.0
-    assert np.allclose(c, [5.0, 5.0, 5.0])
+    assert k == 256.0
+    assert np.allclose(c, [80.0, 80.0, 80.0])
     # k is a power of two: scaling is mantissa-exact and reversible bit-for-bit.
     rng = np.random.default_rng(3)
     pts = rng.uniform(-1e4, 1e4, (64, 3))
     assert np.array_equal((pts / k) * k, pts)
 
 
+def test_context_identity_window():
+    # 2026-07-21 amendment: models whose joint coordinate magnitude lies in
+    # the proven band keep the identity frame — re-framing near-origin models
+    # regressed 4 singular fixtures (exact-structure rounding + absolute
+    # singular-tier thresholds); the trace-certificate defect only appears
+    # at magnitudes >= ~71.  Outside the band (either side) we normalize.
+    lo_w, hi_w = _NORM_IDENTITY_WINDOW
+    assert lo_w == 2.0**-5 and hi_w == 2.0**5
+    inside = np.array([[[0.0, 0.0, 0.0], [0.0, 10.0, 0.0]], [[10.0, 0.0, 0.0], [10.0, 10.0, 10.0]]])
+    c, k = _ssx_normalization_context(inside, inside, rational=False)
+    assert k == 1.0 and np.all(c == 0.0)
+    # Below the band: tiny model is scaled UP (k < 1), mantissa-exactly.
+    tiny = inside * 1e-3
+    c, k = _ssx_normalization_context(tiny, tiny, rational=False)
+    assert 0.0 < k < 1.0
+    # Degenerate far point: outside the band but zero extent -> identity.
+    far_pt = np.full((2, 2, 3), 1000.0)
+    c, k = _ssx_normalization_context(far_pt, far_pt, rational=False)
+    assert k == 1.0 and np.all(c == 0.0)
+
+
 def test_context_rational_uses_dehomogenized_points():
-    s = np.array([[[0.0, 0.0, 0.0], [0.0, 4.0, 0.0]], [[4.0, 0.0, 0.0], [4.0, 4.0, 0.0]]])
+    s = np.array([[[0.0, 0.0, 0.0], [0.0, 400.0, 0.0]], [[400.0, 0.0, 0.0], [400.0, 400.0, 0.0]]])
     h = _homog(s)
     h2 = h.copy()
     h2[..., :3] *= 2.0  # same Cartesian points, w-scaled numerators would differ
     h2[..., 3] *= 2.0
     c1, k1 = _ssx_normalization_context(h, h, rational=True)
     c2, k2 = _ssx_normalization_context(h2, h2, rational=True)
+    assert k1 != 1.0  # outside the identity window: the transform is real
     assert np.allclose(c1, c2) and k1 == k2
 
 
@@ -137,3 +161,23 @@ def test_denormalize_aliased_object_mapped_once():
     r = _denormalize_result(_fake_result(points=[p, p]), c, k)  # same object twice
     assert np.allclose(r["points"][0].xyz, [12.0, 2.0, 2.0])
     assert r["points"][1] is r["points"][0]
+
+
+from mmcore.numeric.intersection.ssx._bez_ssx5 import bez_ssx
+
+
+def test_bez_ssx_world_in_world_out_offset_planes():
+    # Plane pair from the singular suite, pushed to case-11-like offsets.
+    # z=5 sheet vs 0->10 ramp: intersection line x=5, z=5, y in [0,10].
+    off = np.array([1e4, -2e4, 3e3])
+    s1 = np.array([[[0.0, 0.0, 5.0], [0.0, 10.0, 5.0]], [[10.0, 0.0, 5.0], [10.0, 10.0, 5.0]]]) + off
+    s2 = np.array([[[0.0, 0.0, 0.0], [0.0, 10.0, 0.0]], [[10.0, 0.0, 10.0], [10.0, 10.0, 10.0]]]) + off
+    r = bez_ssx(s1, s2, 1e-3, rational=False)
+    assert r["complete"], r["status"]["reasons"]
+    assert len(r["branches"]) == 1
+    xyz = np.asarray(r["branches"][0].curve[1], dtype=float)
+    assert np.all(np.abs(xyz[:, 0] - (off[0] + 5.0)) <= 5e-3)
+    assert np.all(np.abs(xyz[:, 2] - (off[2] + 5.0)) <= 5e-3)
+    assert xyz[:, 1].min() <= off[1] + 0.5 and xyz[:, 1].max() >= off[1] + 9.5
+    stuv = np.asarray(r["branches"][0].curve[0], dtype=float)
+    assert stuv.min() >= -1e-9 and stuv.max() <= 1.0 + 1e-9
