@@ -36,6 +36,8 @@ New helper in `_bez_ssx5.py`:
   - `k` = AABB diagonal snapped to the nearest power of two
     (`2**round(log2(diag))`), so the scale divide is mantissa-exact and
     only the one-time centering multiply-subtract rounds.
+    **[Superseded by Amendment 2: the shipped formula is
+    `2**round(log2(diag/16))`, targeting the native band.]**
   - Degenerate guard: `diag` zero or non-finite → `c = 0, k = 1`
     (identity transform; the pipeline behaves exactly as today).
 - ~~Normalization is **unconditional**~~ **AMENDED 2026-07-21 (measured;
@@ -179,8 +181,13 @@ bailed at 342/250,000 cells claiming `work_budget`).
 
 **The synthesis (shipped):** center at the joint AABB midpoint AND
 scale by `k = 2^round(log2(diag / (2·_NORM_TARGET_MAG)))` with
-`_NORM_TARGET_MAG = 8`, landing the post-center magnitude in
-`[5.66, 11.31]` — inside the fixture-proven native band `[1, 22.6]`.
+`_NORM_TARGET_MAG = 8`, landing the post-center AABB diagonal in
+`[11.3, 22.6]` and hence max|coords| in `[8/√6, 8√2] ≈ [3.27, 11.31]`
+depending on extent anisotropy — inside the fixture-proven native band
+`[1, 22.6]`. (Adversarial-review correction: first stated as
+`[5.66, 11.31]`, true only for single-axis extents; sub-5 magnitudes
+are safe because the P1c crossing-guard removed the one measured sub-5
+failure mechanism.)
 Both halves are load-bearing: centering preserves extent for
 offset-dominated inputs; the band target preserves the marching regime
 for extent-dominated ones. Measured green under this map: case 10

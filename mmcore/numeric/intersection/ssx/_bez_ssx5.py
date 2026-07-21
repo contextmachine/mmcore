@@ -1962,7 +1962,8 @@ def _strict_ssx_root_tol(S1, S2, rational=True):
     bez_ssx preamble — either the identity frame inside
     `_NORM_IDENTITY_WINDOW` (the regime the singular-suite floor
     calibrates, native magnitudes 1..362) or the canonical frame, whose
-    target-band scaling bounds coordinate magnitude into ~[5.7, 11.3].
+    target-band scaling bounds the AABB diagonal into ~[11.3, 22.6]
+    (max|coords| lands in ~[3.3, 11.3] depending on extent anisotropy).
     The envelope scales with the extent (`diag`); the residual
     arithmetic it budgets rounds off with the magnitude; the preamble
     bounds their mismatch, so the 2026-07-20 case-6/11 diagnosis
@@ -2003,9 +2004,15 @@ _NORM_IDENTITY_WINDOW = (2.0 ** -5, 2.0 ** 5)
 
 # Out-of-window models are centered and scaled INTO the native-proven band
 # around this magnitude (2026-07-21 second amendment, measured): after
-# centering at the joint AABB midpoint, the power-of-2 scale lands
-# max|coords| in [T/sqrt(2), T*sqrt(2)] ~ [5.66, 11.31], inside the
-# fixture-proven [1, 22.6].  Both halves of the map are load-bearing:
+# centering at the joint AABB midpoint, the power-of-2 scale lands the
+# AABB DIAGONAL in [16/sqrt(2), 16*sqrt(2)] ~ [11.3, 22.6] and hence
+# max|coords| (the largest half-extent) in [8/sqrt(6), 8*sqrt(2)] ~
+# [3.27, 11.31] depending on extent anisotropy — inside the
+# fixture-proven [1, 22.6].  (An adversarial-review correction: the
+# band was first stated as [5.66, 11.31], true only for single-axis
+# extents; the sub-5 magnitudes reachable by isotropic models are safe
+# because the crossing-guard below removed the one measured sub-5
+# failure mechanism.)  Both halves of the map are load-bearing:
 # scaling all the way to O(1) was measured UNSAFE on the transversal path
 # (bez-harness case 10, magnitude 79.7, keeps 218/218 coverage down to
 # post-frame magnitude ~10 but silently fragments — 211/218 with
@@ -6120,8 +6127,9 @@ def bez_ssx(
     Numerical frame (P1, 2026-07-21 design + amendments 1-2): inputs
     whose joint coordinate magnitude falls outside `_NORM_IDENTITY_WINDOW`
     run in a canonical frame — both nets jointly centered at the AABB
-    midpoint and scaled by a power of two into the native-proven
-    magnitude band [5.66, 11.31] — so the strict Psi-zero certificates,
+    midpoint and scaled by a power of two into the native-proven band
+    (AABB diagonal ~[11.3, 22.6]; max|coords| ~[3.3, 11.3]) — so the
+    strict Psi-zero certificates,
     fixed corrector tolerances, and marching machinery see calibrated
     coordinates for any world placement; in-window inputs keep the
     bit-for-bit legacy frame.  The contract stays world-in/world-out:
@@ -6134,18 +6142,30 @@ def bez_ssx(
     """
     S1 = np.asarray(S1, dtype=np.float64)
     S2 = np.asarray(S2, dtype=np.float64)
-    # P1 invariance (2026-07-21 design): the whole search runs in a
-    # canonical frame — jointly centered, power-of-two scaled — so every
-    # absolute roundoff envelope below sees O(1) coordinates regardless of
-    # where the model sits in world space.  World-in/world-out: `_result`
-    # un-maps xyz exactly once on the way out; parameters and weights are
-    # frame-invariant.  atol and max_xyz_step are lengths and scale along.
+    # P1 invariance (2026-07-21 design + amendments): OUT-OF-WINDOW models
+    # run in a canonical frame — jointly centered, power-of-two scaled into
+    # the native band — so the absolute roundoff envelopes below see
+    # calibrated coordinates regardless of where the model sits in world
+    # space; in-window models keep the identity frame and skip the
+    # transform entirely (bit-for-bit pre-P1 arithmetic, including for
+    # non-finite degenerate inputs the context refuses).  A transform that
+    # produces non-finite coefficients (finite input, |c·w| overflow)
+    # falls back to identity rather than corrupting the search.
+    # World-in/world-out: `_result` un-maps xyz exactly once on the way
+    # out; parameters and weights are frame-invariant.  atol and
+    # max_xyz_step are lengths and scale along.
     _norm_c, _norm_k = _ssx_normalization_context(S1, S2, rational=rational)
-    S1 = _normalize_surface_net(S1, _norm_c, _norm_k, rational=rational)
-    S2 = _normalize_surface_net(S2, _norm_c, _norm_k, rational=rational)
-    atol = float(atol) / _norm_k
-    if max_xyz_step is not None:
-        max_xyz_step = float(max_xyz_step) / _norm_k
+    if _norm_k != 1.0 or np.any(_norm_c):
+        S1_n = _normalize_surface_net(S1, _norm_c, _norm_k, rational=rational)
+        S2_n = _normalize_surface_net(S2, _norm_c, _norm_k, rational=rational)
+        if np.all(np.isfinite(S1_n)) and np.all(np.isfinite(S2_n)):
+            S1, S2 = S1_n, S2_n
+            atol = float(atol) / _norm_k
+            if max_xyz_step is not None:
+                max_xyz_step = float(max_xyz_step) / _norm_k
+        else:
+            _norm_c = np.zeros(3, dtype=np.float64)
+            _norm_k = 1.0
     budget = _SSXSoftBudget(
         max_cells=max(0, int(max_cells)),
         max_csx_calls=max(0, int(max_csx_calls)),

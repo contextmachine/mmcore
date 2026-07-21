@@ -236,10 +236,16 @@ PAIRS = [("planes", _plane_pair), ("loop", _loop_pair), ("rational-arc", _ration
 
 TRANSFORMS = [
     (np.array([1e3, -2e3, 5e2]), 1.0),
+    # c1: shrinks to magnitude ~0.1 — still INSIDE the identity window, so
+    # both runs take the identity path.  Deliberate: pins the engine's
+    # native scale-consistency at 100x, not the canonical frame.
     (np.zeros(3), 1e-2),
     (np.zeros(3), 1e3),
     (np.array([1e4, 1e4, -1e4]), 1e3),
     (np.array([-5e3, 3e3, 1e4]), 1e-2),
+    # c5: lands BELOW the window's lower bound (magnitude ~2e-3) — the
+    # only cell exercising the scale-UP half of the canonical frame.
+    (np.zeros(3), 2e-4),
 ]
 
 

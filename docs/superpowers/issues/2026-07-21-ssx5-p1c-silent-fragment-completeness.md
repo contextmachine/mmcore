@@ -29,7 +29,7 @@ terminate at interior stuv points (not domain boundaries, not matched
 endpoints), yet nothing marks the result partial. `complete` is the one
 bit consumers act on (schema v2) — this violates its contract.
 
-## Native reaching fixture (measured 2026-07-21)
+## Native reaching fixture (measured 2026-07-21 — all numbers PRE-FIX)
 
 Scale the bez-harness case-10 input nets by 1/16 and atol by 1/16 —
 i.e., author the same geometry at ~5-unit size, which the identity
@@ -63,6 +63,29 @@ Probe recipe: `case10_scale_threshold.py` pattern (scratchpad) — force
    inventory question as P1b, but on the TRANSVERSAL path (marchers /
    CSX registrations / exit matching), not the singular tier. The k=8
    vs k=16 bracket localizes the responsible constant's scale.
+
+## Additional producer-class inventory (2026-07-21 adversarial review, verified)
+
+3. **The GJK primitive itself is unsound and still gates crossing-less
+   cells.** Measured: `gjk(P1, P2, atol, 15)` returns "separated" for
+   hulls in exact single-point contact (20000/20000 shared-vertex pairs)
+   and for gaps < atol (5000/5000 — the atol argument provides no
+   conservative proximity margin; it is compared against dot products,
+   dimensionally not a length), and `_gjk.cpp` returns "separated" on
+   plain iteration exhaustion. The crossing-guard neutralizes this only
+   where certified crossings exist; crossing-less cells holding
+   not-yet-certified geometry — notably `probe_only` descent cells whose
+   whole purpose is recovering a corner-pinned touch (L4) — still hit
+   the prune before any tangency machinery sees them. A misfire there
+   deletes a tangent feature silently. Cython fix territory; needs an
+   end-to-end reaching fixture first.
+4. **Mid-loop exhaustion breaks drop the in-flight cell.** Several break
+   paths exit the main loop after a cell is popped but before it is
+   resolved (the fanout guard and post-CSX `budget.exhausted` breaks):
+   the popped cell's box never joins the typed unresolved complement and
+   its certified crossings are discarded. Partial results in exhaustion
+   runs under-report WHAT is unresolved (the run is at least marked
+   incomplete, so this is complement-accuracy, not silent-complete).
 
 ## Constraints
 
