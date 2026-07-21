@@ -28,6 +28,15 @@
 > [5.66, 11.31] (spec Amendment 2). The silent-completeness accounting
 > gap is filed as P1c
 > (`docs/superpowers/issues/2026-07-21-ssx5-p1c-silent-fragment-completeness.md`).
+>
+> **AS-BUILT DEVIATION 3 (2026-07-21, user-directed P1c pull-in):** the
+> P1c producer was root-caused to the **GJK prune deleting a certified
+> 2-crossing cell** and fixed by the crossing-bearing soundness guard in
+> the main-loop prune ladder (certified evidence outranks approximate
+> exclusion). Post-fix, case 10 is scale-stable k=1..32; regression
+> pinned by `test_small_scale_case10_keeps_certified_crossing_cells`.
+> The general accounting audit stays open in P1c awaiting a reaching
+> fixture (fixture-first).
 
 **Authority documents (read before starting):**
 - Spec: `docs/superpowers/specs/2026-07-21-ssx5-invariance-normalization-design.md`

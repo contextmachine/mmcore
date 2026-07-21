@@ -1,5 +1,21 @@
 # P1c: silent incompleteness — interior-truncated fragments certify complete (filed 2026-07-21)
 
+> **PRODUCER FIXED same day (this branch):** the measured mechanism was
+> NOT a marcher truncation — probe cartography (pop-sequence event log)
+> showed the **GJK prune declaring a 2-crossing cell "separated"**
+> (`_bez_ssx5.py` main loop, pop #161: `_aabb_disjoint` False → `gjk`
+> False → continue), deleting the arc through it. Fixed by the soundness
+> guard *certified crossings outrank approximate prunes*: AABB/GJK/F_sq
+> prunes are skipped for crossing-bearing cells. Post-fix cartography:
+> case 10 holds 218/218 with bit-identical branches at EVERY forced scale
+> k=1..32 (the knife edge is removed, not avoided). Regression pinned by
+> `test_small_scale_case10_keeps_certified_crossing_cells` (native
+> 1/16-scale input, no monkeypatch). REMAINING OPEN (below): the general
+> accounting audit — an interior-ending open fragment without a typed
+> reason should never certify complete. No reaching fixture exists after
+> the guard; fixture-first (L50) says wait for one (P2's instrumentation
+> is the likely source) rather than ship an unverifiable check.
+
 Discovered during P1 canonical-frame cartography (see the P1 spec's
 amendments and `2026-07-21-ssx5-p1b-singular-tier-scale-invariance.md`).
 This is a **pre-existing latent soundness bug**, reachable today without
