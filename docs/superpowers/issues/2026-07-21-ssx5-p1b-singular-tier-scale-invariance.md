@@ -56,6 +56,17 @@ knife-edges, not a hard window.
   designed but deliberately NOT shipped in P1 — YAGNI while the window
   keeps such models on the identity frame).
 
+## Related: the transversal path has the same class
+
+The TRANSVERSAL marching/CSX path carries its own absolute-threshold
+inventory: bez-harness case 10 silently fragments below post-frame
+magnitude ~5 (see P1c,
+`2026-07-21-ssx5-p1c-silent-fragment-completeness.md`, which brackets
+the responsible constant's scale at k=8 vs k=16), and the CSX ladder's
+absolute floors dominate scaled atol when the normalized extent
+collapses (measured: extent ~3e-5, atol ~1e-8 → bail at 342 cells
+claiming work_budget). A complete P1b must sweep both tiers.
+
 ## Direction (per the house invariant: never fix by loosening)
 
 Scale-aware envelopes derived from net magnitudes (the L1-margin

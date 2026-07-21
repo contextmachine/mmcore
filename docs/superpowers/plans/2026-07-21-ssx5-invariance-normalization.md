@@ -18,6 +18,16 @@
 > Task 1's helper + tests and the spec were amended accordingly; the
 > singular-tier follow-up is filed as P1b
 > (`docs/superpowers/issues/2026-07-21-ssx5-p1b-singular-tier-scale-invariance.md`).
+>
+> **AS-BUILT DEVIATION 2 (2026-07-21, Task-6 BLOCKED finding):** the
+> O(1)-target frame silently fragmented bez-harness case 10 (transversal,
+> out-of-window) — cartography bracketed the safe regime at post-frame
+> magnitude ≳ 5, and a scale-only attempt failed offset-dominated
+> extremes. Shipped synthesis: centered + **target-band scale**
+> `k = 2^round(log2(diag/16))` landing post-center magnitude in
+> [5.66, 11.31] (spec Amendment 2). The silent-completeness accounting
+> gap is filed as P1c
+> (`docs/superpowers/issues/2026-07-21-ssx5-p1c-silent-fragment-completeness.md`).
 
 **Authority documents (read before starting):**
 - Spec: `docs/superpowers/specs/2026-07-21-ssx5-invariance-normalization-design.md`

@@ -155,6 +155,38 @@ absolute thresholds scale-aware so the window can eventually widen to
 "always" — `docs/superpowers/issues/2026-07-21-ssx5-p1b-singular-tier-scale-invariance.md`
 holds the experiment table and threshold-site inventory.
 
+## Amendment 2, 2026-07-21: target-band scale (measured)
+
+Task 6's verification exposed a second regression class: bez-harness
+case 10 (regular transversal, magnitude 79.7 → out-of-window, k=32
+under Amendment 1) dropped from 218/218 coverage to 211/218 — one arm
+fragmented at two INTERIOR endpoints around s≈0.392 with
+`complete=True, reasons=[]` (silent incompleteness — a latent
+accounting bug, filed with a native reaching fixture as **P1c**:
+`docs/superpowers/issues/2026-07-21-ssx5-p1c-silent-fragment-completeness.md`).
+
+Cartography (forced pure scales, mantissa-exact, c=0): case 10 keeps
+218/218 for k ≤ 8 (post-frame magnitude ≥ ~10) and silently fragments
+for k ≥ 16 (magnitude ≤ ~5) — identical missed segment at every broken
+scale and under every centering variant. So normalizing to O(1)
+magnitude, as Amendment 1 did, walks the TRANSVERSAL marching path out
+of its calibrated regime, the same latent class as P1b's singular tier.
+A scale-only frame (no centering, bit-exact both ways) fixed case 10
+and all gates but failed the offset-dominated property extreme
+(offset/extent ~4e5: normalized extent collapsed to ~3e-5, the CSX
+ladder's absolute floors exceeded the scaled atol, and the search
+bailed at 342/250,000 cells claiming `work_budget`).
+
+**The synthesis (shipped):** center at the joint AABB midpoint AND
+scale by `k = 2^round(log2(diag / (2·_NORM_TARGET_MAG)))` with
+`_NORM_TARGET_MAG = 8`, landing the post-center magnitude in
+`[5.66, 11.31]` — inside the fixture-proven native band `[1, 22.6]`.
+Both halves are load-bearing: centering preserves extent for
+offset-dominated inputs; the band target preserves the marching regime
+for extent-dominated ones. Measured green under this map: case 10
+218/218 (2 branches), case-6/11 gates exact, the 4 singular fixtures,
+all 25 invariance tests including every property extreme.
+
 ## 6. Out of scope
 
 `_nssx5.py` (correct; reports engine truth), tangential semantics (stop
