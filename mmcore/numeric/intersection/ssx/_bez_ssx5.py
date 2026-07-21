@@ -2026,6 +2026,42 @@ def _normalize_surface_net(S, c, k, rational=True):
     return S
 
 
+def _denormalize_result(result, c, k):
+    """Map every xyz payload of a bez_ssx result back to world frame, once.
+
+    Un-map inventory (2026-07-21 design §3, audited): branch polylines
+    (``SSXBranch.curve = (stuv, xyz)`` — xyz only), ``SSXPoint.xyz``,
+    ``SSXSingularity.xyz``.  Everything else is parameter-space (stuv,
+    cusp-curve samples, region uv loops, unresolved-region stuv boxes) or
+    atol-relative (region certification residuals) and must NOT be touched.
+    Out-of-place arrays plus an id() guard make the map exactly-once even
+    if one object is referenced twice.  Called only at the `_result` choke
+    point, immediately before returning to the caller.
+    """
+    if k == 1.0 and not np.any(c):
+        return result
+    c = np.asarray(c, dtype=np.float64)
+    seen = set()
+
+    def _once(obj):
+        if id(obj) in seen:
+            return False
+        seen.add(id(obj))
+        return True
+
+    for b in result['branches']:
+        if _once(b):
+            stuv, xyz = b.curve
+            b.curve = (stuv, np.asarray(xyz, dtype=np.float64) * k + c)
+    for p in result['points']:
+        if _once(p):
+            p.xyz = np.asarray(p.xyz, dtype=np.float64) * k + c
+    for s in result['singularities']:
+        if _once(s):
+            s.xyz = np.asarray(s.xyz, dtype=np.float64) * k + c
+    return result
+
+
 def _march_intersection_curve(
     S1, S2,
     stuv_start, stuv_end,

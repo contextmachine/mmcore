@@ -85,3 +85,55 @@ def test_normalize_surface_net_rational_preserves_cartesian_points():
         assert np.allclose(pn * k + c, pw, atol=1e-9)
     # Weights are frame-invariant: untouched by the transform.
     assert np.array_equal(n[..., 3], h[..., 3])
+
+
+# SSXBranch/SSXPoint are re-exported through _bez_ssx5's namespace (:39-40).
+from mmcore.numeric.intersection.ssx._bez_ssx5 import (
+    _denormalize_result,
+    SSXSingularity,
+    SSXBranch,
+    SSXPoint,
+)
+
+
+def _fake_result(branches=(), points=(), singularities=()):
+    return {
+        "branches": list(branches),
+        "points": list(points),
+        "singularities": list(singularities),
+        "overlap_regions": [],
+        "unresolved_regions": [],
+        "complete": True,
+        "status": {"reasons": [], "work": {}},
+    }
+
+
+def test_denormalize_maps_all_xyz_payloads_once():
+    c, k = np.array([100.0, -50.0, 7.0]), 8.0
+    stuv = np.array([[0.1, 0.2, 0.3, 0.4], [0.5, 0.5, 0.5, 0.5]])
+    xyz_n = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    b = SSXBranch(curve=(stuv, xyz_n.copy()))
+    p = SSXPoint(stuv=stuv[0].copy(), xyz=xyz_n[0].copy())
+    s = SSXSingularity(kind="tangent_point", stuv=stuv[1].copy(), xyz=xyz_n[1].copy())
+    r = _denormalize_result(_fake_result([b], [p], [s]), c, k)
+    assert np.allclose(r["branches"][0].curve[1], xyz_n * k + c)
+    # stuv is parameter-space: bit-identical, same object.
+    assert r["branches"][0].curve[0] is stuv
+    assert np.allclose(r["points"][0].xyz, xyz_n[0] * k + c)
+    assert np.allclose(r["singularities"][0].xyz, xyz_n[1] * k + c)
+    assert np.allclose(r["singularities"][0].stuv, stuv[1])
+
+
+def test_denormalize_identity_is_noop_same_objects():
+    xyz = np.array([[1.0, 2.0, 3.0]])
+    b = SSXBranch(curve=(np.zeros((1, 4)), xyz))
+    r = _denormalize_result(_fake_result([b]), np.zeros(3), 1.0)
+    assert r["branches"][0].curve[1] is xyz
+
+
+def test_denormalize_aliased_object_mapped_once():
+    c, k = np.array([10.0, 0.0, 0.0]), 2.0
+    p = SSXPoint(stuv=np.zeros(4), xyz=np.array([1.0, 1.0, 1.0]))
+    r = _denormalize_result(_fake_result(points=[p, p]), c, k)  # same object twice
+    assert np.allclose(r["points"][0].xyz, [12.0, 2.0, 2.0])
+    assert r["points"][1] is r["points"][0]
