@@ -1,0 +1,127 @@
+# SSX v5 P1 — whole-call normalization preamble (design)
+
+Approved 2026-07-21 (user decision via brainstorm: whole-call
+normalization over per-certificate invariance; recorded rationale below).
+Companion to the kickoff
+`docs/superpowers/plans/2026-07-20-ssx5-invariance-kickoff.md`, which
+holds the probe evidence, code anchors, and gate list — this spec does
+not restate them. Scope: P1 only. P2 (the knob-unreachable tier) starts
+after P1 lands and is decided separately with the user.
+
+## Decision and rationale
+
+`bez_ssx` runs its entire search in a canonical frame: both surfaces are
+jointly centered and uniformly scaled at entry, `atol` is scaled with
+them, and xyz outputs are un-mapped exactly once at exit. The
+alternative — CCX-style centered/scaled contexts inside each strict
+check — was rejected because its site list is open-ended (the kickoff
+itself lists "possibly CSX-side gates"; 7,434 of case 11's 24,136 cells
+are CSX sub-searches that would stay at world coordinates), this defect
+class has recurred three times (`float t`, L48, this), and the probes
+show normalization also *reduces* search work (case 6: 2,340→1,434
+cells; case 11: 24,136→19,798). A uniform similarity preserves angles
+and all atol-relative ratios exactly, so in exact arithmetic the result
+is identical — the only change is floating-point conditioning.
+
+## 1. Normalization context
+
+New helper in `_bez_ssx5.py`:
+
+- `_ssx_normalization_context(S1, S2, rational) -> (c, k)`
+  - Joint Cartesian AABB over both control nets (dehomogenize when
+    `rational`; `w` entries that are zero/non-finite make the context
+    degenerate → identity).
+  - `c` = AABB center (a float64 triple; any representable value is
+    fine).
+  - `k` = AABB diagonal snapped to the nearest power of two
+    (`2**round(log2(diag))`), so the scale divide is mantissa-exact and
+    only the one-time centering multiply-subtract rounds.
+  - Degenerate guard: `diag` zero or non-finite → `c = 0, k = 1`
+    (identity transform; the pipeline behaves exactly as today).
+- Normalization is **unconditional** — no "already small" threshold, one
+  code path, and the invariance property test stays honest because the
+  engine always runs in the canonical frame.
+
+## 2. Entry transform
+
+In `bez_ssx`, immediately after the existing `np.asarray` conversions:
+
+- Rational: `H[..., :3] -= c * H[..., 3:]` then `H[..., :3] /= k` (the
+  `_center_curve_homogeneous_for_exactness` pattern from
+  `ccx/_bez_ccx4.py`, adapted to (n,m,4) surface nets). Non-rational:
+  `(S - c) / k`.
+- `atol_n = atol / k` (exact for power-of-2 `k`).
+- `max_xyz_step`, when the caller provides it, is an xyz length →
+  `max_xyz_step / k`. All other kwargs are counts/depths — invariant.
+- Everything downstream (budgets, ladders, certificates, CSX calls,
+  marchers, assembly) runs unchanged on the normalized data.
+
+## 3. Exit un-map — exactly once
+
+`_denormalize_result(result, c, k)` applied at the single `_result`
+closure choke point that every return path already goes through.
+Identity `(c=0, k=1)` short-circuits.
+
+Un-map inventory (`xyz_world = xyz_n * k + c`):
+
+- `SSXBranch.curve` control points' xyz components — **before** the
+  derived `curve_xyz` / `curve_st` / `curve_uv` caches are materialized
+  (they are `init=False` lazies; un-mapping the source curve first means
+  the caches are built from world data).
+- `SSXPoint.xyz`.
+- `SSXSingularity.xyz` (`stuv`, `stuv_mate`, `samples` (N,4
+  parameter-space), `branch_links` are invariant).
+- `overlap_regions`: rim curves are branch references (already covered);
+  uv loops, `interior_stuv` are parameter-space; `certification`
+  residuals are recorded in atol units — invariant.
+- `unresolved_regions`: payload audited during planning; any xyz field
+  found joins this inventory (plan-level detail, not a new decision).
+
+Rounding argument: the un-map adds one multiply-add per coordinate,
+error ~`eps·|c|` absolute (≈7e-13 at case 11's offset) — far below any
+supported `atol`.
+
+## 4. Contract documentation (no arithmetic changes)
+
+- `_strict_ssx_root_tol`: docstring gains its true precondition — it is
+  evaluated in the normalized frame, where extent ≈ magnitude, so the
+  extent-scaled budget matches the residual roundoff by construction.
+  The 2026-07-20 diagnosis (extent-scaled budget vs magnitude-scaled
+  noise) becomes structurally impossible rather than accidentally
+  avoided.
+- `bez_ssx` docstring documents the internal canonical frame and the
+  world-in/world-out contract.
+- The fixed 1e-14 corrector tolerances (`_ssx_correct`,
+  `_ssx_correct_fixed`), the tolerance ladder, and all certificate
+  arithmetic stay **byte-identical**. Never fix by loosening — and under
+  normalization, never fix by touching at all.
+
+## 5. Testing
+
+- **Invariance property test** (kickoff gate 5, the durable class
+  guard): fixed seed set of surface pairs; `bez_ssx(S1, S2, atol)` vs
+  `bez_ssx((S1-c)/k, (S2-c)/k, atol/k)` must agree in topology (branch
+  count/kinds/closure, reasons set) AND in un-mapped geometry, for
+  translations `c` up to ~1e4 and scales `k ∈ [1e-2, 1e3]`. This test
+  is simultaneously the guard against a missed/doubled un-map payload:
+  an xyz field off by `k`/`c` fails the geometry comparison loudly.
+- **Acceptance**: the kickoff's gates verbatim — case 6 original coords
+  at atol=1e-3 → `complete=True, reasons=[]`, one branch matching the
+  normalized-run topology; case 11 original at atol=0.1 → complete, at
+  1e-3 → `trace_unverified` gone (`work_budget` may remain until P2).
+- **Regression floor**: `tests/test_bez_ssx5_singular.py` (115),
+  `tests/test_nssx5.py` (41), the 95-test bez/ccx/csx set, both
+  coverage harnesses (`bez_ssx5_coverage_check.py` at 100%,
+  `nurbs_ssx5_coverage_check.py` 8 OK rows unchanged, target 9 OK).
+- Cell-count-sensitive pins and harness `CASE_NOTES` shift with the
+  change (normalization alters every run's numerical trajectory —
+  expected, kickoff anticipates it); update them WITH the engine change
+  per their in-file comments.
+
+## 6. Out of scope
+
+`_nssx5.py` (correct; reports engine truth), tangential semantics (stop
+and re-scope if they move), Cython, P2. If a fixture ever demands
+per-axis anisotropic handling inside a specific predicate, the
+CCX-style context remains available there later — normalization does
+not foreclose it.
