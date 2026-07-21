@@ -1956,7 +1956,20 @@ def _ssx_correct(S1, S2, s, t, u, v, rational=True, max_iter=32, tol=1e-14):
 
 
 def _strict_ssx_root_tol(S1, S2, rational=True):
-    """Translation-invariant roundoff scale for an exact Psi zero."""
+    """Roundoff scale for an exact Psi zero, valid in P1's frames.
+
+    PRECONDITION (P1, 2026-07-21): callers pass nets as prepared by the
+    bez_ssx preamble — either the identity frame inside
+    `_NORM_IDENTITY_WINDOW` (the regime the singular-suite floor
+    calibrates, native magnitudes 1..362) or the canonical frame, whose
+    target-band scaling bounds coordinate magnitude into ~[5.7, 11.3].
+    The envelope scales with the extent (`diag`); the residual
+    arithmetic it budgets rounds off with the magnitude; the preamble
+    bounds their mismatch, so the 2026-07-20 case-6/11 diagnosis
+    (extent-scaled budget vs magnitude-scaled noise on off-origin
+    models) cannot recur for out-of-window inputs.  Do not call this on
+    raw world-frame nets at large offsets.
+    """
     if rational:
         p1 = S1[..., :-1] / S1[..., -1:]
         p2 = S2[..., :-1] / S2[..., -1:]
@@ -1981,8 +1994,10 @@ def _strict_ssx_root_tol(S1, S2, rational=True):
 # (a non-dyadic center broke the exact cusp line).  The trace-certificate
 # defect this frame exists to fix is measured only at magnitudes >= ~71
 # (case 6 recentered) — so normalize from 2**5 up, and from 2**-5 down
-# (mirror bound; scaling tiny models up is mantissa-exact).  Making the
-# singular tier itself scale-invariant is the P1b follow-up
+# (mirror bound; scaling tiny models up is mantissa-exact).  Sub-band
+# centering still rounds ~1 ulp when the center is non-dyadic and no
+# fixture exercises magnitudes below 2**-5 — P1b tracks that gap too.
+# Making the singular tier itself scale-invariant is the P1b follow-up
 # (docs/superpowers/issues/2026-07-21-ssx5-p1b-singular-tier-scale-invariance.md).
 _NORM_IDENTITY_WINDOW = (2.0 ** -5, 2.0 ** 5)
 
@@ -6101,6 +6116,21 @@ def bez_ssx(
 
     The kwargs stay expert knobs with safe defaults: read ``complete`` (and
     ``reasons`` if you care why); never tune knobs to get correctness.
+
+    Numerical frame (P1, 2026-07-21 design + amendments 1-2): inputs
+    whose joint coordinate magnitude falls outside `_NORM_IDENTITY_WINDOW`
+    run in a canonical frame — both nets jointly centered at the AABB
+    midpoint and scaled by a power of two into the native-proven
+    magnitude band [5.66, 11.31] — so the strict Psi-zero certificates,
+    fixed corrector tolerances, and marching machinery see calibrated
+    coordinates for any world placement; in-window inputs keep the
+    bit-for-bit legacy frame.  The contract stays world-in/world-out:
+    xyz outputs are un-mapped exactly once at exit; parameters and
+    weights are frame-invariant; ``atol``/``max_xyz_step`` scale with the
+    frame internally.  Transversal results are similarity-invariant
+    (pinned by tests/test_bez_ssx5_invariance.py); singular structure at
+    extreme scales is the P1b limit
+    (docs/superpowers/issues/2026-07-21-ssx5-p1b-singular-tier-scale-invariance.md).
     """
     S1 = np.asarray(S1, dtype=np.float64)
     S2 = np.asarray(S2, dtype=np.float64)
