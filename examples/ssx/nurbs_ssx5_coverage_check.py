@@ -75,8 +75,16 @@ CASE_NOTES = {
          "v-family samples the tangential curve, covered by the "
          "tangential branch (verified 100%, no longer vacuous)"),
     11: ("P1 fixed the trace certificate at original coords "
-         "(trace_unverified gone; 92.68%); work_budget remains from the "
-         "knob-unreachable internal tier (P2, open)"),
+         "(trace_unverified gone; 92.68%). P2 (2026-07-25) NAMED the "
+         "knob-unreachable tier: the marcher's hardcoded per-march cap of "
+         "400 points, now reported as 'trace_point_cap' instead of "
+         "misbilling 'work_budget'. Truth is one closed loop of length "
+         "1261.25 (recovered whole at atol>=1e-2); points needed scale as "
+         "1/sqrt(atol), so tight tolerances truncate. Deriving that cap is "
+         "its own tier (open); the residual 'work_budget' at very tight "
+         "atol comes from a bez_csx max_depth truncation that still "
+         "reports a bare budget_exhausted flag — see "
+         "docs/superpowers/issues/2026-07-25-ssx5-p2-knob-unreachable-ledger.md"),
 }
 
 

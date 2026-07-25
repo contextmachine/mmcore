@@ -66,6 +66,7 @@ from mmcore.numeric._work_budget import (  # noqa: F401
     REASON_TANGENTIAL_ZONE,
     REASON_MULTIPLICITY,
     REASON_TRACE_UNVERIFIED,
+    REASON_TRACE_POINT_CAP,
     REASON_SINGULAR_SET,
     SoftWorkBudget as _SSXSoftBudget,
     charge_hook as _charge_hook,
@@ -4773,11 +4774,18 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
                     continue
 
             trace_limit = 400
+            # Which allowance actually bounds this march?  P2 (2026-07-25):
+            # the two are structurally different and must not report the
+            # same reason — the ledger is a knob the caller can raise, the
+            # per-march point cap is not.
+            trace_cap_is_internal = True
             if work_budget is not None:
                 if work_budget.exhausted or work_budget.remaining_cells <= 0:
                     _deny_trace_work()
                     break
-                trace_limit = min(trace_limit, work_budget.remaining_cells)
+                if work_budget.remaining_cells < trace_limit:
+                    trace_limit = work_budget.remaining_cells
+                    trace_cap_is_internal = False
             trace_stats = {}
             stuv_local, xyz_local, exit_info = _march_to_boundary(
                 cell.g1.surface, cell.g2.surface, seed_local,
@@ -4794,7 +4802,15 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
                 break
             if (trace_iterations >= trace_limit and exit_info is None):
                 if work_budget is not None:
-                    work_budget.mark_incomplete(REASON_WORK_BUDGET)
+                    # Name the allowance that actually ran out.  Billing the
+                    # shared ledger for an internal per-march cap told
+                    # consumers to raise max_cells; measured on harness case
+                    # 11 at atol=2.5e-6 that knob was at 2.5% utilization and
+                    # raising it changed nothing (the march needs ~1/sqrt(atol)
+                    # points and gets a fixed 400).
+                    work_budget.mark_incomplete(
+                        REASON_TRACE_POINT_CAP if trace_cap_is_internal
+                        else REASON_WORK_BUDGET)
                     if work_budget.remaining_cells <= 0:
                         work_budget.mark_exhausted()
 

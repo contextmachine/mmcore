@@ -69,6 +69,7 @@ REASON_OVERLAP_REGION = "overlap_region_unsupported"  # 2-D coincidence region d
 REASON_TANGENTIAL_ZONE = "unresolved_tangential_zone"  # truncated Δ/Φ tangency enumeration or Φ-loop path not certified
 REASON_MULTIPLICITY = "unresolved_multiplicity"  # rank-deficient Δ-root / crossing cluster whose local dimension is unproven
 REASON_TRACE_UNVERIFIED = "trace_unverified"  # marched continuation failed the strict Ψ-zero path certificate
+REASON_TRACE_POINT_CAP = "trace_point_cap"  # a marched continuation used its whole PER-MARCH point allowance without reaching a cell boundary, while the shared ledger still had room: an internal structural cap, not a resource shortfall, so raising max_cells/max_csx_calls cannot finish it (P2 2026-07-25 — measured on harness case 11 at atol=2.5e-6, where the engine stopped at 6,190 of 250,000 cells and the former work_budget misbilling invited the caller to raise a knob that provably could not move)
 REASON_SINGULAR_SET = "unresolved_singular_set"  # a positive-dimensional singular-set (Σ) enumeration truncated at an internal cap: the emitted typed singularities may under-cover the set, and no resource knob can finish a point enumeration of a curve (L52 slice 9 / §11.6 — the honest replacement for the former work_budget misbilling)
 
 

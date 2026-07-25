@@ -1137,3 +1137,57 @@ def test_boundary_coincidence_survives_similarity():
         expect = sorted(t[2] * k for t in _BC_TRUTH)
         for got_l, exp_l in zip(lengths, expect):
             assert abs(got_l - exp_l) <= 1e-2 * k, (c, k, lengths, expect)
+
+
+# ---------------------------------------------------------------------------
+# P2 (2026-07-25): the public work knobs must actually reach the engine.
+#
+# `_make_aggregate` documents explicit values as "absolute aggregate
+# promises", but every per-pair `bez_ssx` call was then clamped to the
+# module default (250k cells) regardless of what the caller asked for.  With
+# a single candidate pair that is pure knob-unreachability: measured on
+# harness case 11 at atol=2.5e-6, passing max_cells=2_000_000 still stopped
+# the engine at 249,657/250,000 and reported reasons=['work_budget'] —
+# telling the consumer to raise a knob that provably does nothing.
+#
+# The default path must stay bit-identical (the per-pair default is a
+# fairness share, not a ceiling to be lifted for everyone); only an explicit
+# aggregate promise is redistributed across the remaining candidates.
+# ---------------------------------------------------------------------------
+
+def _capture_bez_ssx_budgets(monkeypatch, surfs, **kwargs):
+    import mmcore.numeric.intersection.ssx._nssx5 as nm
+
+    seen = []
+    orig = nm.bez_ssx
+
+    def spy(P1, P2, **kw):
+        seen.append({k: kw.get(k) for k in
+                     ("max_cells", "max_csx_calls", "max_output_items")})
+        return orig(P1, P2, **kw)
+
+    monkeypatch.setattr(nm, "bez_ssx", spy)
+    nm.nurbs_ssx(surfs[0], surfs[1], **kwargs)
+    return seen
+
+
+def test_explicit_max_cells_reaches_the_engine(monkeypatch):
+    from mmcore.numeric.intersection.ssx._nssx5 import _BEZ_DEFAULT_MAX_CELLS
+
+    pair = _boundary_coincidence_pair()
+    seen = _capture_bez_ssx_budgets(
+        monkeypatch, pair, atol=1e-3, max_cells=2_000_000)
+    assert seen, "no bez_ssx call captured"
+    assert max(s["max_cells"] for s in seen) > _BEZ_DEFAULT_MAX_CELLS, seen
+
+
+def test_default_budget_path_is_unchanged(monkeypatch):
+    """The per-pair default is a fairness share; an unset budget must give
+    each pair exactly the module default, as before."""
+    from mmcore.numeric.intersection.ssx._nssx5 import _BEZ_DEFAULT_MAX_CELLS
+
+    pair = _boundary_coincidence_pair()
+    seen = _capture_bez_ssx_budgets(monkeypatch, pair, atol=1e-3)
+    assert seen
+    for s in seen:
+        assert s["max_cells"] == _BEZ_DEFAULT_MAX_CELLS, seen

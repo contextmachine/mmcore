@@ -242,6 +242,12 @@ class _AggregateStatus:
     output_items: int = 0
     reasons: list = field(default_factory=list)
     cell_counts: dict = field(default_factory=dict)
+    # Did the CALLER set this ledger, or is it the candidate-scaled default?
+    # An explicit value is an absolute aggregate promise and is redistributed
+    # across the remaining pairs; a default is a per-pair fairness share.
+    explicit_cells: bool = False
+    explicit_csx: bool = False
+    explicit_output: bool = False
 
     def _add(self, reason: str) -> None:
         if reason not in self.reasons:
@@ -333,7 +339,44 @@ def _make_aggregate(kwargs: dict, n_candidates: int) -> _AggregateStatus:
         max_postprocess_work=kwargs.get('max_postprocess_work'))
     return _AggregateStatus(
         max_cells=agg_cells, max_csx_calls=agg_csx,
-        max_output_items=agg_out, post=post)
+        max_output_items=agg_out, post=post,
+        explicit_cells=kwargs.get('max_cells') is not None,
+        explicit_csx=kwargs.get('max_csx_calls') is not None,
+        explicit_output=kwargs.get('max_output_items') is not None)
+
+
+def _per_pair_allowance(agg, remaining_candidates):
+    """Split what the aggregate has LEFT among the candidates still to run.
+
+    P2 (2026-07-25): the per-pair values used to be
+    ``min(_BEZ_DEFAULT_MAX_*, remaining)`` — the module default acting as a
+    hard ceiling on every call.  With one candidate pair that made the
+    public knobs unreachable: an explicit ``max_cells=2_000_000`` still
+    handed the engine 250k, which then reported ``work_budget`` and invited
+    the caller to raise a knob that could not move.
+
+    The default path is unchanged BY CONSTRUCTION: an unset budget makes the
+    aggregate exactly ``default * n_candidates``, so an even split of the
+    full aggregate is exactly ``default`` per pair.  Only an EXPLICIT
+    aggregate — which `_make_aggregate` documents as an absolute promise —
+    redistributes, and it stays fair by dividing what remains among the
+    candidates that remain rather than letting the first pair take it all.
+    """
+    n = max(1, int(remaining_candidates))
+
+    def share(remaining, default, explicit):
+        if not explicit:
+            return min(default, remaining)
+        return min(remaining, max(1, -(-remaining // n)))
+
+    return (
+        share(agg.remaining_cells, _BEZ_DEFAULT_MAX_CELLS,
+              agg.explicit_cells),
+        share(agg.remaining_csx_calls, _BEZ_DEFAULT_MAX_CSX_CALLS,
+              agg.explicit_csx),
+        share(agg.remaining_output_items, _BEZ_DEFAULT_MAX_OUTPUT_ITEMS,
+              agg.explicit_output),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1316,12 +1359,13 @@ def nurbs_ssx(surf1, surf2, atol=1e-3, **kwargs) -> dict:
         else:
             P1 = np.ascontiguousarray(p1.control_points, dtype=np.float64)
             P2 = np.ascontiguousarray(p2.control_points, dtype=np.float64)
+        _pair_cells, _pair_csx, _pair_out = _per_pair_allowance(
+            agg, len(candidates) - k)
         result = bez_ssx(
             P1, P2, atol=atol, rational=rational,
-            max_cells=min(_BEZ_DEFAULT_MAX_CELLS, agg.remaining_cells),
-            max_csx_calls=min(_BEZ_DEFAULT_MAX_CSX_CALLS,
-                              agg.remaining_csx_calls),
-            max_output_items=min(_BEZ_DEFAULT_MAX_OUTPUT_ITEMS,
+            max_cells=_pair_cells,
+            max_csx_calls=_pair_csx,
+            max_output_items=min(_pair_out,
                                  agg.remaining_output_items),
             **forward)
         agg.consume(result)
