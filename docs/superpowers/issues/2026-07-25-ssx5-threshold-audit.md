@@ -70,6 +70,50 @@ the four P1b fixtures (they already flip under `×1/4..1/16`).
 
 ### Cluster 2 — Newton convergence stops in xyz units (9 sites)
 
+> **PREMISE REVISED 2026-07-25 by measurement — do NOT execute the
+> conversion below as written.**  The claim "reachable only in a magnitude
+> band (~≤ 32 for 1e-14)" does not survive a fixture.  Measured on
+> `_ssx_correct`:
+>
+> | family | mag 1 | mag 8/16 | mag 32 | mag 100 | mag 1000 |
+> |---|---|---|---|---|---|
+> | transversal planes | 3 it, 0.0 | 3 it, 0.0 | 2 it, 8.1e-15 | 6 it, 7.8e-16 | 3 it, 1.1e-13 ✗ |
+> | tangent LINE (the family the 32-step cap was calibrated on) | 29 it, 9.1e-15 | 24 it, 8.4e-15 | 25 it, 4.9e-15 | — | — |
+> | ISOLATED tangency (point contact) | **32 it STALL, 4.5e-11** | 32 it, 1.7e-8 | 32 it, 2.7e-7 | — | — |
+>
+> Two conclusions:
+> 1. The absolute 1e-14 stop **is** reachable throughout the identity
+>    window for both calibrated families — and well past it (magnitude 100
+>    for transversals).  It first fails at magnitude ~1000, which is
+>    out-of-window and therefore reframed by P1.  So these sites are
+>    **shielded, not load-bearing, today**; they become load-bearing only
+>    if the frame is retired (kickoff §4).
+> 2. The real stall is **conditioning, not scale**: an isolated tangency
+>    burns all 32 iterations at EVERY magnitude, including 1.0.  And the
+>    prescribed fix would not touch it — the achieved residual (4.5e-11 at
+>    magnitude 1) exceeds both the 1e-14 stop AND the proposed
+>    `K·eps·⟨magnitude⟩` floor (2.3e-13) by orders of magnitude.  This is a
+>    Newton convergence-rate problem at a singular contact, not a
+>    threshold-scaling problem.
+>
+> Revised sequencing: cluster 2's conversion is a **frame-retirement
+> prerequisite**, not an independent defect fix, and should be scheduled
+> with that decision.  The isolated-tangency stall is a separate,
+> genuinely open item (it silently caps corrector accuracy at 1e-7 for
+> magnitude-32 point contacts) and deserves its own investigation —
+> deflation or a Newton variant with the right convergence order, which is
+> cluster 1's territory, not a stop-threshold change.
+>
+> Reproduction (scratchpad is wiped between sessions — rebuild from this):
+> call `_ssx_correct(S1_h, S2_h, .42, .55, .5, .5, rational=True)` on
+> homogenized nets scaled by `mag`, counting iterations by wrapping
+> `m.eval_surface_d1` (two calls per iteration plus one final pair).
+> Families: transversal = unit square plane vs a plane tilted ±0.5 in z;
+> tangent LINE = parabolic cylinder z-coeffs `[1,-1,1]` in u only, vs z=0;
+> ISOLATED tangency = biquadratic bowl (z-coeffs `[1,-1,1]` summed over
+> BOTH axes, shifted so min z = 0) vs z=0.  The bowl is the harsh case and
+> the one the 32-step cap was never calibrated against.
+
 `tol=1e-14` (`_ssx_correct` `:1894`, `_ssx_correct_fixed` `:2663`),
 `dot(f,f) < 1e-20` Φ-corrector stops (`:3345,:3760`), `1e-24` polish
 stop (`:4072` — acceptance is `0.01·atol`, so stop-only), `newton_ssx
