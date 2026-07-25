@@ -194,8 +194,13 @@ def test_bez_ssx_world_in_world_out_offset_planes():
 # model at offset/scale (outside the window -> canonical frame), so each
 # parametrization compares the identity path against the normalized path
 # across the window cliff.  Topology must match exactly; geometry must
-# match through the map within a few atol.  Transversal pairs only:
-# singular structure at extreme scales is the documented P1b limit.
+# match through the map within a few atol.
+#
+# Structural classes covered: transversal open, closed loop, rational, and
+# (since the 2026-07-25 cluster-4 burn-down) boundary-coincident.  The
+# singular classes still stand out: their tiers keep bare residual bars, so
+# they enter as those envelopes get derived — the sweep IS the burn-down's
+# acceptance gate, per the derived-envelopes kickoff.
 # ---------------------------------------------------------------------------
 
 
@@ -232,7 +237,31 @@ def _rational_pair():
     return s1, s2, True
 
 
-PAIRS = [("planes", _plane_pair), ("loop", _loop_pair), ("rational-arc", _rational_pair)]
+def _boundary_coincidence_pair():
+    # Cluster-4 burn-down (2026-07-25): the user's bilinear pair, scaled by
+    # 1/8 so the REFERENCE run sits inside the identity window and every
+    # transform cell below is the one exercising the canonical frame.
+    #
+    # s1's height is z = 0.625(1-u)v, so its z=0 locus is exactly its u=1 and
+    # v=0 domain edges; s2 is a planar z=0 non-parallelogram quad clipping
+    # them.  Their shared corner falls outside s2, so the truth is two
+    # separate boundary-coincident overlap branches.
+    #
+    # This is the class the P1 canonical frame regressed: the frame's
+    # centering turned s1's identically-zero z coordinate into cancellation
+    # noise, which the Phase-2 CCX hull prune read as "provably nonzero" and
+    # used to delete a genuine crossing.  It enters the sweep because the
+    # tier now derives that envelope from the centering's own operands
+    # rather than from the already-cancelled values.
+    s1 = np.array([[[-2.0, -3.375, 0.0], [-1.0, -3.125, 0.625]],
+                   [[-4.5, 0.25, 0.0], [-2.5, -0.375, 0.0]]])
+    s2 = np.array([[[-4.25, -0.875, 0.0], [-3.25, 0.25, 0.0]],
+                   [[-2.375, -2.5, 0.0], [-2.125, -1.25, 0.0]]])
+    return s1, s2, False
+
+
+PAIRS = [("planes", _plane_pair), ("loop", _loop_pair), ("rational-arc", _rational_pair),
+         ("boundary-coincidence", _boundary_coincidence_pair)]
 
 TRANSFORMS = [
     (np.array([1e3, -2e3, 5e2]), 1.0),

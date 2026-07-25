@@ -224,13 +224,22 @@ def _cartesian_controls_for_exactness(ctrl, rational):
     return points
 
 
-def _center_homogeneous_for_exactness(ctrl, rational, origin):
+def _center_homogeneous_for_exactness(ctrl, rational, origin,
+                                      with_source_scale=False):
     """Translate homogeneous controls by a common Cartesian origin.
 
     Normalize once before the homogeneous translation to avoid overflow in
     ``origin * weight``, then normalize the translated net again for stable
     evaluation.  Both normalizations are one common nonzero homogeneous
     factor and therefore leave the represented geometry unchanged.
+
+    With ``with_source_scale`` this also returns the magnitude of the two
+    operands the translation subtracts, carried through the same final
+    normalization.  Because the division by ``scale`` happens BEFORE the
+    subtraction, a coordinate whose exact translated value is zero arrives
+    as cancellation noise rather than as an exact zero; any envelope built
+    from the cancelled value alone is then circular.  Twin of ccx's
+    `_center_curve_homogeneous_for_exactness`.
     """
     ctrl = np.asarray(ctrl, dtype=np.float64)
     if rational:
@@ -241,14 +250,18 @@ def _center_homogeneous_for_exactness(ctrl, rational, origin):
             axis=-1)
     scale = float(np.max(np.abs(homog)))
     if not np.isfinite(scale) or scale <= 0.0:
-        return None
+        return (None, None) if with_source_scale else None
     homog /= scale
-    homog[..., :-1] -= (
-        np.asarray(origin, dtype=np.float64) * homog[..., -1:])
+    shift = np.asarray(origin, dtype=np.float64) * homog[..., -1:]
+    operand_mag = np.abs(homog[..., :-1]) + np.abs(shift)
+    homog[..., :-1] -= shift
     local_scale = float(np.max(np.abs(homog)))
     if not np.isfinite(local_scale) or local_scale <= 0.0:
-        return None
-    return np.ascontiguousarray(homog / local_scale)
+        return (None, None) if with_source_scale else None
+    out = np.ascontiguousarray(homog / local_scale)
+    if not with_source_scale:
+        return out
+    return out, np.ascontiguousarray(operand_mag / local_scale)
 
 
 def _strict_csx_root_tol(C, S, rational):
@@ -258,8 +271,10 @@ def _strict_csx_root_tol(C, S, rational):
     if c_pts is None or s_pts is None:
         return None
     origin = np.asarray(c_pts).reshape(-1, 3)[0].copy()
-    c_centered = _center_homogeneous_for_exactness(C, rational, origin)
-    s_centered = _center_homogeneous_for_exactness(S, rational, origin)
+    c_centered, c_src = _center_homogeneous_for_exactness(
+        C, rational, origin, with_source_scale=True)
+    s_centered, s_src = _center_homogeneous_for_exactness(
+        S, rational, origin, with_source_scale=True)
     if c_centered is None or s_centered is None:
         return None
     c_local = c_centered[..., :-1] / c_centered[..., -1:]
@@ -269,7 +284,27 @@ def _strict_csx_root_tol(C, S, rational):
         np.asarray(s_local).reshape(-1, 3),
     ])
     component_scale = np.max(np.abs(points), axis=0)
-    return c_centered, s_centered, component_scale
+    # Per-axis envelope of the centering's own cancellation, in the same
+    # dehomogenized units as `component_scale`.  An axis that is genuinely
+    # absent from both operands keeps a zero envelope, so this can never
+    # hide a real offset; an axis that is only zero up to the translation's
+    # roundoff gets the margin it actually needs.  Factor matches the
+    # certificate's own `32 * degree_factor` family below.
+    c_w = np.abs(c_centered[..., -1:])
+    s_w = np.abs(s_centered[..., -1:])
+    if np.any(c_w == 0.0) or np.any(s_w == 0.0):
+        return None
+    degree_factor = max(
+        1, len(C) + int(np.asarray(S).shape[0]) + int(np.asarray(S).shape[1]))
+    centering_noise = (32.0 * degree_factor * np.finfo(np.float64).eps
+                       * np.maximum(
+                           np.max(np.asarray(c_src / c_w).reshape(-1, 3),
+                                  axis=0),
+                           np.max(np.asarray(s_src / s_w).reshape(-1, 3),
+                                  axis=0)))
+    component_scale = np.where(
+        component_scale > centering_noise, component_scale, 0.0)
+    return c_centered, s_centered, component_scale, centering_noise
 
 
 def _strict_csx_residual_ok(C, S, t, u, v, rational, strict_context):
@@ -278,7 +313,8 @@ def _strict_csx_residual_ok(C, S, t, u, v, rational, strict_context):
         pc = eval_curve(C, float(t), rational=rational)
         ps = eval_surface(S, float(u), float(v), rational=rational)
         return False, pc - ps
-    c_centered, s_centered, component_scale = strict_context
+    c_centered, s_centered, component_scale = strict_context[:3]
+    centering_noise = strict_context[3]
     pc = eval_curve(c_centered, float(t), rational=True)
     ps = eval_surface(s_centered, float(u), float(v), rational=True)
     if not (np.all(np.isfinite(pc)) and np.all(np.isfinite(ps))):
@@ -289,6 +325,23 @@ def _strict_csx_residual_ok(C, S, t, u, v, rational, strict_context):
     degree_factor = max(
         1, len(C) + int(S.shape[0]) + int(S.shape[1]))
     bound = (32.0 * degree_factor * np.finfo(np.float64).eps) * scale
+    # DEGENERATE AXES ONLY.  An axis with real content keeps the relative
+    # bound above untouched: widening it there costs resolution where it
+    # matters most, because near a tangency the parameter error grows as
+    # the square root of the residual envelope (a blanket second term moved
+    # this module's near-tangent root off 0.5 by 1.7e-7 against a 1e-7 bar).
+    # An axis whose entire content is the common-origin centering's own
+    # cancellation has no scale to be relative to — `component_scale` is 0
+    # there by construction — so its bound is that cancellation envelope.
+    # Sources genuinely zero on an axis give envelope 0 and the pre-existing
+    # exact-zero behaviour is preserved bit-for-bit; a planar pair merely
+    # translated off its own plane now certifies at every world position
+    # instead of ~70% of them.
+    absent = np.asarray(component_scale, dtype=np.float64) == 0.0
+    bound = np.where(
+        absent,
+        np.maximum(bound, np.asarray(centering_noise, dtype=np.float64)),
+        bound)
     residual = pc - ps
     return bool(np.all(np.abs(residual) <= bound)), residual
 
@@ -310,7 +363,7 @@ def _polish_csx_root(C, S, t, u, v, rational, strict_tol):
     if strict_tol is None:
         polish_C, polish_S, polish_rational = C, S, rational
     else:
-        polish_C, polish_S, _component_scale = strict_tol
+        polish_C, polish_S = strict_tol[0], strict_tol[1]
         polish_rational = True
     t, u, v, G, _ = newton_csx(
         polish_C, polish_S, t, u, v,
@@ -338,7 +391,7 @@ def _polish_csx_boundary_root(
     if strict_tol is None:
         polish_C, polish_S, polish_rational = C, S, rational
     else:
-        polish_C, polish_S, _component_scale = strict_tol
+        polish_C, polish_S = strict_tol[0], strict_tol[1]
         polish_rational = True
 
     for _ in range(max(0, int(max_iter))):
@@ -1003,7 +1056,7 @@ def _collapsed_point_surface_membership(
 
     if strict_context is None:
         return False, float(u), float(v), residual
-    c_centered, s_centered, component_scale = strict_context
+    c_centered, s_centered, component_scale = strict_context[:3]
     point_local = eval_curve(c_centered, float(t), rational=True)
     surface_local = eval_surface(
         s_centered, float(u), float(v), rational=True)

@@ -96,6 +96,15 @@ the call-site scaling is fine; the INTERNAL usage is the defect.
 
 ### Cluster 4 — the CSX overlap-detection chain (the k=2 fixture, mechanism unlocalized)
 
+> **RESOLVED 2026-07-25** — `2026-07-25-ssx5-cluster4-centering-cancellation.md`.
+> None of the candidates below was the cause.  The defect is the
+> common-origin CENTERING (scale-only reframing is exactly covariant):
+> normalizing before translating turns an identically-zero coordinate into
+> cancellation noise, which four predicates then measured relative to the
+> already-cancelled value.  Note for the remaining clusters: this class is
+> invisible to a literal-enumeration audit — the constants were all fine,
+> the *operand* was wrong.  Ask what each bound is relative TO.
+
 The user's boundary-coincidence fixture: world frame → 1 span
 `'exact'` @1e-14; k=2 canonical frame (bit-exact transform) → 0
 overlaps + 3,989 isolated pseudo-roots. The collapse mechanism is NOT

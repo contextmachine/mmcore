@@ -1018,3 +1018,122 @@ def test_case11_original_coords_certificate_clean_at_atol_1e3():
     s1, s2 = _load_fixture_pair(11)
     r = nurbs_ssx(s1, s2, atol=1e-3)
     assert REASON_TRACE_UNVERIFIED not in r["status"]["reasons"], r["status"]
+
+
+# ---------------------------------------------------------------------------
+# Cluster-4 burn-down (2026-07-25): user-authored boundary-coincidence pair.
+#
+# s1 is a bilinear whose height is z = 5(1-u)v, so its z=0 locus is exactly
+# its u=1 and v=0 DOMAIN EDGES; s2 is a planar (z=0) non-parallelogram quad.
+# The true intersection is those two straight edges clipped to s2's quad.
+# Their shared corner (-36, 2, 0) lies OUTSIDE s2, so the result is two
+# separate boundary-coincident branches, not one polyline through the corner.
+#
+# The pair's joint magnitude is 36 — above the identity window — so the whole
+# call runs in the k=2 canonical frame.  Before the Phase-2 hull-prune
+# translation fix, the centered frame's cancellation noise made
+# `_vector_residual_hull_excludes_zero` delete the v=0 span's boundary
+# crossing; the CSX overlap tier then failed to arm and the span evaporated
+# into reasons=['overlap_region_unsupported'] at 29% coverage.
+#
+# Truth below is computed analytically (segment/quad clipping), not recorded
+# from the engine.
+# ---------------------------------------------------------------------------
+
+_BC_S1_CP = np.array([[[-16.0, -27.0, 0.0], [-8.0, -25.0, 5.0]],
+                      [[-36.0, 2.0, 0.0], [-20.0, -3.0, 0.0]]])
+_BC_S2_CP = np.array([[[-34.0, -7.0, 0.0], [-26.0, 2.0, 0.0]],
+                      [[-19.0, -20.0, 0.0], [-17.0, -10.0, 0.0]]])
+
+# v=0 edge clipped to the quad: t in [0.377142857143, 0.781553398058]
+# u=1 edge clipped to the quad: t in [0.489130434783, 0.816326530612]
+_BC_TRUTH = [
+    (np.array([-23.542857142857, -16.062857142857, 0.0]),
+     np.array([-31.631067961165, -4.334951456311, 0.0]), 14.2465057482),
+    (np.array([-28.173913043478, -0.445652173913, 0.0]),
+     np.array([-22.938775510204, -2.081632653061, 0.0]), 5.4848060240),
+]
+
+
+def _boundary_coincidence_pair():
+    def surf(cp, ku, kv):
+        return NURBSSurfaceTuple(
+            order_u=2, order_v=2,
+            knot_u=np.array([0.0, 0.0, ku, ku]),
+            knot_v=np.array([0.0, 0.0, kv, kv]),
+            control_points=cp, weights=np.ones((2, 2)))
+
+    return (surf(_BC_S1_CP, 29.20616373, 18.68154169),
+            surf(_BC_S2_CP, 19.84943324, 12.04159458))
+
+
+def _polyline_length(xyz):
+    xyz = np.asarray(xyz, dtype=float)
+    if len(xyz) < 2:
+        return 0.0
+    return float(np.sum(np.linalg.norm(np.diff(xyz, axis=0), axis=1)))
+
+
+def test_boundary_coincidence_two_edge_branches():
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+
+    s1, s2 = _boundary_coincidence_pair()
+    res = nurbs_ssx(s1, s2, atol=1e-3)
+
+    assert res["complete"] is True, res["status"]["reasons"]
+    assert res["status"]["reasons"] == []
+    assert len(res["branches"]) == 2, [b.kind for b in res["branches"]]
+
+    got = []
+    for b in res["branches"]:
+        xyz = np.asarray(b.curve[1], dtype=float)
+        assert len(xyz) >= 2, b.kind
+        # The whole locus is the z=0 plane.
+        assert np.max(np.abs(xyz[:, 2])) <= 1e-6, np.max(np.abs(xyz[:, 2]))
+        got.append(xyz)
+
+    # Match each analytic segment to one branch by endpoint proximity, then
+    # pin its length: a truncated span (the pre-fix failure mode shipped 29%
+    # of the v=0 edge) fails the length check even if the endpoints round.
+    remaining = list(range(len(got)))
+    for a, b_end, length in _BC_TRUTH:
+        best, best_d = None, np.inf
+        for j in remaining:
+            xyz = got[j]
+            d = min(np.linalg.norm(xyz[0] - a) + np.linalg.norm(xyz[-1] - b_end),
+                    np.linalg.norm(xyz[0] - b_end) + np.linalg.norm(xyz[-1] - a))
+            if d < best_d:
+                best, best_d = j, d
+        assert best_d <= 1e-2, (best_d, a, b_end)
+        assert abs(_polyline_length(got[best]) - length) <= 1e-2, (
+            _polyline_length(got[best]), length)
+        remaining.remove(best)
+    assert not remaining
+
+
+def test_boundary_coincidence_survives_similarity():
+    """The class is scale/translation invariant; so must the result be.
+
+    Cells straddle the identity-window cliff in both directions.
+    """
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+
+    s1, s2 = _boundary_coincidence_pair()
+    for c, k in [(np.zeros(3), 1.0),
+                 (np.zeros(3), 1.0 / 64.0),
+                 (np.zeros(3), 256.0),
+                 (np.array([1e3, -2e3, 5e2]), 1.0),
+                 (np.array([-5e3, 3e3, 1e4]), 8.0)]:
+        t1 = NURBSSurfaceTuple(
+            order_u=2, order_v=2, knot_u=s1.knot_u, knot_v=s1.knot_v,
+            control_points=s1.control_points * k + c, weights=s1.weights)
+        t2 = NURBSSurfaceTuple(
+            order_u=2, order_v=2, knot_u=s2.knot_u, knot_v=s2.knot_v,
+            control_points=s2.control_points * k + c, weights=s2.weights)
+        res = nurbs_ssx(t1, t2, atol=1e-3 * k)
+        assert res["complete"] is True, (c, k, res["status"]["reasons"])
+        assert len(res["branches"]) == 2, (c, k, [b.kind for b in res["branches"]])
+        lengths = sorted(_polyline_length(b.curve[1]) for b in res["branches"])
+        expect = sorted(t[2] * k for t in _BC_TRUTH)
+        for got_l, exp_l in zip(lengths, expect):
+            assert abs(got_l - exp_l) <= 1e-2 * k, (c, k, lengths, expect)
