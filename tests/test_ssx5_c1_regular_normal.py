@@ -295,16 +295,66 @@ def test_quartic_regular_tangent_line_is_complete():
     assert np.allclose(xyz[:, 1], 0.5, atol=1e-3)
 
 
+# `S(s,t) = (s, t, (t-1/2)**degree)` deviates from z=0 by at most
+# `0.5**degree` ANYWHERE on the patch.  Once atol exceeds that, the whole
+# surface is tolerance-coincident with the plane and the answer is a 2-D
+# region, not a curve — a different contract, asserted separately below.
+# The off-locus guard therefore has to run at an atol the premise survives.
+_TANGENT_ATOL = {8: 1e-3, 10: 1e-5, 12: 1e-5}
+
+
 @pytest.mark.parametrize("degree", [8, 10, 12])
 def test_high_order_tangent_never_publishes_off_locus_branches(degree):
     from mmcore.numeric.intersection.ssx._bez_ssx5 import bez_ssx
 
+    atol = _TANGENT_ATOL[degree]
+    # Precondition of THIS test: the plane must not be within tolerance of
+    # the entire patch, or "off-locus" has no meaning.
+    assert 0.5 ** degree > atol
+
     surface, plane = _regular_high_order_tangent_line(degree)
-    result = bez_ssx(surface, plane, atol=1e-3, rational=False)
+    result = bez_ssx(surface, plane, atol=atol, rational=False)
 
     # A partial result may omit topology it cannot certify, but every
     # published branch is certified geometry.  Residual-only verification
     # used to emit 4--8 false copies up to 48*atol from the exact line.
+    assert result["branches"], "the tangent line itself must be published"
     for branch in result["branches"]:
         xyz = np.asarray(branch.curve[1])
         assert np.max(np.abs(xyz[:, 1] - 0.5)) <= 2e-3
+
+
+@pytest.mark.parametrize("degree", [10, 12])
+def test_high_order_tangent_below_atol_is_a_coincidence_region(degree):
+    """The regime the off-locus guard above cannot speak for.
+
+    At atol=1e-3 a degree-10/12 patch deviates from the plane by at most
+    9.8e-4 / 2.4e-4 EVERYWHERE, so under the engine's tolerance-coincidence
+    contract (L59: "tolerance-coincidence IS coincidence") the honest answer
+    is a 2-D overlap region whose rim is the four domain edges — NOT a
+    curve near t=1/2, and not an incomplete result either.
+
+    This regime was previously asserted to be off-locus junk, which is why
+    the guard above was red for [10, 12] from the commit that introduced it
+    (5d05ddc) all the way to `tiny` — it never passed.  Pinning the real
+    contract here keeps the guard honest instead of deleting the coverage.
+    """
+    from mmcore.numeric.intersection.ssx._bez_ssx5 import bez_ssx
+
+    atol = 1e-3
+    assert 0.5 ** degree < atol          # the whole patch is within tolerance
+
+    surface, plane = _regular_high_order_tangent_line(degree)
+    result = bez_ssx(surface, plane, atol=atol, rational=False)
+
+    assert result["complete"] is True, result["status"]["reasons"]
+    assert result["status"]["reasons"] == []
+    assert len(result["overlap_regions"]) == 1
+    # The rim rides the domain edges, so it is legitimately far from t=1/2;
+    # what must hold is that every rim point really is on both surfaces.
+    for branch in result["branches"]:
+        xyz = np.asarray(branch.curve[1])
+        assert np.max(np.abs(xyz[:, 2])) <= atol
+    # and the exact locus is still covered by the region's interior
+    stuv = [np.asarray(b.curve[0]) for b in result["branches"]]
+    assert any((np.abs(a[:, 1] - 0.5) < 1e-6).any() for a in stuv)
