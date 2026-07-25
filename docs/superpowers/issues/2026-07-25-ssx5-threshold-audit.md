@@ -9,6 +9,40 @@ regularizer) across the 13 engine-tier files, then per-site dimensional
 classification by reading each context. 251 candidate lines; ~15 are
 docstring text (excluded); every code site below was classified.
 
+## AMENDMENT 2026-07-26 — the invariant has TWO axes, not one
+
+This report classified sites by the **constant**.  Executing its first two
+clusters proved that is only half the invariant, and the weaker half:
+
+> An envelope is correct only if BOTH its constant AND its **operand** are
+> right.  Ask "relative to WHAT?" before "how big?".
+
+- **Cluster 4 had no bad constant at all.**  `op_factor*(|lhs|+|rhs|)` is a
+  textbook relative margin; it was measured against values that had already
+  cancelled, so it sat 12 orders below the noise it had to absorb.  A
+  literal sweep cannot see that — the literal was fine.
+- **Cluster 2's constants are bad by this report's rule and harmless in
+  fact**, because the P1 frame keeps their operands inside the band where
+  they work.  A fixture (below) showed the prescribed conversion would fix
+  nothing.
+
+Consequences for how to read the rest of this file:
+
+1. **"38 bare load-bearing sites" is an upper bound on SUSPECTS, not a
+   defect count.**  Two clusters are now resolved and the score is: cluster
+   4 = 1 real defect the literal sweep could not have found; cluster 2 = 9
+   sites that are shielded, not load-bearing.  Every remaining cluster
+   needs its premise tested with a reaching fixture BEFORE its conversion
+   is written.  Treat the count as a work-list, never as a burn-down
+   denominator.
+2. **A D! classification is a hypothesis.**  Promote it to a defect only
+   with a fixture that fails.  Both executed clusters changed shape on
+   contact with one.
+3. The dual of the constant/operand axis for *reasons* is WHY vs WHAT: P2
+   fixed the reason a partial result gives (why) and left the typed
+   unresolved complement (what) untouched — see the P1c note under
+   cluster 2.
+
 ## Taxonomy
 
 - **A — dimensionless / parameter-space.** Angles (`sin_ang > 1e-3`),
@@ -37,6 +71,15 @@ docstring text (excluded); every code site below was classified.
 After the burn-down, new fixtures should only ever be needed for new
 *structural* classes — the magnitude axis becomes the property sweep's
 job.
+
+> **Reframed 2026-07-26 (see Amendment above).**  38 is a
+> SUSPECTS-UPPER-BOUND produced by a constant-only sweep, not a defect
+> count, and the sweep's blind spot means it is not even an upper bound on
+> *defects* — cluster 4's real defect had no bad constant and is not among
+> the 38.  Executed so far: cluster 4 → 1 defect (unlisted), cluster 2 → 0
+> defects (9 sites shielded by the frame).  The driving question's answer
+> stands, but its mechanism is the two-axis invariant plus the property
+> sweep, not the burn-down of a list.
 
 ## The burn-down list (D!), by cluster
 
@@ -67,6 +110,24 @@ Derivation pattern to apply: per-row normalization by operand net
 scales (the C3 acceptor's `_Tscale` division is the half-done in-house
 example; the L1 margin is the finished one). Fixture recipe: rescale
 the four P1b fixtures (they already flip under `×1/4..1/16`).
+
+> **Evidence handed over from cluster 2 (2026-07-26).**  Cluster 2's
+> fixture hunt turned up a defect that belongs HERE, not there: on an
+> ISOLATED tangency (point contact — a bowl touching a plane, as opposed
+> to the tangent-LINE family the 32-step cap was calibrated on),
+> `_ssx_correct` burns all 32 iterations at EVERY magnitude including 1.0
+> and returns residual **4.5e-11 at magnitude 1, 1.7e-8 at 8, 2.7e-7 at
+> 32**.  Both the absolute 1e-14 stop and a derived `K·eps·⟨magnitude⟩`
+> floor (2.3e-13 at magnitude 1) are orders below what the iteration can
+> deliver, so NO stop-threshold change touches it.  This is a
+> convergence-ORDER problem at a singular contact — exactly what deflation
+> exists for — and it silently caps corrector accuracy at ~1e-7 for
+> magnitude-32 point contacts, which is well inside ordinary modelling
+> tolerances.  Whether the deflation stack's residual bars are reachable
+> at all on this family is a cluster-1 question that must be answered
+> BEFORE its 24 sites are renormalized: a bar that the iteration cannot
+> reach is not a threshold defect, it is a solver defect wearing one as a
+> disguise.  Reproduction recipe is in the cluster-2 blockquote.
 
 ### Cluster 2 — Newton convergence stops in xyz units (9 sites)
 
@@ -103,6 +164,22 @@ the four P1b fixtures (they already flip under `×1/4..1/16`).
 > magnitude-32 point contacts) and deserves its own investigation —
 > deflation or a Newton variant with the right convergence order, which is
 > cluster 1's territory, not a stop-threshold change.
+>
+> **Does P2's re-typing cover P1c item 4 (mid-loop exhaustion drops the
+> in-flight cell)?  NO — measured 2026-07-26.**  They are the two axes of
+> an honest partial result and P2 only moved one.  P2 fixed WHY a run is
+> partial (`trace_point_cap` instead of a misbilled `work_budget`); P1c#4
+> is about WHAT is unresolved — the typed complement.  On case 11 at
+> atol=2.5e-6 the run now reports `reasons=['trace_point_cap',
+> 'work_budget']` and `unresolved_regions=0`, while having traced 22.5 of
+> a 1261.25-length loop.  A consumer is told, correctly, that a per-march
+> cap stopped the trace — and told nothing about the 98.2% of the curve
+> that is missing.  The `break` paths P1c#4 names are still there and
+> still drop the popped cell's box; note the sibling break in
+> `_trace_cell_by_registrations` (the `charge_cells` denial) is correctly
+> typed `work_budget` and must stay that way, since the shared ledger IS
+> the binding allowance there.  P1c#4 remains open and is arguably now the
+> more valuable half: the reason is honest, the complement is not.
 >
 > Reproduction (scratchpad is wiped between sessions — rebuild from this):
 > call `_ssx_correct(S1_h, S2_h, .42, .55, .5, .5, rational=True)` on
