@@ -115,8 +115,16 @@ against s2's quad (matplotlib.path.Path containment).
 
 ## The program (sequence for the next session(s))
 
-1. **Audit (do this FIRST — it answers the user's question with a
-   number).** Mechanically enumerate every floating-point literal used
+1. **Audit — DONE 2026-07-25, same session (user-directed):**
+   `docs/superpowers/issues/2026-07-25-ssx5-threshold-audit.md` — 251
+   candidate lines classified; **38 bare load-bearing sites in 5
+   clusters** (24 = the deflation/singular stack; 9 = Newton stops;
+   GJK; the CSX overlap chain w/ the k=2 fixture, mechanism
+   unlocalized; 1 assembly closure bar) + the `max(1.0, ·)` sub-unit
+   floor caveat on 4 derived envelopes. Burn-down order proposed in the
+   report: cluster 4 → 2(+floors) → 1 → 3 → 5. Original step text kept
+   below for method reference.**
+   ORIGINAL:  Mechanically enumerate every floating-point literal used
    in a comparison/threshold across `_bez_ssx5.py`, `_bez_csx4.py`,
    `_ssx5_singular.py`, `_bezier_common.py`, `bern_sq_dist.py`,
    `_work_budget.py`, `cygjk.pyx`, and the boundary/overlap modules.
