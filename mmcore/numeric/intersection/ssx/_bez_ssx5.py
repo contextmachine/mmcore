@@ -6171,6 +6171,14 @@ def bez_ssx(
     csx_max_cells=100_000,
     boundary_csx_max_cells=20_000,
     csx_max_results=128,
+    # CSX's own Phase-2 subdivision ceiling.  Distinct from `max_depth`
+    # above, which is the SSX cell depth — same word, different
+    # quantity, so forwarding one as the other would be wrong.  This
+    # default is bez_csx's own, so the knob is additive: it exists to
+    # be RAISED when a tight atol needs more CSX depth (harness case
+    # 11 at atol<=1e-5 needs 128), which was previously unreachable
+    # from any public parameter.
+    csx_max_depth=None,
     max_output_items=1_024,
     max_postprocess_work=None,
 ) -> dict:
@@ -6334,6 +6342,8 @@ def bez_ssx(
             attempt_kwargs = dict(kwargs)
             attempt_kwargs['max_cells'] = allowance
             attempt_kwargs['max_results'] = int(csx_max_results)
+            if csx_max_depth is not None:
+                attempt_kwargs['max_depth'] = int(csx_max_depth)
             attempt_result = bez_csx(curve, surface, **attempt_kwargs)
             attempt_used = max(
                 0, int(attempt_result.get('cells_processed', 0)))
@@ -6381,6 +6391,32 @@ def bez_ssx(
                     (np.array(curve, dtype=np.float64, copy=True),
                      (float(span[0]), float(span[1])),
                      bool(kwargs.get('rational', True))))
+            # Attribution, second axis (2026-07-26): WHY did CSX truncate?
+            # `budget_exhausted` used to be the only signal, so an internal
+            # STRUCTURAL ceiling — CSX's own Phase-2 `max_depth` — was
+            # indistinguishable from the caller's cells running out, and was
+            # escalated to `mark_exhausted(work_budget)`: a GLOBAL hard stop
+            # of the whole SSX search, blaming a knob that could not move.
+            # Measured on harness case 11 at atol<=1e-5: one such truncation
+            # (1,791 of 100,000 CSX cells used, topology complete) fired at
+            # 1.2% of the SSX ledger, collapsing subdivision from 98 cells to
+            # 2 and 17 marches to 1 — 37% of a closed loop, reported as
+            # `work_budget` at 17% utilization.
+            #
+            # A depth ceiling is local and structural: it stops THIS face,
+            # it does not exhaust the run.  Type it `depth_limit` (the
+            # vocabulary already had the word) and keep going.
+            _cause = result.get('truncation_cause')
+            _structural_depth = (_cause == 'depth' and not span_only)
+            if _structural_depth:
+                budget.mark_incomplete(REASON_DEPTH_LIMIT)
+                return {
+                    'isolated': [], 'overlaps': [],
+                    'parameter_fibers': [],
+                    'budget_exhausted': True,
+                    'boundary_topology_complete': False,
+                    'cells_processed': used,
+                }
             if local_truncation_is_soft and not budget.exhausted:
                 budget.mark_incomplete(
                     REASON_OVERLAP_REGION if span_only

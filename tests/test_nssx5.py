@@ -1314,3 +1314,75 @@ def test_case11_march_allowance_comes_from_the_ledger(monkeypatch):
     # because it is now a slice of a 250k-cell ledger rather than a constant.
     assert min(seen) > 400, sorted(seen)[:5]
     assert bm_result["complete"] is True
+
+
+# ---------------------------------------------------------------------------
+# Truncation-cause propagation (2026-07-26).  A CSX depth ceiling is local
+# and structural; it must stop that face, not the run, and must not be
+# reported as a resource shortfall.
+#
+# Measured before the fix, harness case 11 at atol=1e-5: ONE bez_csx call
+# hit its Phase-2 max_depth (1,791 of 100,000 CSX cells used, topology
+# complete) and `_run_csx` escalated it to mark_exhausted(work_budget) --
+# a global stop at 1.2% of the SSX ledger.  Subdivision collapsed from 98
+# cells to 2, 17 marches to 1, and 37.1% of a closed loop was reported as
+# complete=False/'work_budget' at 17% ledger utilization.
+# ---------------------------------------------------------------------------
+
+def test_depth_ceiling_is_typed_and_local():
+    """The reason names the real limit, and the search is not aborted.
+
+    Forced deterministically with the explicit knob rather than by picking a
+    tolerance that happens to exceed the ceiling: the derived default now
+    tracks atol, so no fixed atol reliably triggers this any more (which is
+    the point of the derivation).
+    """
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+
+    s1, s2 = _load_case11()
+    # depth=40 is shallow enough to trip the ceiling but not so shallow that
+    # CSX finds nothing at all: it yields a genuinely PARTIAL result, which
+    # is what distinguishes "this face stopped" from "the run was aborted".
+    r = nurbs_ssx(s1, s2, atol=1e-3, csx_max_depth=40)
+
+    assert r["status"]["reasons"] == ["depth_limit"], r["status"]["reasons"]
+    # A structural ceiling must not masquerade as resource exhaustion: the
+    # ledger is nowhere near spent, so 'work_budget' would have been a lie.
+    w = r["status"]["work"]
+    assert w["cells_processed"] < 0.9 * w["max_cells"]
+    # ...and the search continued rather than being globally aborted: most
+    # of the loop is still traced despite the truncated face.
+    assert r["branches"], "a local depth ceiling aborted the whole run"
+    total = sum(_polyline_length(b.curve[1]) for b in r["branches"])
+    assert total > 0.5 * _CASE11_TRUE_LENGTH, total
+
+
+def test_derived_depth_needs_no_knob_at_tight_tolerance():
+    """The default tracks atol, so tight work completes unconfigured.
+
+    atol=1e-5 was 37.1% covered with a `work_budget` reason when the ceiling
+    was the constant 64 (required depth there is 76.7).
+    """
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+
+    s1, s2 = _load_case11()
+    r = nurbs_ssx(s1, s2, atol=1e-5)
+
+    assert r["complete"] is True, r["status"]["reasons"]
+    assert r["status"]["reasons"] == []
+    total = sum(_polyline_length(b.curve[1]) for b in r["branches"])
+    assert abs(total - _CASE11_TRUE_LENGTH) <= 1.0, total
+
+
+def test_derived_depth_stays_inside_float64_resolution():
+    """The ceiling can never exceed what subdivision can actually execute."""
+    from mmcore.numeric.intersection.csx._bez_csx4 import (
+        _derived_max_depth, _CSX_DEPTH_FLOAT64_CEILING,
+    )
+
+    # Absurdly tight tolerances must clamp, not run away.
+    assert _derived_max_depth(1e-300, 1e-300, 1e-300) == _CSX_DEPTH_FLOAT64_CEILING
+    assert _derived_max_depth(0.0, 0.0, 0.0) == _CSX_DEPTH_FLOAT64_CEILING
+    # And a loose tolerance must still clear its measured requirement (56.8
+    # at atol=1e-3 on this fixture).
+    assert _derived_max_depth(6.3e-6, 5.1e-6, 3.37e-6) >= 57

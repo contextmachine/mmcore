@@ -76,7 +76,8 @@ _BEZ_DEFAULT_MAX_OUTPUT_ITEMS = 1_024
 _AGGREGATE_KWARGS = ('max_cells', 'max_csx_calls', 'max_output_items',
                      'max_postprocess_work')
 _FORWARD_KWARGS = ('max_depth', 'max_xyz_step', 'csx_max_cells',
-                   'boundary_csx_max_cells', 'csx_max_results')
+                   'boundary_csx_max_cells', 'csx_max_results',
+                   'csx_max_depth')
 _ALLOWED_KWARGS = _AGGREGATE_KWARGS + _FORWARD_KWARGS
 
 

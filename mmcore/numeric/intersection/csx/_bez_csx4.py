@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from math import comb
 
+import math
 import numpy as np
 
 from .._bezier_common import _compute_remaining_intervals
@@ -1267,6 +1268,41 @@ def _cutout_3d(F_cell, G_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,
     return sub_cells
 
 
+# Float64 ceiling on subdivision: a parameter interval narrower than the
+# spacing between adjacent doubles cannot be halved again, so depth beyond
+# ~3*53 (three axes) can never execute.  Any "safe" default above this is
+# not safety, it is dead levels.
+_CSX_DEPTH_FLOAT64_CEILING = 3 * 53
+
+# Safety factor on the derived requirement (dimensionless).  The estimate
+# below assumes the subdivision spends its halvings evenly on the axis that
+# needs them; real cells wander, so allow half again.
+_CSX_DEPTH_SAFETY = 1.5
+
+
+def _derived_max_depth(ptol_t, ptol_u, ptol_v):
+    """Subdivision ceiling implied by the parameter tolerances.
+
+    Isolating a root to a per-axis tolerance takes log2(span/ptol) halvings
+    on that axis, and `_phase2_isolated_search` subdivides ONE axis per
+    level, so the requirement is the SUM over axes.  A constant cannot track
+    this because ptol follows the caller's atol: measured on harness case 11,
+    the requirement is 56.8 at atol=1e-3, 76.7 at 1e-5 and 82.7 at 2.5e-6,
+    while the former constant was 64 -- which is exactly why depth
+    truncations were never observed at 1e-3 (0 in 1,284 CSX calls) and
+    appeared below it, aborting the SSX search with a `work_budget` reason
+    it could not act on.
+    """
+    need = 0.0
+    for ptol in (ptol_t, ptol_u, ptol_v):
+        ptol = float(ptol)
+        if not np.isfinite(ptol) or ptol <= 0.0:
+            return _CSX_DEPTH_FLOAT64_CEILING
+        need += math.log2(1.0 / min(ptol, 1.0)) if ptol < 1.0 else 0.0
+    return int(min(_CSX_DEPTH_FLOAT64_CEILING,
+                   max(16, math.ceil(_CSX_DEPTH_SAFETY * need))))
+
+
 def _phase2_isolated_search(
     F_sub, G_sub, C_sub, S, C_orig, S_orig,
     t_lo, t_hi, atol, rational, ptol_t, ptol_u, ptol_v,
@@ -1294,13 +1330,24 @@ def _phase2_isolated_search(
 
     cells = 0
     exhausted = False
+    # WHY the search stopped, when it did.  A bare boolean cannot
+    # distinguish "ran out of the caller's cells" from "hit my own internal
+    # depth ceiling", and the caller needs that distinction: the first is a
+    # knob it can raise, the second is not.  See `bez_csx`'s
+    # ``truncation_cause``.
+    cause = None
 
     stack = [(F_sub, G_sub, C_sub, Pw.copy(), Sw.copy(),
               t_lo, t_hi, 0.0, 1.0, 0.0, 1.0, 0)]
 
     while stack:
-        if cells >= max_cells or len(isolated) - initial_results >= max_results:
+        if cells >= max_cells:
             exhausted = True
+            cause = cause or "cells"
+            break
+        if len(isolated) - initial_results >= max_results:
+            exhausted = True
+            cause = cause or "results"
             break
         cells += 1
 
@@ -1478,7 +1525,13 @@ def _phase2_isolated_search(
             # This cell survived every exclusion certificate and Newton did
             # not resolve it.  The depth guard is therefore a soft-budget
             # exhaustion, not evidence that the cell is root-free.
+            #
+            # It is ALSO not a resource shortfall: raising the caller's cell
+            # allowance cannot buy more depth.  Reporting it as one made SSX
+            # hard-stop the whole search and blame `work_budget` at 1.2%
+            # ledger utilization (harness case 11 at atol<=1e-5).
             exhausted = True
+            cause = cause or "depth"
             continue
 
         # Subdivide along the axis with the largest span
@@ -1516,7 +1569,7 @@ def _phase2_isolated_search(
             stack.append((F_R, G_R, seg_c.copy(), pw.copy(), sw_R, t0, t1, u0, u1, v_split, v1, depth+1))
 
     # Return only NEW results (exclude the pre-loaded known points)
-    return isolated, exhausted, cells
+    return isolated, exhausted, cells, cause
 
 
 # ---------------------------------------------------------------------------
@@ -1546,7 +1599,7 @@ def bez_csx(
     # levels before every span reaches its computed resolution (an exact
     # corner root in the legacy SSX overlap case needs 53).  Cell and result
     # budgets remain the termination backstops.
-    max_depth=64,
+    max_depth=None,
     max_cells=100_000,
     max_results=4_096,
 ) -> dict:
@@ -1602,6 +1655,7 @@ def bez_csx(
     if int(max_cells) <= 0:
         return {"isolated": [], "overlaps": [], "parameter_fibers": [],
                 "budget_exhausted": True, "cells_processed": 0,
+                "truncation_cause": "preflight",
                 "boundary_topology_complete": False}
 
     strict_root_tol = _strict_csx_root_tol(C, S, rational)
@@ -1704,10 +1758,23 @@ def bez_csx(
     S_orig = S
 
     ptol_t, ptol_u, ptol_v = _compute_param_tols_csx(C, S, atol, rational)
+    if max_depth is None:
+        # Derived from the tolerances actually in force — see
+        # `_derived_max_depth`.  An explicit value still wins, so callers
+        # that must bound the work can.
+        max_depth = _derived_max_depth(ptol_t, ptol_u, ptol_v)
+    max_depth = int(max_depth)
 
     isolated = []
     overlaps = []
     budget_exhausted = False
+    # WHY this call truncated, when it did (schema addition
+    # 2026-07-26).  `budget_exhausted` alone cannot distinguish a
+    # resource shortfall the caller can fix by raising a knob from an
+    # internal structural ceiling it cannot.  SSX escalated the latter
+    # to a global hard stop blaming `work_budget`; see `_run_csx`.
+    #   'cells' | 'results' | 'depth' | 'boundary' | 'preflight'
+    truncation_cause = None
     cells = DownCounter(max_cells)
 
     # ===================================================================
@@ -1731,9 +1798,11 @@ def bez_csx(
         # validated hits in the same situation). The public flag still
         # records that the topology is incomplete.
         budget_exhausted = True
+        truncation_cause = truncation_cause or "boundary"
     elif not all(isinstance(bz, BoundaryZero) for bz in csx_boundary_zeros):
         budget_exhausted = True
         boundary_exhausted = True
+        truncation_cause = truncation_cause or "boundary"
         csx_boundary_zeros = []
 
     t_exclude = []  # t-intervals to cut from the curve
@@ -1931,12 +2000,15 @@ def bez_csx(
                     for a, b in t_intervals[_ii:] if (b - a) >= ptol_t))
         if cells.remaining <= 0 or len(isolated) >= max_results:
             budget_exhausted = True
+            truncation_cause = truncation_cause or (
+                "cells" if cells.remaining <= 0 else "results")
             if _rest_has_disjoint:
                 non_span_truncation = True
             break
         if (fallback_cells_remaining is not None
                 and fallback_cells_remaining <= 0):
             budget_exhausted = True
+            truncation_cause = truncation_cause or "cells"
             if _rest_has_disjoint:
                 non_span_truncation = True
             break
@@ -1944,13 +2016,16 @@ def bez_csx(
         if fallback_cells_remaining is not None:
             phase2_cell_limit = min(
                 phase2_cell_limit, fallback_cells_remaining)
-        _phase2_iso, _phase2_exhausted, _cells_used = _phase2_isolated_search(
+        (_phase2_iso, _phase2_exhausted, _cells_used,
+         _phase2_cause) = _phase2_isolated_search(
             F_sub, G_sub, C_sub, S, C_orig, S_orig,
             t_lo, t_hi, atol, rational, ptol_t, ptol_u, ptol_v,
             known_points=isolated,
             max_depth=max_depth, max_cells=phase2_cell_limit,
             max_results=max_results - len(isolated),
         )
+        if _phase2_cause is not None and truncation_cause is None:
+            truncation_cause = _phase2_cause
         cells.spend(_cells_used)
         if fallback_cells_remaining is not None:
             fallback_cells_remaining -= _cells_used
@@ -2033,6 +2108,9 @@ def bez_csx(
               "parameter_fibers": [],
               "budget_exhausted": bool(budget_exhausted),
               "cells_processed": int(cells.processed),
+              # None unless budget_exhausted; see the declaration above.
+              "truncation_cause": (truncation_cause if budget_exhausted
+                                   else None),
               "boundary_topology_complete": not (
                   boundary_exhausted or overlap_topology_incomplete)}
     if overlap_topology_incomplete:

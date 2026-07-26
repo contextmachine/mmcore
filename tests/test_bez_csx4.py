@@ -144,7 +144,7 @@ def test_phase2_max_depth_reports_unresolved_cell(monkeypatch):
         [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
         [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]],
     ])
-    roots, exhausted, cells = csx_mod._phase2_isolated_search(
+    roots, exhausted, cells, cause = csx_mod._phase2_isolated_search(
         np.zeros((2, 2, 2)), np.zeros((2, 2, 2, 3)), C,
         S, C, S,
         0.0, 1.0, 1e-6, False, 1e-12, 1e-12, 1e-12,
@@ -154,6 +154,11 @@ def test_phase2_max_depth_reports_unresolved_cell(monkeypatch):
     assert roots == []
     assert cells == 1
     assert exhausted is True
+    # 2026-07-26: and it must say WHY.  A depth ceiling is structural — no
+    # cell allowance can buy more of it — so a consumer must be able to tell
+    # it apart from a resource shortfall instead of escalating it to a
+    # global work_budget stop.
+    assert cause == "depth"
 
 
 def test_partial_boundary_topology_is_discarded(monkeypatch):
@@ -1140,3 +1145,49 @@ def test_strict_csx_certificate_still_rejects_a_real_offset():
         ok, _res = _strict_csx_residual_ok(
             C, S, _PLANAR_T, _PLANAR_U, _PLANAR_V, True, ctx)
         assert not ok, c
+
+
+# ---------------------------------------------------------------------------
+# Truncation-cause schema (2026-07-26).
+#
+# `budget_exhausted` alone cannot distinguish a resource shortfall the caller
+# can fix by raising a knob from an internal structural ceiling it cannot.
+# SSX escalated the latter into a GLOBAL hard stop blaming `work_budget`:
+# measured on harness case 11 at atol<=1e-5, one CSX depth truncation (1,791
+# of 100,000 cells used, topology complete) fired at 1.2% of the SSX ledger
+# and collapsed the search from 98 cells to 2.
+# ---------------------------------------------------------------------------
+
+def test_truncation_cause_is_none_when_complete():
+    S = np.array([
+        [[0.0, 0.0, 0.0, 1.0], [0.0, 2.0, 0.0, 1.0]],
+        [[2.0, 0.0, 0.0, 1.0], [2.0, 2.0, 0.0, 1.0]],
+    ])
+    C = np.array([[1.0, 1.0, -1.0, 1.0], [1.0, 1.0, 1.0, 1.0]])
+    r = bez_csx(C, S, atol=1e-3, rational=True)
+    assert r["budget_exhausted"] is False
+    assert r["truncation_cause"] is None
+
+
+def test_truncation_cause_reports_preflight_refusal():
+    S = np.array([
+        [[0.0, 0.0, 0.0, 1.0], [0.0, 2.0, 0.0, 1.0]],
+        [[2.0, 0.0, 0.0, 1.0], [2.0, 2.0, 0.0, 1.0]],
+    ])
+    C = np.array([[1.0, 1.0, -1.0, 1.0], [1.0, 1.0, 1.0, 1.0]])
+    r = bez_csx(C, S, atol=1e-3, rational=True, max_cells=0)
+    assert r["budget_exhausted"] is True
+    assert r["truncation_cause"] == "preflight"
+
+
+def test_truncation_cause_reports_cells_when_the_allowance_runs_out():
+    """A genuine resource shortfall must still say so."""
+    S = np.array([
+        [[0.0, 0.0, 0.0, 1.0], [0.0, 2.0, 0.0, 1.0]],
+        [[2.0, 0.0, 0.0, 1.0], [2.0, 2.0, 0.0, 1.0]],
+    ])
+    C = np.array([[0.0, 0.0, 0.0, 1.0], [2.0, 2.0, 0.0, 1.0]])   # on-surface
+    r = bez_csx(C, S, atol=1e-9, rational=True, max_cells=12)
+    if r["budget_exhausted"]:
+        assert r["truncation_cause"] in ("cells", "results", "boundary",
+                                         "depth"), r["truncation_cause"]

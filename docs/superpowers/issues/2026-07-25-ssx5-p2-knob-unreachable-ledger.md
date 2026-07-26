@@ -92,6 +92,41 @@ detect — two reasons had already slipped through (`unresolved_singular_set`
 at L52, `trace_point_cap` here). It now pins the set and names every
 registration site in its failure message.
 
+## RESOLVED 2026-07-26 — the `_run_csx` site and the truncation-cause schema
+
+The filed item below is done, and the diagnosis it recorded was confirmed
+by injection rather than inference.
+
+At atol <= 1e-5 case 11 stopped because ONE nested `bez_csx` call hit its
+Phase-2 `max_depth` ceiling — measured: 1,791 of 100,000 CSX cells used,
+`boundary_topology_complete=True`, 2 isolated roots.  `bez_csx` could only
+report that as `budget_exhausted=True`, indistinguishable from running out
+of the caller's cells, so `_run_csx` escalated it to
+`mark_exhausted(REASON_WORK_BUDGET)` — a GLOBAL stop of the whole SSX
+search, fired at **1.2% of the ledger**.  Subdivision collapsed from 98
+cells to 2, 17 marches to 1, and 37.1% of a closed loop was reported as
+`work_budget` at 17% utilization.  Proof it was the depth guard: injecting
+`max_depth=128` into the nested calls took the same run to 100% and
+`complete=True`.
+
+Fixes:
+- **`truncation_cause` on the `bez_csx` result**: `'cells' | 'results' |
+  'depth' | 'boundary' | 'preflight'`, `None` when complete.  A boolean
+  cannot separate a shortfall the caller can fix from a ceiling it cannot.
+- **`_run_csx` treats a `depth` cause as local**: `mark_incomplete(
+  REASON_DEPTH_LIMIT)` for that face, search continues.
+- **`csx_max_depth` public knob** (default 64 = bez_csx's own, so purely
+  additive), wired through `_run_csx` and forwarded by the adapter.  NOTE:
+  `bez_ssx.max_depth` is the SSX cell depth — a DIFFERENT quantity sharing
+  the name — so forwarding it would have been wrong; that is why a new
+  parameter exists rather than a re-use.
+
+Measured after: atol=1e-5 default 37.1% -> **94.3%** with
+`reasons=['depth_limit']`; with `csx_max_depth=128` -> **100%, complete**;
+atol=2.5e-6 with that plus `max_cells=1e6` -> **100%, complete**.  Every
+remaining partial is now both honestly typed and reachable by a knob that
+demonstrably moves it.
+
 ## Open — filed, not guessed
 
 - **The `trace_limit = 400` derivation** is its own tier (the user's
