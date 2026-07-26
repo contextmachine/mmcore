@@ -3360,3 +3360,27 @@ def test_unresolved_complement_is_typed_with_boxes():
     assert "work_budget" in r2["status"]["reasons"]
     assert any(reg["reason"] == "work_budget"
                for reg in r2["unresolved_regions"]), r2["unresolved_regions"]
+
+
+def test_small_scale_case10_keeps_certified_crossing_cells():
+    """P1c regression (2026-07-21): at 1/16 scale — inside the identity
+    window, pure native arithmetic — GJK declared a 2-crossing cell
+    "separated" and the arc through it silently vanished (3 branches,
+    211/218 reference coverage, complete=True).  The soundness guard
+    (certified crossings outrank approximate prunes) keeps the cell
+    alive; the s:[0, 0.6] arm must survive as ONE unbroken branch."""
+    from examples.ssx.bez_ssx5_case10 import S1, S2
+
+    r = bez_ssx(np.asarray(S1) / 16.0, np.asarray(S2) / 16.0, 1e-3 / 16.0,
+                rational=False)
+    assert r["complete"], r["status"]["reasons"]
+    assert r["status"]["reasons"] == []
+    assert len(r["branches"]) == 2, [
+        np.round(np.asarray(b.curve[0])[[0, -1], 0], 3).tolist()
+        for b in r["branches"]]
+    spans = sorted(
+        (float(np.asarray(b.curve[0])[:, 0].min()),
+         float(np.asarray(b.curve[0])[:, 0].max()))
+        for b in r["branches"])
+    # Pre-fix: this arm split at s ~ 0.375 / 0.412 with the middle missing.
+    assert spans[0][0] <= 0.01 and spans[0][1] >= 0.59, spans

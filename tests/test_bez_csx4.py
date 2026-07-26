@@ -1064,3 +1064,79 @@ def test_near_band_pair_certifies_cheaply():
     assert o["t_range"][0] == pytest.approx(0.0, abs=1e-9)
     assert 0.40 <= o["t_range"][1] <= 0.50
     assert r["cells_processed"] <= 2_000, r["cells_processed"]
+
+
+# ---------------------------------------------------------------------------
+# Cluster-4 burn-down (2026-07-25): the strict root certificate must not
+# depend on where the model sits in world space.
+#
+# `_strict_csx_root_tol` centers both nets on a common origin, dividing by
+# the net scale BEFORE subtracting `origin * w`.  A coordinate that is
+# identically zero after that translation is therefore reached only up to
+# the subtraction's cancellation, and both the per-axis `component_scale`
+# and the evaluated points carry that noise.  Bounding the residual by those
+# already-cancelled magnitudes made the certificate refuse TRUE roots of a
+# planar pair at ~30% of random world positions (measured, seed below) —
+# the same defect the CCX Phase-2 hull prune had, in the certificate that
+# gates every CSX boundary root.
+#
+# Geometry: the s1 v=0 edge and s2 of the user's boundary-coincidence pair.
+# Their exact crossing is t = 0.377142857142857 on the curve, (u, v) =
+# (0.697142857142857, 0) on the surface.
+# ---------------------------------------------------------------------------
+
+_PLANAR_C = np.array([[-16.0, -27.0, 0.0, 1.0], [-36.0, 2.0, 0.0, 1.0]])
+_PLANAR_S = np.array([[[-34.0, -7.0, 0.0, 1.0], [-26.0, 2.0, 0.0, 1.0]],
+                      [[-19.0, -20.0, 0.0, 1.0], [-17.0, -10.0, 0.0, 1.0]]])
+_PLANAR_T = 0.377142857142857
+_PLANAR_U = 0.697142857142857
+_PLANAR_V = 0.0
+
+
+def test_strict_csx_certificate_is_translation_invariant():
+    from mmcore.numeric.intersection.csx._bez_csx4 import (
+        _strict_csx_root_tol, _strict_csx_residual_ok,
+    )
+
+    rng = np.random.default_rng(11)
+    rejected = []
+    for _ in range(300):
+        c = rng.uniform(-100.0, 100.0, 3)
+        C = _PLANAR_C.copy()
+        C[:, :3] -= c * C[:, 3:]
+        S = _PLANAR_S.copy()
+        S[..., :3] -= c * S[..., 3:]
+        ctx = _strict_csx_root_tol(C, S, True)
+        assert ctx is not None
+        ok, _res = _strict_csx_residual_ok(
+            C, S, _PLANAR_T, _PLANAR_U, _PLANAR_V, True, ctx)
+        if not ok:
+            rejected.append(c)
+    assert not rejected, (
+        f"{len(rejected)}/300 world positions rejected an exact root; "
+        f"first: {rejected[0] if rejected else None}")
+
+
+def test_strict_csx_certificate_still_rejects_a_real_offset():
+    """Anti-loosening guard: a genuine off-surface point stays rejected.
+
+    The point below is the true crossing lifted one model unit in z — far
+    outside any roundoff envelope at every world position.
+    """
+    from mmcore.numeric.intersection.csx._bez_csx4 import (
+        _strict_csx_root_tol, _strict_csx_residual_ok,
+    )
+
+    rng = np.random.default_rng(11)
+    for _ in range(50):
+        c = rng.uniform(-100.0, 100.0, 3)
+        C = _PLANAR_C.copy()
+        C[:, :3] -= c * C[:, 3:]
+        C[:, 2] += 1.0 * C[:, 3]          # lift the curve off the plane
+        S = _PLANAR_S.copy()
+        S[..., :3] -= c * S[..., 3:]
+        ctx = _strict_csx_root_tol(C, S, True)
+        assert ctx is not None
+        ok, _res = _strict_csx_residual_ok(
+            C, S, _PLANAR_T, _PLANAR_U, _PLANAR_V, True, ctx)
+        assert not ok, c

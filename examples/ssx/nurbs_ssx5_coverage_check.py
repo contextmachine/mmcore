@@ -58,6 +58,10 @@ N_SLICES = 100
 #   REASON_TRACE_UNVERIFIED  = "trace_unverified"  (in _work_budget.py's
 #     documented "Structural family — raising budgets cannot help"; its
 #     omission from the plan's set was an enumeration oversight)
+#   REASON_TRACE_POINT_CAP   = "trace_point_cap"  (P2 2026-07-25; also in
+#     the structural family — a per-march point cap is an internal limit,
+#     and _work_budget.py's own comment says raising max_cells/max_csx_calls
+#     cannot finish it)
 STRUCTURAL_REASONS = {
     'unresolved_tangential_zone',
     'unresolved_multiplicity',
@@ -65,17 +69,27 @@ STRUCTURAL_REASONS = {
     'parameter_fiber',
     'unresolved_singular_set',
     'trace_unverified',
+    'trace_point_cap',
 }
 
 # Per-case context printed with the row (controller-reviewed engine truth).
 CASE_NOTES = {
-    6: ("typed partial: bez-level trace continuation loses an SSI arm; "
-        "honestly reported complete=False"),
+    6: ("OK since the P1 canonical-frame fix (2026-07-21): complete=True, "
+        "reasons=[], 100% (130/130) at original coords, atol=1e-3"),
     10: ("tangential contact at z=5: the u-family cloud is empty; the "
          "v-family samples the tangential curve, covered by the "
          "tangential branch (verified 100%, no longer vacuous)"),
-    11: ("far-coordinate geometry; work_budget at candidate-scaled "
-         "defaults — see budget probe in the Task-7 report"),
+    11: ("P1 fixed the trace certificate at original coords "
+         "(trace_unverified gone; 92.68%). P2 (2026-07-25) NAMED the "
+         "knob-unreachable tier: the marcher's hardcoded per-march cap of "
+         "400 points, now reported as 'trace_point_cap' instead of "
+         "misbilling 'work_budget'. Truth is one closed loop of length "
+         "1261.25 (recovered whole at atol>=1e-2); points needed scale as "
+         "1/sqrt(atol), so tight tolerances truncate. Deriving that cap is "
+         "its own tier (open); the residual 'work_budget' at very tight "
+         "atol comes from a bez_csx max_depth truncation that still "
+         "reports a bare budget_exhausted flag — see "
+         "docs/superpowers/issues/2026-07-25-ssx5-p2-knob-unreachable-ledger.md"),
 }
 
 

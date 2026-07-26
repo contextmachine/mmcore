@@ -394,3 +394,213 @@ def test_zero_allowance_preflights_before_net_build(monkeypatch):
     assert r["budget_exhausted"] is True
     assert r["cells_processed"] == 0
     assert calls["n"] == 0, "net built despite zero allowance"
+
+
+# ---------------------------------------------------------------------------
+# Cluster-4 burn-down (2026-07-25): the Phase-2 vector-residual hull prune
+# must be translation-invariant.
+#
+# `_vector_residual_hull_excludes_zero` certifies "one Cartesian residual
+# component cannot be zero, therefore no intersection".  Its inputs come from
+# `_center_curve_homogeneous_for_exactness`, which divides by the net scale
+# BEFORE translating, so a coordinate that is identically zero after
+# translation is computed as fl(x/scale) - fl(origin*fl(w/scale)) — pure
+# cancellation.  The old single-term margin `op_factor*(|lhs|+|rhs|)` was
+# built from those already-cancelled values and so sat orders of magnitude
+# BELOW the noise it had to absorb: a coplanar pair whose shared coordinate
+# is exactly 0 in world space acquires same-sign noise once translated off
+# that plane, and the prune deletes the whole domain.
+#
+# Reaching fixture: the two segments are the s1 v=0 edge and the s2 v=0
+# boundary isocurve of the user's bilinear boundary-coincidence pair
+# (docs/superpowers/plans/2026-07-25-ssx5-derived-envelopes-kickoff.md).
+# They cross transversally at t = 0.377142857..., in-domain for both.
+# ---------------------------------------------------------------------------
+
+_COPLANAR_C = np.array([[-16.0, -27.0, 0.0, 1.0], [-36.0, 2.0, 0.0, 1.0]])
+_COPLANAR_D = np.array([[-34.0, -7.0, 0.0, 1.0], [-19.0, -20.0, 0.0, 1.0]])
+_COPLANAR_T = 122.0 / 175.0          # parameter on D
+_COPLANAR_U = 0.377142857142857      # parameter on C
+
+
+def _shift_homog(net, c):
+    out = np.asarray(net, dtype=np.float64).copy()
+    out[:, :3] -= np.asarray(c, dtype=np.float64) * out[:, 3:]
+    return out
+
+
+@pytest.mark.parametrize(
+    "c",
+    [
+        (0.0, 0.0, 0.0),               # world frame: z is exactly 0
+        (-22.0, -12.5, 2.5),           # the engine's k=2 canonical-frame center
+        (0.0, 0.0, 2.5),               # z only
+        (0.0, 0.0, 1e-3),              # z only, sub-unit
+        (0.0, 0.0, 1e-12),             # z only, roundoff-scale
+        (-22.0, -12.5, 0.0),           # in-plane only (z stays exactly 0)
+        (1e4, -3e3, 7e2),              # far translation
+    ],
+    ids=["world", "canonical-k2", "z2.5", "z1e-3", "z1e-12", "in-plane", "far"],
+)
+def test_coplanar_crossing_survives_translation(c):
+    """The crossing is a translation invariant; finding it must be too."""
+    r = bez_ccx(_shift_homog(_COPLANAR_C, c), _shift_homog(_COPLANAR_D, c),
+                atol=1e-3, rational=True)
+    assert not r["budget_exhausted"]
+    assert r["boundary_topology_complete"]
+    assert len(r["isolated"]) == 1, (c, len(r["isolated"]))
+    iso = r["isolated"][0]
+    assert abs(float(iso["u"]) - _COPLANAR_U) < 1e-9, (c, iso["u"])
+    assert abs(float(iso["v"]) - _COPLANAR_T) < 1e-9, (c, iso["v"])
+
+
+@pytest.mark.parametrize(
+    "c",
+    [(0.0, 0.0, 0.0), (-22.0, -12.5, 2.5), (0.0, 0.0, 1e-3), (1e4, -3e3, 7e2)],
+    ids=["world", "canonical-k2", "z1e-3", "far"],
+)
+def test_vector_residual_hull_prune_is_sound_under_translation(c):
+    """Unit-level: the prune must never exclude zero for an intersecting pair.
+
+    This is the unsound direction — a wrong True deletes solutions with no
+    downstream recourse — so it is pinned separately from the end-to-end
+    search above.
+    """
+    from mmcore.numeric.intersection.ccx._bez_ccx4 import (
+        _vector_residual_hull_excludes_zero,
+    )
+
+    C = _shift_homog(_COPLANAR_C, c)
+    D = _shift_homog(_COPLANAR_D, c)
+    for depth in range(6):
+        assert not _vector_residual_hull_excludes_zero(C, D, True, depth), (c, depth)
+
+
+def test_vector_residual_hull_prune_still_separates_genuine_offsets():
+    """The margin must not go so loose that a real separation stops pruning.
+
+    A pair offset in z by a full model unit is separated in that component at
+    every translation; the prune is what keeps such cells out of Phase 2.
+    """
+    from mmcore.numeric.intersection.ccx._bez_ccx4 import (
+        _vector_residual_hull_excludes_zero,
+    )
+
+    for c in [(0.0, 0.0, 0.0), (-22.0, -12.5, 2.5), (1e4, -3e3, 7e2)]:
+        C = _shift_homog(_COPLANAR_C, c)
+        D = _shift_homog(_COPLANAR_D, c)
+        D_off = D.copy()
+        D_off[:, 2] += 1.0 * D_off[:, 3]
+        assert _vector_residual_hull_excludes_zero(C, D_off, True, 0), c
+
+
+@pytest.mark.parametrize("offset", [1e-3, 1e-5, 1e-6])
+def test_centering_envelope_does_not_swallow_small_real_offsets(offset):
+    """The absent-axis envelope must be tight, not merely finite.
+
+    An offset well above the centering's roundoff is real geometry and must
+    still separate the pair at every world position.  This is a far tighter
+    bar than the model-unit guard above — 1e-6 on a model of extent ~36 is
+    3e-8 relative, and ~7 orders below any modelling tolerance the engine is
+    ever called with.
+
+    MEASURED LIMIT (documented, not a target): the envelope is built from
+    the operand magnitudes of the centering subtraction, and
+    `_center_curve_homogeneous_for_exactness` divides by the net scale
+    BEFORE translating, so those operands carry the model's WORLD POSITION.
+    The prune's separation floor therefore still degrades with distance from
+    the origin, but only at the rate the arithmetic actually loses:
+    3.6e-15 at |T|=1, 3.6e-12 at 1e3, 3.5e-6 at 1e9 — all far below a
+    default atol=1e-3.  (Before the 2026-07-26 review the factor was the
+    siblings' `8192*(n1+n2)`, a Bernstein-chain constant misapplied to a
+    single subtraction; the floor was then 2.9e-11 / 2.9e-8 / 2.9e-2, the
+    last one ABOVE atol.)  This direction is safe — the prune declines to
+    fire and the cell goes to the sound subdivision/Newton path, so it can
+    never delete a solution.  Removing the residual dependence means
+    reordering the centering to subtract before normalizing, which regresses
+    `test_ccx4_exactness_contract.py::test_float_built_quadratic_subcurve_remains_an_overlap`
+    — a calibrated fixture — so it is a separate, fixture-first change.
+    """
+    from mmcore.numeric.intersection.ccx._bez_ccx4 import (
+        _vector_residual_hull_excludes_zero,
+    )
+
+    for c in [(0.0, 0.0, 0.0), (-22.0, -12.5, 2.5), (1e3, -2e3, 5e2)]:
+        C = _shift_homog(_COPLANAR_C, c)
+        D = _shift_homog(_COPLANAR_D, c)
+        D[:, 2] += offset * D[:, 3]
+        assert _vector_residual_hull_excludes_zero(C, D, True, 0), (c, offset)
+
+
+# ---------------------------------------------------------------------------
+# Cluster-4 follow-up (adversarial review, 2026-07-26): the ACCEPT path needs
+# anti-loosening guards too, not just the prune.
+#
+# The absent-axis rule must never mean "skip this coordinate".  Two segments
+# lying in PARALLEL planes x = X0 and x = X0 + d never meet, at any world
+# position.  If the x axis is declared absent because d sits under the
+# centering envelope, and the membership gate then omits x, the engine
+# reports a confident phantom root -- the same class of wrong topology the
+# prune defect caused, in the opposite direction.
+# ---------------------------------------------------------------------------
+
+def _parallel_planes_certify(X0, gap):
+    C1 = np.array([[X0, -1.0, -1.0], [X0, 1.0, 1.0]])
+    C2 = np.array([[X0 + gap, -1.0, 1.0], [X0 + gap, 1.0, -1.0]])
+    return len(bez_ccx(C1, C2, atol=1e-3, rational=False)["isolated"]) > 0
+
+
+# The common-origin centering computes each coordinate as
+# fl(x/scale) - fl(origin*fl(w/scale)); its error is ~4 eps per operand, so
+# separations of a few ulps of the WORLD coordinate are genuinely below what
+# the centered representation can resolve.  Measured acceptance ceiling
+# after the 2026-07-26 review fix: 7-16 ulps, i.e. ~1.6e-15 RELATIVE, and
+# constant from magnitude 1 to 1e9 (it was 256-1464 ulps and growing with
+# degree before).  So the contract is stated relatively, and the property
+# that matters is that the verdict does not depend on world position.
+@pytest.mark.parametrize("rel", [1e-12, 1e-10, 1e-8])
+@pytest.mark.parametrize("X0", [0.0, 1.0, 1e3, 1e6, 1e9])
+def test_parallel_planes_never_certify_a_resolvable_gap(X0, rel):
+    gap = rel * max(1.0, abs(X0))
+    assert not _parallel_planes_certify(X0, gap), (X0, rel, gap)
+
+
+@pytest.mark.parametrize("rel", [1e-14, 1e-12, 1e-8])
+def test_parallel_plane_verdict_is_translation_invariant(rel):
+    """Whatever the engine decides, it must decide it everywhere.
+
+    This is the real invariance contract: a fixed RELATIVE separation is the
+    same geometry at every world position, so the accept/reject verdict must
+    not move.  Before the review fix the ceiling grew with |X0| in absolute
+    terms while shrinking in relative terms, so this property failed.
+
+    Floor: `rel` must stay above float64 representability, which is ~1.1e-16
+    relative.  At rel=1e-16 the verdict legitimately differs — an origin-
+    centred pair has no cancellation at all and resolves the gap, while at
+    |X0|=1e9 the same relative gap is 0.84 ulp and no method can see it.
+    That asymmetry is information-theoretic, not an envelope defect.
+    """
+    verdicts = {X0: _parallel_planes_certify(X0, rel * max(1.0, abs(X0)))
+                for X0 in (0.0, 1.0, 1e3, 1e6, 1e9)}
+    assert len(set(verdicts.values())) == 1, verdicts
+
+
+def test_absent_axis_is_checked_not_skipped():
+    """An axis under the centering envelope is still COMPARED against it.
+
+    Regression pin for the review finding: `_eval_curve_scaled_components`
+    skips axes whose scale is 0, so declaring an axis absent used to remove
+    it from the membership test altogether. It must instead be tested
+    against its own roundoff envelope.
+    """
+    from mmcore.numeric.intersection.ccx._bez_ccx4 import (
+        _ccx_exactness_context, _strict_residual_ok,
+    )
+
+    X0, d = 1e6, 1e-8
+    C1 = np.array([[X0, -1.0, -1.0], [X0, 1.0, 1.0]])
+    C2 = np.array([[X0 + d, -1.0, 1.0], [X0 + d, 1.0, -1.0]])
+    ctx = _ccx_exactness_context(C1, C2, False)
+    assert ctx is not None
+    ok, _p1, _p2 = _strict_residual_ok(C1, C2, 0.5, 0.5, False, ctx)
+    assert not ok, "a 1e-8 gap in the x coordinate was certified as exact"

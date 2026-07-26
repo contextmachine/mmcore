@@ -66,6 +66,7 @@ from mmcore.numeric._work_budget import (  # noqa: F401
     REASON_TANGENTIAL_ZONE,
     REASON_MULTIPLICITY,
     REASON_TRACE_UNVERIFIED,
+    REASON_TRACE_POINT_CAP,
     REASON_SINGULAR_SET,
     SoftWorkBudget as _SSXSoftBudget,
     charge_hook as _charge_hook,
@@ -1956,7 +1957,21 @@ def _ssx_correct(S1, S2, s, t, u, v, rational=True, max_iter=32, tol=1e-14):
 
 
 def _strict_ssx_root_tol(S1, S2, rational=True):
-    """Translation-invariant roundoff scale for an exact Psi zero."""
+    """Roundoff scale for an exact Psi zero, valid in P1's frames.
+
+    PRECONDITION (P1, 2026-07-21): callers pass nets as prepared by the
+    bez_ssx preamble — either the identity frame inside
+    `_NORM_IDENTITY_WINDOW` (the regime the singular-suite floor
+    calibrates, native magnitudes 1..362) or the canonical frame, whose
+    target-band scaling bounds the AABB diagonal into ~[11.3, 22.6]
+    (max|coords| lands in ~[3.3, 11.3] depending on extent anisotropy).
+    The envelope scales with the extent (`diag`); the residual
+    arithmetic it budgets rounds off with the magnitude; the preamble
+    bounds their mismatch, so the 2026-07-20 case-6/11 diagnosis
+    (extent-scaled budget vs magnitude-scaled noise on off-origin
+    models) cannot recur for out-of-window inputs.  Do not call this on
+    raw world-frame nets at large offsets.
+    """
     if rational:
         p1 = S1[..., :-1] / S1[..., -1:]
         p2 = S2[..., :-1] / S2[..., -1:]
@@ -1968,6 +1983,147 @@ def _strict_ssx_root_tol(S1, S2, rational=True):
     scale = max(1.0, diag)
     return max(1024.0 * np.finfo(np.float64).eps * scale,
                1e-12 * scale)
+
+
+# The canonical frame applies ONLY outside this joint-coordinate-magnitude
+# band (2026-07-21 amendment, measured): inside it the engine's absolute
+# envelopes are already correct — all 115 singular-suite fixtures (native
+# magnitudes 1..362, the failing class at <= 12.6) pass bit-for-bit on the
+# identity frame — while re-framing in-window models regresses 4 singular
+# fixtures: the mantissa-exact down-scale (k=4..16) crosses the singular
+# tier's absolute thresholds (tol_f=1e-8/1e-10, |F|<1e-11 accepts), and a
+# centering subtract's ~1-ulp rounding destroys exact degenerate structure
+# (a non-dyadic center broke the exact cusp line).  The trace-certificate
+# defect this frame exists to fix is measured only at magnitudes >= ~71
+# (case 6 recentered) — so normalize from 2**5 up, and from 2**-5 down
+# (mirror bound; scaling tiny models up is mantissa-exact).  Sub-band
+# centering still rounds ~1 ulp when the center is non-dyadic and no
+# fixture exercises magnitudes below 2**-5 — P1b tracks that gap too.
+# Making the singular tier itself scale-invariant is the P1b follow-up
+# (docs/superpowers/issues/2026-07-21-ssx5-p1b-singular-tier-scale-invariance.md).
+_NORM_IDENTITY_WINDOW = (2.0 ** -5, 2.0 ** 5)
+
+# Out-of-window models are centered and scaled INTO the native-proven band
+# around this magnitude (2026-07-21 second amendment, measured): after
+# centering at the joint AABB midpoint, the power-of-2 scale lands the
+# AABB DIAGONAL in [16/sqrt(2), 16*sqrt(2)] ~ [11.3, 22.6] and hence
+# max|coords| (the largest half-extent) in [8/sqrt(6), 8*sqrt(2)] ~
+# [3.27, 11.31] depending on extent anisotropy — inside the
+# fixture-proven [1, 22.6].  (An adversarial-review correction: the
+# band was first stated as [5.66, 11.31], true only for single-axis
+# extents; the sub-5 magnitudes reachable by isotropic models are safe
+# because the crossing-guard below removed the one measured sub-5
+# failure mechanism.)  Both halves of the map are load-bearing:
+# scaling all the way to O(1) was measured UNSAFE on the transversal path
+# (bez-harness case 10, magnitude 79.7, keeps 218/218 coverage down to
+# post-frame magnitude ~10 but silently fragments — 211/218 with
+# complete=True — below ~5; the latent bug is filed as P1c:
+# docs/superpowers/issues/2026-07-21-ssx5-p1c-silent-fragment-completeness.md),
+# and scale-only was measured UNSAFE for offset-dominated inputs (an
+# offset/extent ratio ~4e5 collapses the normalized extent to ~3e-5,
+# where the CSX ladder's absolute floors exceed the scaled atol and the
+# search bails at a few hundred cells claiming work_budget).  Centering
+# preserves extent; the band preserves the marching regime.
+_NORM_TARGET_MAG = 8.0
+
+
+def _ssx_normalization_context(S1, S2, rational=True):
+    """Canonical-frame context (c, k) for the whole-call preamble.
+
+    P1 invariance (2026-07-21 design + windowed + target-band
+    amendments): every absolute roundoff envelope in this module (the
+    strict Psi-zero certificates, the 1e-14 corrector stops) is correct
+    only for coordinates inside the proven magnitude band.  Models inside
+    `_NORM_IDENTITY_WINDOW` keep the identity frame (bit-for-bit legacy
+    arithmetic).  Models outside it are jointly centered at the two nets'
+    Cartesian AABB midpoint and scaled by a power of two chosen so the
+    post-center magnitude (half the largest AABB diagonal) lands near
+    `_NORM_TARGET_MAG` — see the band note above for why both halves are
+    load-bearing.  The power-of-2 snap keeps the scale mantissa-exact;
+    only the one-time centering multiply-subtract rounds.  Degenerate
+    input (zero/non-finite weight, non-finite point, zero extent) falls
+    back to the identity frame: the pipeline behaves exactly as before P1.
+    """
+    identity = (np.zeros(3, dtype=np.float64), 1.0)
+    corners = []
+    for S in (S1, S2):
+        S = np.asarray(S, dtype=np.float64)
+        if rational:
+            w = S[..., -1:]
+            if not np.all(np.isfinite(w)) or np.any(w == 0.0):
+                return identity
+            pts = S[..., :-1] / w
+        else:
+            pts = S
+        if not np.all(np.isfinite(pts)):
+            return identity
+        corners.append(pts.reshape(-1, 3))
+    pts = np.vstack(corners)
+    mag = float(np.max(np.abs(pts)))
+    if _NORM_IDENTITY_WINDOW[0] <= mag <= _NORM_IDENTITY_WINDOW[1]:
+        return identity
+    lo = pts.min(axis=0)
+    hi = pts.max(axis=0)
+    diag = float(np.linalg.norm(hi - lo))
+    if not np.isfinite(diag) or diag <= 0.0:
+        return identity
+    c = 0.5 * (lo + hi)
+    k = float(2.0 ** round(math.log2(diag / (2.0 * _NORM_TARGET_MAG))))
+    return c, k
+
+
+def _normalize_surface_net(S, c, k, rational=True):
+    """Map a control net into the canonical frame: x' = (x - c) / k.
+
+    Rational nets transform homogeneously (numerator -= c*w, then /k), so
+    Cartesian points map exactly as above while weights stay untouched.
+    Always returns a copy; the caller's world-frame net is never mutated.
+    """
+    S = np.asarray(S, dtype=np.float64).copy()
+    c = np.asarray(c, dtype=np.float64)
+    if rational:
+        S[..., :-1] -= c * S[..., -1:]
+        S[..., :-1] /= k
+    else:
+        S -= c
+        S /= k
+    return S
+
+
+def _denormalize_result(result, c, k):
+    """Map every xyz payload of a bez_ssx result back to world frame, once.
+
+    Un-map inventory (2026-07-21 design §3, audited): branch polylines
+    (``SSXBranch.curve = (stuv, xyz)`` — xyz only), ``SSXPoint.xyz``,
+    ``SSXSingularity.xyz``.  Everything else is parameter-space (stuv,
+    cusp-curve samples, region uv loops, unresolved-region stuv boxes) or
+    atol-relative (region certification residuals) and must NOT be touched.
+    Out-of-place arrays plus an id() guard make the map exactly-once even
+    if one object is referenced twice.  Called only at the `_result` choke
+    point, immediately before returning to the caller.
+    """
+    if k == 1.0 and not np.any(c):
+        return result
+    c = np.asarray(c, dtype=np.float64)
+    seen = set()
+
+    def _once(obj):
+        if id(obj) in seen:
+            return False
+        seen.add(id(obj))
+        return True
+
+    for b in result['branches']:
+        if _once(b):
+            stuv, xyz = b.curve
+            b.curve = (stuv, np.asarray(xyz, dtype=np.float64) * k + c)
+    for p in result['points']:
+        if _once(p):
+            p.xyz = np.asarray(p.xyz, dtype=np.float64) * k + c
+    for s in result['singularities']:
+        if _once(s):
+            s.xyz = np.asarray(s.xyz, dtype=np.float64) * k + c
+    return result
 
 
 def _march_intersection_curve(
@@ -4618,11 +4774,18 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
                     continue
 
             trace_limit = 400
+            # Which allowance actually bounds this march?  P2 (2026-07-25):
+            # the two are structurally different and must not report the
+            # same reason — the ledger is a knob the caller can raise, the
+            # per-march point cap is not.
+            trace_cap_is_internal = True
             if work_budget is not None:
                 if work_budget.exhausted or work_budget.remaining_cells <= 0:
                     _deny_trace_work()
                     break
-                trace_limit = min(trace_limit, work_budget.remaining_cells)
+                if work_budget.remaining_cells < trace_limit:
+                    trace_limit = work_budget.remaining_cells
+                    trace_cap_is_internal = False
             trace_stats = {}
             stuv_local, xyz_local, exit_info = _march_to_boundary(
                 cell.g1.surface, cell.g2.surface, seed_local,
@@ -4639,7 +4802,15 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
                 break
             if (trace_iterations >= trace_limit and exit_info is None):
                 if work_budget is not None:
-                    work_budget.mark_incomplete(REASON_WORK_BUDGET)
+                    # Name the allowance that actually ran out.  Billing the
+                    # shared ledger for an internal per-march cap told
+                    # consumers to raise max_cells; measured on harness case
+                    # 11 at atol=2.5e-6 that knob was at 2.5% utilization and
+                    # raising it changed nothing (the march needs ~1/sqrt(atol)
+                    # points and gets a fixed 400).
+                    work_budget.mark_incomplete(
+                        REASON_TRACE_POINT_CAP if trace_cap_is_internal
+                        else REASON_WORK_BUDGET)
                     if work_budget.remaining_cells <= 0:
                         work_budget.mark_exhausted()
 
@@ -5968,9 +6139,49 @@ def bez_ssx(
 
     The kwargs stay expert knobs with safe defaults: read ``complete`` (and
     ``reasons`` if you care why); never tune knobs to get correctness.
+
+    Numerical frame (P1, 2026-07-21 design + amendments 1-2): inputs
+    whose joint coordinate magnitude falls outside `_NORM_IDENTITY_WINDOW`
+    run in a canonical frame — both nets jointly centered at the AABB
+    midpoint and scaled by a power of two into the native-proven band
+    (AABB diagonal ~[11.3, 22.6]; max|coords| ~[3.3, 11.3]) — so the
+    strict Psi-zero certificates,
+    fixed corrector tolerances, and marching machinery see calibrated
+    coordinates for any world placement; in-window inputs keep the
+    bit-for-bit legacy frame.  The contract stays world-in/world-out:
+    xyz outputs are un-mapped exactly once at exit; parameters and
+    weights are frame-invariant; ``atol``/``max_xyz_step`` scale with the
+    frame internally.  Transversal results are similarity-invariant
+    (pinned by tests/test_bez_ssx5_invariance.py); singular structure at
+    extreme scales is the P1b limit
+    (docs/superpowers/issues/2026-07-21-ssx5-p1b-singular-tier-scale-invariance.md).
     """
     S1 = np.asarray(S1, dtype=np.float64)
     S2 = np.asarray(S2, dtype=np.float64)
+    # P1 invariance (2026-07-21 design + amendments): OUT-OF-WINDOW models
+    # run in a canonical frame — jointly centered, power-of-two scaled into
+    # the native band — so the absolute roundoff envelopes below see
+    # calibrated coordinates regardless of where the model sits in world
+    # space; in-window models keep the identity frame and skip the
+    # transform entirely (bit-for-bit pre-P1 arithmetic, including for
+    # non-finite degenerate inputs the context refuses).  A transform that
+    # produces non-finite coefficients (finite input, |c·w| overflow)
+    # falls back to identity rather than corrupting the search.
+    # World-in/world-out: `_result` un-maps xyz exactly once on the way
+    # out; parameters and weights are frame-invariant.  atol and
+    # max_xyz_step are lengths and scale along.
+    _norm_c, _norm_k = _ssx_normalization_context(S1, S2, rational=rational)
+    if _norm_k != 1.0 or np.any(_norm_c):
+        S1_n = _normalize_surface_net(S1, _norm_c, _norm_k, rational=rational)
+        S2_n = _normalize_surface_net(S2, _norm_c, _norm_k, rational=rational)
+        if np.all(np.isfinite(S1_n)) and np.all(np.isfinite(S2_n)):
+            S1, S2 = S1_n, S2_n
+            atol = float(atol) / _norm_k
+            if max_xyz_step is not None:
+                max_xyz_step = float(max_xyz_step) / _norm_k
+        else:
+            _norm_c = np.zeros(3, dtype=np.float64)
+            _norm_k = 1.0
     budget = _SSXSoftBudget(
         max_cells=max(0, int(max_cells)),
         max_csx_calls=max(0, int(max_csx_calls)),
@@ -5994,7 +6205,7 @@ def bez_ssx(
                                    else unresolved_regions),
         }
         result.update(budget.result_fields())
-        return result
+        return _denormalize_result(result, _norm_c, _norm_k)
 
     # A zero public allowance is a hard promise that no expensive solver
     # setup runs.  In particular, the 4-D squared-distance Bernstein net can
@@ -6362,28 +6573,40 @@ def bez_ssx(
             break
         cell = queue.popleft()
 
-        # Cheap AABB pruning first: if control-point bounding boxes don't
-        # overlap, there is no intersection in this cell.
-        if _aabb_disjoint(cell.g1.surface, cell.g2.surface, atol):
-            continue
-
-
-        # GJK separability: tighter than AABB, much cheaper than the sq-dist
-        # net or Gauss separability. Test the convex hulls of the two control
-        # nets — if they're separated, the surfaces don't intersect.
-        if _trust_gjk(cell.g1) and _trust_gjk(cell.g2):
-            P1_pts = (cell.g1.surface[..., :-1] / cell.g1.surface[..., -1:]).reshape(-1, 3)
-            P2_pts = (cell.g2.surface[..., :-1] / cell.g2.surface[..., -1:]).reshape(-1, 3)
-            if not gjk(P1_pts, P2_pts, atol, 15):
+        # P1c soundness guard (2026-07-21): a cell carrying registered
+        # crossings holds strict-certified Psi roots ON it — any exclusion
+        # verdict from the approximate prunes below contradicts certified
+        # evidence and is therefore numerically wrong by construction, not
+        # a proof of emptiness (measured: at case 10 in the canonical
+        # frame, GJK declared a 2-crossing cell "separated" and the arc
+        # through it silently vanished with complete=True; the same class
+        # as the June CSX basin prunes).  Certified evidence outranks
+        # approximate exclusion: crossing-bearing cells always proceed to
+        # classification/tracing.
+        if not cell.crossings:
+            # Cheap AABB pruning first: if control-point bounding boxes
+            # don't overlap, there is no intersection in this cell.
+            if _aabb_disjoint(cell.g1.surface, cell.g2.surface, atol):
                 continue
 
-        # Sq-dist net pruning using the PROPAGATED F_sq (built once at top,
-        # split alongside TΨᵢ at every subdivision — never reconstructed).
-        if cell.F_sq is not None:
-            if _check_min_of_net(cell.F_sq, atol, cell.w_scale):
-                continue
-            if _check_lipschitz(cell.F_sq, atol, cell.w_scale):
-                continue
+            # GJK separability: tighter than AABB, much cheaper than the
+            # sq-dist net or Gauss separability. Test the convex hulls of
+            # the two control nets — if they're separated, the surfaces
+            # don't intersect.
+            if _trust_gjk(cell.g1) and _trust_gjk(cell.g2):
+                P1_pts = (cell.g1.surface[..., :-1] / cell.g1.surface[..., -1:]).reshape(-1, 3)
+                P2_pts = (cell.g2.surface[..., :-1] / cell.g2.surface[..., -1:]).reshape(-1, 3)
+                if not gjk(P1_pts, P2_pts, atol, 15):
+                    continue
+
+            # Sq-dist net pruning using the PROPAGATED F_sq (built once at
+            # top, split alongside TΨᵢ at every subdivision — never
+            # reconstructed).
+            if cell.F_sq is not None:
+                if _check_min_of_net(cell.F_sq, atol, cell.w_scale):
+                    continue
+                if _check_lipschitz(cell.F_sq, atol, cell.w_scale):
+                    continue
 
         # Ledger L4 probe descent: a probe-only cell exists solely to find
         # the Δ-touch its loop-free ancestor's center witness missed (the

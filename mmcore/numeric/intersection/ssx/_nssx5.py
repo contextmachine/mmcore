@@ -242,6 +242,12 @@ class _AggregateStatus:
     output_items: int = 0
     reasons: list = field(default_factory=list)
     cell_counts: dict = field(default_factory=dict)
+    # Did the CALLER set this ledger, or is it the candidate-scaled default?
+    # An explicit value is an absolute aggregate promise and is redistributed
+    # across the remaining pairs; a default is a per-pair fairness share.
+    explicit_cells: bool = False
+    explicit_csx: bool = False
+    explicit_output: bool = False
 
     def _add(self, reason: str) -> None:
         if reason not in self.reasons:
@@ -333,7 +339,53 @@ def _make_aggregate(kwargs: dict, n_candidates: int) -> _AggregateStatus:
         max_postprocess_work=kwargs.get('max_postprocess_work'))
     return _AggregateStatus(
         max_cells=agg_cells, max_csx_calls=agg_csx,
-        max_output_items=agg_out, post=post)
+        max_output_items=agg_out, post=post,
+        explicit_cells=kwargs.get('max_cells') is not None,
+        explicit_csx=kwargs.get('max_csx_calls') is not None,
+        explicit_output=kwargs.get('max_output_items') is not None)
+
+
+def _per_pair_allowance(agg, remaining_candidates):
+    """Per-pair grant from the aggregate ledgers.
+
+    P2 (2026-07-25): the per-pair values used to be
+    ``min(_BEZ_DEFAULT_MAX_*, remaining)`` — the module default acting as a
+    hard ceiling on every call.  With one candidate pair that made the
+    public knobs unreachable: an explicit ``max_cells=2_000_000`` still
+    handed the engine 250k, which then reported ``work_budget`` and invited
+    the caller to raise a knob that could not move.
+
+    An EXPLICIT aggregate is an absolute promise (`_make_aggregate`; ledger
+    L41), and the house reading of that promise is the reference adapters':
+    `_ncsx4` and `_nccx4` both hand each call the ENTIRE remainder
+    (``call_kwargs['max_cells'] = remaining_cells``).  Do the same here.
+
+    An even fair-share slice was tried first and REVERTED (review
+    2026-07-26): work is not spread evenly over BVH candidates, so slicing
+    starves the hot pair.  Measured on harness case 1 with 43 candidates,
+    ``max_cells=250_000`` went from ``complete=True, reasons=[]`` to
+    ``work_budget`` with 61% of the caller's explicit aggregate unspent —
+    reintroducing, on the explicit path, exactly the misbilled
+    knob-unreachability this change exists to remove.
+
+    The DEFAULT path keeps the module default as its per-pair share, which
+    is bit-identical to the pre-P2 expression.  Note this is a real
+    discontinuity: passing ``max_cells=default*n`` is not the same call as
+    omitting it, because the former is a promise the caller may concentrate
+    on one pair.  That is the documented meaning of "absolute", not an
+    accident of the arithmetic.
+    """
+    def share(remaining, default, explicit):
+        return remaining if explicit else min(default, remaining)
+
+    return (
+        share(agg.remaining_cells, _BEZ_DEFAULT_MAX_CELLS,
+              agg.explicit_cells),
+        share(agg.remaining_csx_calls, _BEZ_DEFAULT_MAX_CSX_CALLS,
+              agg.explicit_csx),
+        share(agg.remaining_output_items, _BEZ_DEFAULT_MAX_OUTPUT_ITEMS,
+              agg.explicit_output),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1316,12 +1368,13 @@ def nurbs_ssx(surf1, surf2, atol=1e-3, **kwargs) -> dict:
         else:
             P1 = np.ascontiguousarray(p1.control_points, dtype=np.float64)
             P2 = np.ascontiguousarray(p2.control_points, dtype=np.float64)
+        _pair_cells, _pair_csx, _pair_out = _per_pair_allowance(
+            agg, len(candidates) - k)
         result = bez_ssx(
             P1, P2, atol=atol, rational=rational,
-            max_cells=min(_BEZ_DEFAULT_MAX_CELLS, agg.remaining_cells),
-            max_csx_calls=min(_BEZ_DEFAULT_MAX_CSX_CALLS,
-                              agg.remaining_csx_calls),
-            max_output_items=min(_BEZ_DEFAULT_MAX_OUTPUT_ITEMS,
+            max_cells=_pair_cells,
+            max_csx_calls=_pair_csx,
+            max_output_items=min(_pair_out,
                                  agg.remaining_output_items),
             **forward)
         agg.consume(result)
