@@ -500,8 +500,10 @@ def _certify_affine_csx_overlap(C, S, a, b, rational):
     if c_pts is None or s_pts is None:
         return False
     origin = np.asarray(c_pts).reshape(-1, 3)[0]
-    C_h = _center_homogeneous_for_exactness(C, rational, origin)
-    S_h = _center_homogeneous_for_exactness(S, rational, origin)
+    C_h, c_src = _center_homogeneous_for_exactness(
+        C, rational, origin, with_source_scale=True)
+    S_h, s_src = _center_homogeneous_for_exactness(
+        S, rational, origin, with_source_scale=True)
     if C_h is None or S_h is None:
         return False
     # The restricted affine path can contain an exactly-zero coordinate
@@ -519,6 +521,16 @@ def _certify_affine_csx_overlap(C, S, a, b, rational):
     source_product_scale = (
         c_xyz_scale * s_weight_scale
         + s_xyz_scale * c_weight_scale)
+    # Centering term — twin of ccx's `_overlap_mapping_is_identity`.  The
+    # two scales above come from the already-centered nets, so they measure
+    # what survived the common-origin cancellation rather than what was
+    # consumed by it; a world translation then destroys precision the
+    # envelope never accounts for.  Priced with `_CCX_CENTERING_OPS` (one
+    # subtraction), so it is ~eps at the model's own origin and grows only
+    # with the precision actually lost.
+    centering_product_scale = (
+        np.max(np.asarray(c_src).reshape(-1, 3), axis=0) * s_weight_scale
+        + np.max(np.asarray(s_src).reshape(-1, 3), axis=0) * c_weight_scale)
     ta, ua, va = (float(x) for x in a)
     tb, ub, vb = (float(x) for x in b)
     curve_h = _restrict_bezier_axis_ordered(C_h, 0, ta, tb)
@@ -555,9 +567,13 @@ def _certify_affine_csx_overlap(C, S, a, b, rational):
     source_factor = (np.longdouble(8192)
                      * np.longdouble(max(1, len(curve_h) + len(surf_h)))
                      * np.longdouble(np.finfo(np.float64).eps))
+    centering_factor = (np.longdouble(_CCX_CENTERING_OPS)
+                        * np.longdouble(np.finfo(np.float64).eps))
     roundoff = (op_factor * (np.abs(left) + np.abs(right))
                 + source_factor * np.asarray(
-                    source_product_scale, dtype=np.longdouble)[None, :])
+                    source_product_scale, dtype=np.longdouble)[None, :]
+                + centering_factor * np.asarray(
+                    centering_product_scale, dtype=np.longdouble)[None, :])
     return bool(np.all(np.isfinite(residual))
                 and np.all(residual <= roundoff))
 

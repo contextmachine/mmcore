@@ -293,7 +293,20 @@ def _strict_residual_ok(C1, C2, u, v, rational, component_scale=None):
     # Sources genuinely zero on an axis give envelope 0, so the pre-existing
     # exact-zero behaviour is preserved bit-for-bit for a plane through the
     # origin; a plane at z=const keeps a real, nonzero envelope.
-    bound = np.where(absent, centering_noise, bound)
+    # A PRESENT axis carries the same centering loss, just expressed in its
+    # own scaled units.  Without this the bound demands agreement to
+    # ~32*deg*eps of the SCALED value while the centered coordinates
+    # themselves carry noise proportional to the model's WORLD position, so
+    # nothing can be certified far from the origin: measured on the
+    # float-built-subcurve fixture, `_strict_polish_ccx` returned None
+    # 3020/3020 times at |T|=1e6 (5 of 6 at the model's own origin), which
+    # is how a genuine exact overlap degraded to no overlap at all.
+    # Absent axes are already bounded by the unscaled envelope above.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        scaled_noise = np.where(absent, 0.0,
+                                centering_noise / np.where(absent, 1.0, scales))
+    scaled_noise = np.where(np.isfinite(scaled_noise), scaled_noise, 0.0)
+    bound = np.where(absent, centering_noise, bound + scaled_noise)
     return bool(np.all(np.abs(p1_scaled - p2_scaled) <= bound)), p1, p2
 
 
@@ -421,8 +434,10 @@ def _overlap_mapping_is_identity(C1, C2, u_range, v_range, rational):
     if points1 is None or points2 is None:
         return False
     origin = points1[0]
-    H1 = _homogeneous_curve_for_identity(C1, rational, origin)
-    H2 = _homogeneous_curve_for_identity(C2, rational, origin)
+    H1, src1 = _homogeneous_curve_for_identity(
+        C1, rational, origin, with_source_scale=True)
+    H2, src2 = _homogeneous_curve_for_identity(
+        C2, rational, origin, with_source_scale=True)
     if H1 is None or H2 is None or H1.shape[1] != H2.shape[1]:
         return False
     h1_xyz_scale = np.max(np.abs(H1[:, :-1]), axis=0)
@@ -432,6 +447,20 @@ def _overlap_mapping_is_identity(C1, C2, u_range, v_range, rational):
     source_product_scale = (
         h1_xyz_scale * h2_weight_scale
         + h2_xyz_scale * h1_weight_scale)
+    # Third term (2026-07-26): the common-origin CENTERING itself.
+    # The two scales above are taken from the already-centered nets, so
+    # they measure what survived the cancellation, not what was consumed by
+    # it -- the same circular measurement removed from the Phase-2 prune in
+    # the cluster-4 tier.  A curve translated away from the origin loses
+    # precision proportional to its WORLD position while these scales stay
+    # at the model's own extent, so the envelope stopped covering the
+    # noise: this module's own calibrated float-built-subcurve fixture
+    # certifies at its native position but was refused 139/200 at |T|=1 and
+    # 200/200 at |T|=1e6, downgrading genuine exact overlaps to
+    # 'tolerance' and then to no overlap at all.
+    centering_product_scale = (
+        np.max(src1, axis=0) * h2_weight_scale
+        + np.max(src2, axis=0) * h1_weight_scale)
     H1 = _restrict_curve_interval(H1, float(u_range[0]), float(u_range[1]))
     H2 = _restrict_curve_interval(H2, float(v_range[0]), float(v_range[1]))
     if H1 is None or H2 is None:
@@ -454,12 +483,20 @@ def _overlap_mapping_is_identity(C1, C2, u_range, v_range, rational):
     # hide a real offset.
     source_factor = (np.longdouble(8192 * max(1, len(H1) + len(H2)))
                      * np.longdouble(np.finfo(np.float64).eps))
+    # The centering is ONE subtraction (four roundings) — priced with
+    # `_CENTERING_OPS`, not with the restriction's accumulation factor.  At
+    # the model's own origin its operands are O(the model), so this term is
+    # ~eps and changes nothing; it grows only in proportion to the
+    # precision a world translation actually destroys.
+    centering_factor = (np.longdouble(_CENTERING_OPS)
+                        * np.longdouble(np.finfo(np.float64).eps))
     for axis in range(H1.shape[1] - 1):
         lhs = _bernstein_product_1d(H1[:, axis], w2)
         rhs = _bernstein_product_1d(H2[:, axis], w1)
         residual = np.abs(lhs - rhs)
         roundoff = (
-            op_factor * (np.abs(lhs) + np.abs(rhs))
+            centering_factor * centering_product_scale[axis]
+            + op_factor * (np.abs(lhs) + np.abs(rhs))
             + source_factor * source_product_scale[axis])
         if np.any(residual > roundoff):
             return False
