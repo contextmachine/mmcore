@@ -58,6 +58,10 @@ N_SLICES = 100
 #   REASON_TRACE_UNVERIFIED  = "trace_unverified"  (in _work_budget.py's
 #     documented "Structural family — raising budgets cannot help"; its
 #     omission from the plan's set was an enumeration oversight)
+#   REASON_TRACE_POINT_CAP   = "trace_point_cap"  (P2 2026-07-25; also in
+#     the structural family — a per-march point cap is an internal limit,
+#     and _work_budget.py's own comment says raising max_cells/max_csx_calls
+#     cannot finish it)
 STRUCTURAL_REASONS = {
     'unresolved_tangential_zone',
     'unresolved_multiplicity',
@@ -65,6 +69,7 @@ STRUCTURAL_REASONS = {
     'parameter_fiber',
     'unresolved_singular_set',
     'trace_unverified',
+    'trace_point_cap',
 }
 
 # Per-case context printed with the row (controller-reviewed engine truth).

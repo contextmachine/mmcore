@@ -82,6 +82,12 @@ def _compute_param_tols(C1, C2, atol, rational):
     return float(tol_u), float(tol_v)
 
 
+# Roundings in the common-origin centering of one coordinate: one division,
+# one multiply, one subtract, one final normalization.  Used as the eps
+# multiplier for the centering envelope in BOTH this module and csx's twin.
+_CENTERING_OPS = 4.0
+
+
 def _cartesian_curve_controls_for_exactness(C, rational):
     C = np.asarray(C, dtype=np.float64)
     if rational:
@@ -183,8 +189,17 @@ def _ccx_exactness_context(C1, C2, rational):
     w2 = np.abs(H2[:, -1:])
     if np.any(w1 == 0.0) or np.any(w2 == 0.0):
         return None
-    degree_factor = max(1, len(H1) + len(H2))
-    centering_noise = (32.0 * degree_factor * np.finfo(np.float64).eps
+    # Factor derivation (review 2026-07-26 — the FACTOR has an operand too).
+    # This envelope bounds ONE subtraction, not a degree-n accumulation:
+    #   a = fl(x/scale)              1 rounding
+    #   b = fl(origin * fl(w/scale)) 2 roundings
+    #   d = fl(a - b)                1 rounding   (+1 for the /local_scale)
+    # so |err| <= ~4*eps*(|a|+|b|) = _CENTERING_OPS*eps*operand_mag.  The
+    # first version used the `32*degree_factor` family borrowed from
+    # `_strict_residual_ok`, but that factor prices a de Casteljau chain and
+    # is ~256x too large here (measured); on an ACCEPT path that surplus is
+    # exactly the false-root window, so it is not a free safety margin.
+    centering_noise = (_CENTERING_OPS * np.finfo(np.float64).eps
                        * np.maximum(np.max(src1 / w1, axis=0),
                                     np.max(src2 / w2, axis=0)))
     component_scale = np.where(
@@ -252,10 +267,21 @@ def _strict_residual_ok(C1, C2, u, v, rational, component_scale=None):
     if component_scale is None:
         return False, p1, p2
     C1_centered, C2_centered, scales = component_scale[:3]
+    scales = np.asarray(scales, dtype=np.float64)
+    centering_noise = np.asarray(component_scale[3], dtype=np.float64)
+    absent = scales == 0.0
+    # ABSENT MUST NOT MEAN IGNORED (review 2026-07-26).
+    # `_eval_curve_scaled_components` skips any axis whose scale is 0, so
+    # marking a noise-level axis absent used to drop it from this test
+    # entirely — and this is the module's ONLY membership gate.  Two
+    # segments in parallel planes x=X0 and x=X0+1e-8 were then certified as
+    # intersecting at X0=1e6.  Evaluate those axes UNSCALED instead, and
+    # bound them by the centering envelope they are absent WITH RESPECT TO.
+    eval_scales = np.where(absent, 1.0, scales)
     p1_scaled = _eval_curve_scaled_components(
-        C1_centered, u, True, scales)
+        C1_centered, u, True, eval_scales)
     p2_scaled = _eval_curve_scaled_components(
-        C2_centered, v, True, scales)
+        C2_centered, v, True, eval_scales)
     if (p1_scaled is None or p2_scaled is None
             or not np.all(np.isfinite(p1_scaled))
             or not np.all(np.isfinite(p2_scaled))):
@@ -264,6 +290,10 @@ def _strict_residual_ok(C1, C2, u, v, rational, component_scale=None):
     bound = ((32.0 * degree_factor * np.finfo(np.float64).eps)
              * np.maximum(1.0, np.maximum(
                  np.abs(p1_scaled), np.abs(p2_scaled))))
+    # Sources genuinely zero on an axis give envelope 0, so the pre-existing
+    # exact-zero behaviour is preserved bit-for-bit for a plane through the
+    # origin; a plane at z=const keeps a real, nonzero envelope.
+    bound = np.where(absent, centering_noise, bound)
     return bool(np.all(np.abs(p1_scaled - p2_scaled) <= bound)), p1, p2
 
 
@@ -739,11 +769,16 @@ def _vector_residual_hull_excludes_zero(C1, C2, rational, depth):
     eps = np.finfo(np.longdouble).eps
     op_factor = np.longdouble(
         1024 * max(1, depth + 1) * max(len(H1), len(H2))) * eps
-    # Same source factor as `_overlap_mapping_is_identity` (and csx's
-    # `_certify_affine_csx_overlap`): the centering runs in the source
-    # float64 precision ahead of the long-double cross products, so its
-    # term scales with eps_float64 and the number of accumulating terms.
-    source_factor = (np.longdouble(8192 * max(1, len(H1) + len(H2)))
+    # The centering runs in the source float64 precision ahead of the
+    # long-double cross products, so its term scales with eps_float64.
+    # FACTOR (review 2026-07-26): `_CENTERING_OPS`, not the siblings'
+    # `8192*(n1+n2)`.  That constant prices a Bernstein product/restriction
+    # chain; what is being bounded here is the same single subtraction as in
+    # `_ccx_exactness_context`.  Borrowing it cost ~3 orders of prune reach
+    # at large world positions — measured floor 2.9e-11 at |T|=1 and 2.9e-2
+    # at |T|=1e9, the latter ABOVE a default atol=1e-3, i.e. the prune had
+    # stopped separating anything at tolerance scale out there.
+    source_factor = (np.longdouble(_CENTERING_OPS)
                      * np.longdouble(np.finfo(np.float64).eps))
     abs_w1 = np.abs(w1)
     abs_w2 = np.abs(w2)

@@ -59,6 +59,39 @@ Three limiters, none of them the public work budget:
   candidates that remain.  Pinned by two tests, including one that the
   default path must not move.
 
+## Adversarial review response (2026-07-26)
+
+Two majors, both confirmed and fixed:
+
+**The fair-share split violated the contract it cited.** I invented an
+even `ceil(remaining / n_remaining)` slice on the explicit path, reasoning
+that an absolute promise should still be shared fairly. But work is not
+spread evenly over BVH candidates, and the house reading of "absolute" is
+the reference adapters': `_ncsx4` and `_nccx4` both hand each call the
+ENTIRE remainder. Measured cost of my version on harness case 1 (43
+candidates): `max_cells=250_000` went from `complete=True, reasons=[]` to
+`reasons=['work_budget']` with **61% of the caller's explicit aggregate
+unspent** — reintroducing, on the explicit path, the exact misbilled
+knob-unreachability this change exists to remove. Now grants the full
+remainder; all four regressed rows restored to `complete=True` at their
+pre-commit cell counts (100,922 / 21,571).
+Root cause of MISSING it: both my tests used a single-candidate fixture,
+where the fair-share branch is an identity. Multi-candidate coverage added.
+
+**The re-typing never reached the consumer that acts on it.**
+`trace_point_cap` was absent from `STRUCTURAL_REASONS` in
+`examples/ssx/nurbs_ssx5_coverage_check.py` — the very file the commit
+edited (CASE_NOTES twenty lines below). So case 11 was still counted a
+resource FAIL. Fixed: **case 11 is now `PARTIAL(typed)` and the gate
+PASSES.** Naming a reason is only half the work; the closed sets that
+classify it are the other half.
+
+Also fixed: `test_reason_vocabulary_is_stable` asserted individual names
+but never the closed SET, so it could not detect the drift it exists to
+detect — two reasons had already slipped through (`unresolved_singular_set`
+at L52, `trace_point_cap` here). It now pins the set and names every
+registration site in its failure message.
+
 ## Open — filed, not guessed
 
 - **The `trace_limit = 400` derivation** is its own tier (the user's

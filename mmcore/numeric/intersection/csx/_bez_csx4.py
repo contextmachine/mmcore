@@ -29,6 +29,10 @@ from mmcore.numeric.intersection._bezier_common import (
     restrict_net_axis, restrict_net_axis_v, geometry_collapsed,
 )
 from mmcore.numeric.intersection.ccx._bez_ccx4 import bez_ccx as bez_ccx_v4
+# Shared with ccx's twin: both centerings run the same four roundings.
+from mmcore.numeric.intersection.ccx._bez_ccx4 import (
+    _CENTERING_OPS as _CCX_CENTERING_OPS,
+)
 from mmcore.numeric.intersection._sq_dist_classify import (
     BoundaryZero,
     _boundary_zero_to_param_point,
@@ -294,9 +298,14 @@ def _strict_csx_root_tol(C, S, rational):
     s_w = np.abs(s_centered[..., -1:])
     if np.any(c_w == 0.0) or np.any(s_w == 0.0):
         return None
-    degree_factor = max(
-        1, len(C) + int(np.asarray(S).shape[0]) + int(np.asarray(S).shape[1]))
-    centering_noise = (32.0 * degree_factor * np.finfo(np.float64).eps
+    # Factor: this envelope prices ONE subtraction (the common-origin
+    # centering), not a degree-n accumulation — see `_CENTERING_OPS` in
+    # ccx's twin for the per-rounding derivation.  Using the certificate's
+    # own `32*degree_factor` family here was ~256x too loose (measured), and
+    # on an ACCEPT path that surplus is the false-certification window: a
+    # curve lifted 1e-13 off the surface certified as 'exact' at 195/200
+    # random world positions of magnitude 1e2.
+    centering_noise = (_CCX_CENTERING_OPS * np.finfo(np.float64).eps
                        * np.maximum(
                            np.max(np.asarray(c_src / c_w).reshape(-1, 3),
                                   axis=0),

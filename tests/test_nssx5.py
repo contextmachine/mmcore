@@ -1191,3 +1191,56 @@ def test_default_budget_path_is_unchanged(monkeypatch):
     assert seen
     for s in seen:
         assert s["max_cells"] == _BEZ_DEFAULT_MAX_CELLS, seen
+
+
+def test_explicit_budget_is_absolute_for_every_pair(monkeypatch):
+    """Multi-candidate coverage — the case the first version got wrong.
+
+    With one candidate pair any per-pair policy looks identical, so the
+    original two tests could not see that an even fair-share slice starves
+    the hot pair.  Work is not spread evenly over BVH candidates: on harness
+    case 1 (43 pairs) slicing turned an explicit max_cells=250_000 from
+    complete into reasons=['work_budget'] with 61% of the aggregate unspent.
+    The contract (`_make_aggregate`: "explicit values are absolute aggregate
+    promises"; _ncsx4/_nccx4 hand each call the whole remainder) requires
+    every pair to be offered what is LEFT, not a slice of it.
+    """
+    import mmcore.numeric.intersection.ssx._nssx5 as nm
+    from mmcore.numeric.intersection.ssx._nssx5 import _per_pair_allowance
+
+    class Agg:
+        def __init__(self, cells, explicit):
+            self.remaining_cells = cells
+            self.remaining_csx_calls = 10 ** 9
+            self.remaining_output_items = 10 ** 9
+            self.explicit_cells = explicit
+            self.explicit_csx = False
+            self.explicit_output = False
+
+    # explicit: every pair is offered the full remainder, at any n
+    for n in (1, 2, 4, 43):
+        cells, _csx, _out = _per_pair_allowance(Agg(1_000_000, True), n)
+        assert cells == 1_000_000, (n, cells)
+
+    # default: the module default is the per-pair share, unchanged
+    for n in (1, 2, 4, 43):
+        cells, _csx, _out = _per_pair_allowance(
+            Agg(nm._BEZ_DEFAULT_MAX_CELLS * n, False), n)
+        assert cells == nm._BEZ_DEFAULT_MAX_CELLS, (n, cells)
+
+    # a nearly-drained explicit ledger still offers exactly what is left
+    cells, _csx, _out = _per_pair_allowance(Agg(7, True), 43)
+    assert cells == 7
+
+
+def test_multi_candidate_default_path_grants_are_unchanged(monkeypatch):
+    """Regression pin on the DEFAULT path with more than one candidate."""
+    import mmcore.numeric.intersection.ssx._nssx5 as nm
+
+    s1, s2 = _boundary_coincidence_pair()
+    m1 = insert_midknot(s1, axis=0)
+    m2 = insert_midknot(s2, axis=0)
+    seen = _capture_bez_ssx_budgets(monkeypatch, (m1, m2), atol=1e-3)
+    assert len(seen) >= 2, f"expected a multi-candidate split, got {len(seen)}"
+    for s in seen:
+        assert s["max_cells"] == nm._BEZ_DEFAULT_MAX_CELLS, seen

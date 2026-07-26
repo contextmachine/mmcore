@@ -176,6 +176,51 @@ scope: its own tier, with that contract fixture re-derived rather than
 re-calibrated.  The overflow guard the current order exists for must
 survive as a fallback.
 
+## Adversarial review response (2026-07-26)
+
+The house review found the fix **correct in the direction it was analysed
+and unsound in the direction it was not**. Both halves are instructive.
+
+**The factor had an operand too.** I set the absent-axis envelope to
+`32·degree_factor·eps·operand_mag`, reasoning that it "matches the family
+`_strict_residual_ok` already uses". That family prices a degree-n de
+Casteljau chain; what this envelope bounds is ONE subtraction (four
+roundings). Measured surplus: **~256×**, uniform across magnitudes. The
+same misapplication was in the prune's `8192·(n₁+n₂)` source factor,
+costing ~3 orders of prune reach — the floor at |T|=1e9 was 2.9e-2, ABOVE
+a default atol. Both now use `_CENTERING_OPS = 4`, derived per rounding.
+Prune floor improved ~8000× (3.6e-15 / 3.6e-12 / 3.5e-6 at |T| = 1 / 1e3 /
+1e9) with **both** anti-loss guards still exact: 20,000/20,000 agreement
+with the pre-fix form on generic geometry, 0/5000 wrongly-pruned coplanar
+crossings.
+
+**"Absent" must never mean "ignored" (the severe one).**
+`_eval_curve_scaled_components` skips any axis whose scale is 0. That was
+harmless while "absent" meant "sources are literally zero", but I widened
+it to "content is under the centering envelope" — and then the module's
+ONLY membership gate stopped testing that coordinate at all. Result: two
+segments in parallel planes `x = 1e6` and `x = 1e6 + 1e-8` were certified
+as intersecting. Confirmed and fixed: absent axes are now evaluated
+unscaled and bounded by the envelope they are absent with respect to.
+Acceptance ceiling went from 256–1464 ulps (growing with degree) to a
+**scale-invariant 7–16 ulps ≈ 1.6e-15 relative**, constant from magnitude
+1 to 1e9. The lesson generalizes: an envelope change that widens a
+"treat as zero" predicate is an ACCEPT-path change even when it looks like
+a prune-path change, and the commit's guards tested only the prune.
+
+**Correction to this document's earlier claim.** I described the two
+un-updated siblings (`_overlap_mapping_is_identity`,
+`_certify_affine_csx_overlap`) as having the weakness "benignly". That is
+too generous and is now withdrawn. Measured on a genuine exact overlap
+over 300 random translations, they refuse to certify **131/300 at |T|=1,
+187/300 at 1e3, 300/300 at 1e9**, and `bez_ccx` correspondingly degrades a
+true overlap `exact → tolerance → no overlap at all`
+(60/0/0 → 0/60/0 → 0/3/57). That downgrade is the very mechanism this
+commit blames for `overlap_region_unsupported`. It is **not a regression
+from this work** (identical before and after, verified A/B) — it is a
+pre-existing defect of the same family, now measured, and it is filed as
+the next cluster-4 tier rather than folded in late.
+
 ## Consequences for the program
 
 - **The user's fixture passes and `ssx5-invariance` is unblocked** — the

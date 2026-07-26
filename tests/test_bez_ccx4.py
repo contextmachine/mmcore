@@ -504,17 +504,20 @@ def test_centering_envelope_does_not_swallow_small_real_offsets(offset):
     3e-8 relative, and ~7 orders below any modelling tolerance the engine is
     ever called with.
 
-    MEASURED LIMIT (documented, not a target): the absent-axis envelope is
-    built from the operand magnitudes of the centering subtraction, and
+    MEASURED LIMIT (documented, not a target): the envelope is built from
+    the operand magnitudes of the centering subtraction, and
     `_center_curve_homogeneous_for_exactness` divides by the net scale
     BEFORE translating, so those operands carry the model's WORLD POSITION.
-    The prune's separation floor therefore degrades with distance from the
-    origin — ~1e-10 world units when centered on the model, ~1e-7 at a 1e3
-    translation.  That direction is safe (the prune declines to fire and the
-    cell goes to the sound subdivision/Newton path; it can never delete a
-    solution) and it is orders below any real tolerance, so it is recorded
-    rather than chased here.  Removing it means reordering the centering to
-    subtract before normalizing, which regresses
+    The prune's separation floor therefore still degrades with distance from
+    the origin, but only at the rate the arithmetic actually loses:
+    3.6e-15 at |T|=1, 3.6e-12 at 1e3, 3.5e-6 at 1e9 — all far below a
+    default atol=1e-3.  (Before the 2026-07-26 review the factor was the
+    siblings' `8192*(n1+n2)`, a Bernstein-chain constant misapplied to a
+    single subtraction; the floor was then 2.9e-11 / 2.9e-8 / 2.9e-2, the
+    last one ABOVE atol.)  This direction is safe — the prune declines to
+    fire and the cell goes to the sound subdivision/Newton path, so it can
+    never delete a solution.  Removing the residual dependence means
+    reordering the centering to subtract before normalizing, which regresses
     `test_ccx4_exactness_contract.py::test_float_built_quadratic_subcurve_remains_an_overlap`
     — a calibrated fixture — so it is a separate, fixture-first change.
     """
@@ -527,3 +530,77 @@ def test_centering_envelope_does_not_swallow_small_real_offsets(offset):
         D = _shift_homog(_COPLANAR_D, c)
         D[:, 2] += offset * D[:, 3]
         assert _vector_residual_hull_excludes_zero(C, D, True, 0), (c, offset)
+
+
+# ---------------------------------------------------------------------------
+# Cluster-4 follow-up (adversarial review, 2026-07-26): the ACCEPT path needs
+# anti-loosening guards too, not just the prune.
+#
+# The absent-axis rule must never mean "skip this coordinate".  Two segments
+# lying in PARALLEL planes x = X0 and x = X0 + d never meet, at any world
+# position.  If the x axis is declared absent because d sits under the
+# centering envelope, and the membership gate then omits x, the engine
+# reports a confident phantom root -- the same class of wrong topology the
+# prune defect caused, in the opposite direction.
+# ---------------------------------------------------------------------------
+
+def _parallel_planes_certify(X0, gap):
+    C1 = np.array([[X0, -1.0, -1.0], [X0, 1.0, 1.0]])
+    C2 = np.array([[X0 + gap, -1.0, 1.0], [X0 + gap, 1.0, -1.0]])
+    return len(bez_ccx(C1, C2, atol=1e-3, rational=False)["isolated"]) > 0
+
+
+# The common-origin centering computes each coordinate as
+# fl(x/scale) - fl(origin*fl(w/scale)); its error is ~4 eps per operand, so
+# separations of a few ulps of the WORLD coordinate are genuinely below what
+# the centered representation can resolve.  Measured acceptance ceiling
+# after the 2026-07-26 review fix: 7-16 ulps, i.e. ~1.6e-15 RELATIVE, and
+# constant from magnitude 1 to 1e9 (it was 256-1464 ulps and growing with
+# degree before).  So the contract is stated relatively, and the property
+# that matters is that the verdict does not depend on world position.
+@pytest.mark.parametrize("rel", [1e-12, 1e-10, 1e-8])
+@pytest.mark.parametrize("X0", [0.0, 1.0, 1e3, 1e6, 1e9])
+def test_parallel_planes_never_certify_a_resolvable_gap(X0, rel):
+    gap = rel * max(1.0, abs(X0))
+    assert not _parallel_planes_certify(X0, gap), (X0, rel, gap)
+
+
+@pytest.mark.parametrize("rel", [1e-14, 1e-12, 1e-8])
+def test_parallel_plane_verdict_is_translation_invariant(rel):
+    """Whatever the engine decides, it must decide it everywhere.
+
+    This is the real invariance contract: a fixed RELATIVE separation is the
+    same geometry at every world position, so the accept/reject verdict must
+    not move.  Before the review fix the ceiling grew with |X0| in absolute
+    terms while shrinking in relative terms, so this property failed.
+
+    Floor: `rel` must stay above float64 representability, which is ~1.1e-16
+    relative.  At rel=1e-16 the verdict legitimately differs — an origin-
+    centred pair has no cancellation at all and resolves the gap, while at
+    |X0|=1e9 the same relative gap is 0.84 ulp and no method can see it.
+    That asymmetry is information-theoretic, not an envelope defect.
+    """
+    verdicts = {X0: _parallel_planes_certify(X0, rel * max(1.0, abs(X0)))
+                for X0 in (0.0, 1.0, 1e3, 1e6, 1e9)}
+    assert len(set(verdicts.values())) == 1, verdicts
+
+
+def test_absent_axis_is_checked_not_skipped():
+    """An axis under the centering envelope is still COMPARED against it.
+
+    Regression pin for the review finding: `_eval_curve_scaled_components`
+    skips axes whose scale is 0, so declaring an axis absent used to remove
+    it from the membership test altogether. It must instead be tested
+    against its own roundoff envelope.
+    """
+    from mmcore.numeric.intersection.ccx._bez_ccx4 import (
+        _ccx_exactness_context, _strict_residual_ok,
+    )
+
+    X0, d = 1e6, 1e-8
+    C1 = np.array([[X0, -1.0, -1.0], [X0, 1.0, 1.0]])
+    C2 = np.array([[X0 + d, -1.0, 1.0], [X0 + d, 1.0, -1.0]])
+    ctx = _ccx_exactness_context(C1, C2, False)
+    assert ctx is not None
+    ok, _p1, _p2 = _strict_residual_ok(C1, C2, 0.5, 0.5, False, ctx)
+    assert not ok, "a 1e-8 gap in the x coordinate was certified as exact"

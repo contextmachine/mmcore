@@ -346,7 +346,7 @@ def _make_aggregate(kwargs: dict, n_candidates: int) -> _AggregateStatus:
 
 
 def _per_pair_allowance(agg, remaining_candidates):
-    """Split what the aggregate has LEFT among the candidates still to run.
+    """Per-pair grant from the aggregate ledgers.
 
     P2 (2026-07-25): the per-pair values used to be
     ``min(_BEZ_DEFAULT_MAX_*, remaining)`` — the module default acting as a
@@ -355,19 +355,28 @@ def _per_pair_allowance(agg, remaining_candidates):
     handed the engine 250k, which then reported ``work_budget`` and invited
     the caller to raise a knob that could not move.
 
-    The default path is unchanged BY CONSTRUCTION: an unset budget makes the
-    aggregate exactly ``default * n_candidates``, so an even split of the
-    full aggregate is exactly ``default`` per pair.  Only an EXPLICIT
-    aggregate — which `_make_aggregate` documents as an absolute promise —
-    redistributes, and it stays fair by dividing what remains among the
-    candidates that remain rather than letting the first pair take it all.
-    """
-    n = max(1, int(remaining_candidates))
+    An EXPLICIT aggregate is an absolute promise (`_make_aggregate`; ledger
+    L41), and the house reading of that promise is the reference adapters':
+    `_ncsx4` and `_nccx4` both hand each call the ENTIRE remainder
+    (``call_kwargs['max_cells'] = remaining_cells``).  Do the same here.
 
+    An even fair-share slice was tried first and REVERTED (review
+    2026-07-26): work is not spread evenly over BVH candidates, so slicing
+    starves the hot pair.  Measured on harness case 1 with 43 candidates,
+    ``max_cells=250_000`` went from ``complete=True, reasons=[]`` to
+    ``work_budget`` with 61% of the caller's explicit aggregate unspent —
+    reintroducing, on the explicit path, exactly the misbilled
+    knob-unreachability this change exists to remove.
+
+    The DEFAULT path keeps the module default as its per-pair share, which
+    is bit-identical to the pre-P2 expression.  Note this is a real
+    discontinuity: passing ``max_cells=default*n`` is not the same call as
+    omitting it, because the former is a promise the caller may concentrate
+    on one pair.  That is the documented meaning of "absolute", not an
+    accident of the arithmetic.
+    """
     def share(remaining, default, explicit):
-        if not explicit:
-            return min(default, remaining)
-        return min(remaining, max(1, -(-remaining // n)))
+        return remaining if explicit else min(default, remaining)
 
     return (
         share(agg.remaining_cells, _BEZ_DEFAULT_MAX_CELLS,
