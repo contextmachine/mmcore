@@ -1244,3 +1244,73 @@ def test_multi_candidate_default_path_grants_are_unchanged(monkeypatch):
     assert len(seen) >= 2, f"expected a multi-candidate split, got {len(seen)}"
     for s in seen:
         assert s["max_cells"] == nm._BEZ_DEFAULT_MAX_CELLS, seen
+
+
+# ---------------------------------------------------------------------------
+# Case 11 (2026-07-26): the per-march allowance must be the caller's ledger,
+# not a hardcoded point count.
+#
+# The tracer used `trace_limit = 400`, which bounds nothing: the points a
+# march needs are (arc length)/(step size), and the step is chosen from atol
+# and curvature, so the requirement grows ~1/sqrt(atol) while 400 stayed
+# put.  Harness case 11's true intersection is ONE CLOSED LOOP of length
+# 1261.25; at atol=1e-3 the cap truncated it to 92.68% coverage AND cost
+# extra work (20,811 cells vs 15,077), because the fragments were then
+# re-processed.
+# ---------------------------------------------------------------------------
+
+_CASE11_TRUE_LENGTH = 1261.25
+
+
+def _load_case11():
+    import pathlib
+    import pickle
+    with open(FIXTURE_DIR / "nurbs_nurbs_intersection_11.pkl", "rb") as f:
+        return pickle.load(f)[0]
+
+
+@pytest.mark.parametrize("atol", [1e-1, 1e-2, 1e-3])
+def test_case11_recovers_the_whole_closed_loop(atol):
+    """One closed loop, whole, at every tolerance the budget can afford."""
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+
+    s1, s2 = _load_case11()
+    r = nurbs_ssx(s1, s2, atol=atol)
+
+    assert r["complete"] is True, r["status"]["reasons"]
+    assert r["status"]["reasons"] == []
+    assert len(r["branches"]) == 1, [b.kind for b in r["branches"]]
+    branch = r["branches"][0]
+    assert bool(branch.closed), "the loop must close, not fragment"
+    xyz = np.asarray(branch.curve[1], dtype=float)
+    length = float(np.sum(np.linalg.norm(np.diff(xyz, axis=0), axis=1)))
+    assert abs(length - _CASE11_TRUE_LENGTH) <= 1.0, length
+
+
+def test_case11_march_allowance_comes_from_the_ledger(monkeypatch):
+    """Pin the derivation, not just its effect.
+
+    A march must be offered what the shared ledger has left. The former
+    fixed 400 is what made the stop knob-unreachable: no budget the caller
+    could set would change it.
+    """
+    import mmcore.numeric.intersection.ssx._bez_ssx5 as bm
+
+    seen = []
+    orig = bm._march_to_boundary
+
+    def spy(*a, **k):
+        if k.get("max_points") is not None:
+            seen.append(int(k["max_points"]))
+        return orig(*a, **k)
+
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+
+    monkeypatch.setattr(bm, "_march_to_boundary", spy)
+    s1, s2 = _load_case11()
+    bm_result = nurbs_ssx(s1, s2, atol=1e-3)
+    assert seen, "no march observed"
+    # Every allowance must exceed the old hardcoded cap by a wide margin,
+    # because it is now a slice of a 250k-cell ledger rather than a constant.
+    assert min(seen) > 400, sorted(seen)[:5]
+    assert bm_result["complete"] is True

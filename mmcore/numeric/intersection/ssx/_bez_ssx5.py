@@ -2001,6 +2001,24 @@ def _strict_ssx_root_tol(S1, S2, rational=True):
 # fixture exercises magnitudes below 2**-5 — P1b tracks that gap too.
 # Making the singular tier itself scale-invariant is the P1b follow-up
 # (docs/superpowers/issues/2026-07-21-ssx5-p1b-singular-tier-scale-invariance.md).
+# How far a single march may wander inside a cell's LOCAL unit parameter
+# box before it is pathological rather than merely long, measured in box
+# diameters.  Dimensionless and parameter-space: it scales with nothing, and
+# it bounds only the defensive no-ledger path in
+# `_trace_cell_by_registrations` (with a ledger, the caller's allowance is
+# the bound).
+_MARCH_MAX_BOX_TRAVERSALS = 4.0
+
+# No-progress guard for `_march_to_boundary` (see the guard for the measured
+# failure).  Over WINDOW accepted steps, a real curve's net displacement is a
+# decent fraction of the arc it spent — locally the curve is nearly straight,
+# so net/arc is near 1 and falls only where it genuinely doubles back.  An
+# oscillation nets ~zero.  RATIO is how much arc may be spent per unit of net
+# progress before the march is declared stalled; both are dimensionless, so
+# the guard is scale- and tolerance-independent.
+_MARCH_PROGRESS_WINDOW = 32
+_MARCH_PROGRESS_RATIO = 8.0
+
 _NORM_IDENTITY_WINDOW = (2.0 ** -5, 2.0 ** 5)
 
 # Out-of-window models are centered and scaled INTO the native-proven band
@@ -3130,6 +3148,35 @@ def _march_to_boundary(
             speed = speed_new
         stuv_pts.append(current.copy())
         xyz_pts.append(pt1.copy())
+
+        # NO-PROGRESS GUARD.  A march terminates by crossing a cell face; one
+        # that neither crosses nor advances is not tracing anything.  At an
+        # ISOLATED TANGENCY the intersection is a POINT, so there is no curve
+        # to follow: the predictor steps off it and the corrector pulls
+        # straight back, and the march vibrates in place forever.  Measured
+        # on `test_two_isolated_tangent_points_same_cell`: 245,561
+        # iterations, ZERO boundary-crossing predictions, 50.0% of
+        # consecutive steps reversing direction (mean cos = -0.40), total xyz
+        # path 2.5e-2 accumulated inside an 8.9e-8 neighbourhood -- 279,472x
+        # its own extent, 150s of wall clock for nothing.  The old 400-point
+        # cap hid this by giving up early; sizing the cap either way only
+        # changes how long the vibration lasts.
+        #
+        # The test is dimensionless: over a window of accepted steps a real
+        # curve's net displacement is a decent fraction of the arc it spent
+        # (locally it is nearly straight), while an oscillation nets ~zero.
+        if len(xyz_pts) > _MARCH_PROGRESS_WINDOW:
+            _w0 = np.asarray(xyz_pts[-1 - _MARCH_PROGRESS_WINDOW])
+            _arc = 0.0
+            for _i in range(-_MARCH_PROGRESS_WINDOW, 0):
+                _arc += float(np.linalg.norm(
+                    np.asarray(xyz_pts[_i]) - np.asarray(xyz_pts[_i - 1])))
+            _net = float(np.linalg.norm(np.asarray(xyz_pts[-1]) - _w0))
+            if _arc > 0.0 and _net * _MARCH_PROGRESS_RATIO < _arc:
+                # Not advancing: stop and report no exit, which is the truth.
+                if stats is not None:
+                    stats["no_progress"] = True
+                break
 
     if stats is not None:
         stats["iterations"] = int(iterations)
@@ -4773,19 +4820,39 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
                         break
                     continue
 
-            trace_limit = 400
-            # Which allowance actually bounds this march?  P2 (2026-07-25):
-            # the two are structurally different and must not report the
-            # same reason — the ledger is a knob the caller can raise, the
-            # per-march point cap is not.
-            trace_cap_is_internal = True
+            # PER-MARCH ALLOWANCE (derived, 2026-07-26).  This used to be a
+            # hardcoded 400 points, which is not a bound on anything: the
+            # points a march needs are (arc length)/(step size), and the
+            # marcher's step is chosen from atol and curvature, so the
+            # requirement grows as ~1/sqrt(atol) while 400 stayed put.  On
+            # harness case 11 that truncated a single closed loop of length
+            # 1261.25 and cost coverage — AND cost work, because the
+            # fragments were then re-processed: measured at atol=1e-3,
+            # cap 400 -> 92.68% coverage / 20,811 cells, while an
+            # unrestricted march -> 100% / 15,077 cells and complete=True.
+            #
+            # There is no sound geometric cap to derive: with min_step ~4e-6
+            # a parameter-space bound is ~2e5 steps, i.e. no bound at all.
+            # So the SHARED LEDGER is the only limit, which is also what
+            # makes the stop knob-reachable (P2's point): a march that runs
+            # out now runs out of the caller's declared allowance, and says
+            # so.
+            trace_cap_is_internal = False
             if work_budget is not None:
                 if work_budget.exhausted or work_budget.remaining_cells <= 0:
                     _deny_trace_work()
                     break
-                if work_budget.remaining_cells < trace_limit:
-                    trace_limit = work_budget.remaining_cells
-                    trace_cap_is_internal = False
+                trace_limit = work_budget.remaining_cells
+            else:
+                # No ledger to spend from (defensive path).  Bound by the
+                # marcher's own step floor instead: a curve that has taken
+                # `_MARCH_MAX_BOX_TRAVERSALS` box-diameters' worth of minimum
+                # steps inside a unit parameter cell is pathological, not
+                # merely long.  Dimensionless and parameter-space, so it
+                # scales with nothing.
+                trace_limit = int(math.ceil(
+                    _MARCH_MAX_BOX_TRAVERSALS / max(ptol_min, 1e-12)))
+                trace_cap_is_internal = True
             trace_stats = {}
             stuv_local, xyz_local, exit_info = _march_to_boundary(
                 cell.g1.surface, cell.g2.surface, seed_local,

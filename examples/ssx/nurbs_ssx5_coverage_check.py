@@ -79,16 +79,17 @@ CASE_NOTES = {
     10: ("tangential contact at z=5: the u-family cloud is empty; the "
          "v-family samples the tangential curve, covered by the "
          "tangential branch (verified 100%, no longer vacuous)"),
-    11: ("P1 fixed the trace certificate at original coords "
-         "(trace_unverified gone; 92.68%). P2 (2026-07-25) NAMED the "
-         "knob-unreachable tier: the marcher's hardcoded per-march cap of "
-         "400 points, now reported as 'trace_point_cap' instead of "
-         "misbilling 'work_budget'. Truth is one closed loop of length "
-         "1261.25 (recovered whole at atol>=1e-2); points needed scale as "
-         "1/sqrt(atol), so tight tolerances truncate. Deriving that cap is "
-         "its own tier (open); the residual 'work_budget' at very tight "
-         "atol comes from a bez_csx max_depth truncation that still "
-         "reports a bare budget_exhausted flag — see "
+    11: ("OK since 2026-07-26: one closed loop, length 1261.46 vs truth "
+         "1261.25, 100% coverage. History: P1 fixed the trace certificate; "
+         "P2 named the knob-unreachable tier (the marcher's hardcoded "
+         "400-point cap, reported as 'trace_point_cap'); the cap is now "
+         "the caller's ledger, and the underlying defect — a march that "
+         "vibrates in place at an isolated tangency instead of "
+         "terminating — is caught by the no-progress guard in "
+         "_march_to_boundary. At atol<=1e-5 the loop is still truncated, "
+         "now by a bez_csx max_depth truncation that reports a bare "
+         "budget_exhausted flag (open; needs the truncation-cause schema "
+         "change) — see "
          "docs/superpowers/issues/2026-07-25-ssx5-p2-knob-unreachable-ledger.md"),
 }
 
