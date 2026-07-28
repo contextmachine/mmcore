@@ -221,7 +221,6 @@ class BVH:
 
     def resize(self, new_size):
         old_size=len(self.nodes)
-        print(old_size,new_size)
         if new_size==old_size:
             return
         elif old_size>new_size:

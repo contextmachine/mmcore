@@ -3360,3 +3360,81 @@ def test_unresolved_complement_is_typed_with_boxes():
     assert "work_budget" in r2["status"]["reasons"]
     assert any(reg["reason"] == "work_budget"
                for reg in r2["unresolved_regions"]), r2["unresolved_regions"]
+
+
+def test_small_scale_case10_keeps_certified_crossing_cells():
+    """P1c regression (2026-07-21): at 1/16 scale — inside the identity
+    window, pure native arithmetic — GJK declared a 2-crossing cell
+    "separated" and the arc through it silently vanished (3 branches,
+    211/218 reference coverage, complete=True).  The soundness guard
+    (certified crossings outrank approximate prunes) keeps the cell
+    alive; the s:[0, 0.6] arm must survive as ONE unbroken branch."""
+    from examples.ssx.bez_ssx5_case10 import S1, S2
+
+    r = bez_ssx(np.asarray(S1) / 16.0, np.asarray(S2) / 16.0, 1e-3 / 16.0,
+                rational=False)
+    assert r["complete"], r["status"]["reasons"]
+    assert r["status"]["reasons"] == []
+    assert len(r["branches"]) == 2, [
+        np.round(np.asarray(b.curve[0])[[0, -1], 0], 3).tolist()
+        for b in r["branches"]]
+    spans = sorted(
+        (float(np.asarray(b.curve[0])[:, 0].min()),
+         float(np.asarray(b.curve[0])[:, 0].max()))
+        for b in r["branches"])
+    # Pre-fix: this arm split at s ~ 0.375 / 0.412 with the middle missing.
+    assert spans[0][0] <= 0.01 and spans[0][1] >= 0.59, spans
+
+
+def test_march_stops_when_it_stops_advancing():
+    """A march that neither crosses a face nor advances must terminate.
+
+    At an ISOLATED TANGENCY the intersection is a POINT, so there is no
+    curve to march along: the predictor steps off it and the corrector pulls
+    straight back, and the march vibrates in place. Measured before the
+    no-progress guard, on the two-tangent-points cell: 245,561 iterations,
+    ZERO boundary-crossing predictions, 50.0% of consecutive steps reversing
+    direction, total xyz path 2.5e-2 accumulated inside an 8.9e-8
+    neighbourhood -- 279,472x its own extent, 150s of wall clock producing
+    nothing. The former 400-point cap merely hid it; no cap value fixes a
+    march that cannot terminate.
+    """
+    import time
+    import numpy as np
+    import mmcore.numeric.intersection.ssx._bez_ssx5 as bm
+
+    seen = []
+    orig = bm._march_to_boundary
+
+    def spy(*a, **k):
+        stats = k.get("stats")
+        if stats is None:
+            stats = {}
+            k["stats"] = stats
+        out = orig(*a, **k)
+        xyz = np.asarray(out[1], dtype=float)
+        seen.append((int(stats.get("iterations", 0)), out[2], xyz))
+        return out
+
+    bm._march_to_boundary = spy
+    try:
+        t0 = time.time()
+        test_two_isolated_tangent_points_same_cell()
+        elapsed = time.time() - t0
+    finally:
+        bm._march_to_boundary = orig
+
+    assert seen, "no march observed"
+    for iters, exit_info, xyz in seen:
+        if exit_info is not None or len(xyz) < 3:
+            continue          # a march that exited a face is fine, however long
+        # An unterminated march must not have spent its whole allowance
+        # vibrating: bound the arc it travelled by its own extent.
+        steps = np.linalg.norm(np.diff(xyz, axis=0), axis=1)
+        arc = float(steps.sum())
+        extent = float(np.max(np.linalg.norm(xyz - xyz[0], axis=1)))
+        assert arc <= 1e3 * max(extent, 1e-300), (
+            f"march travelled {arc / max(extent, 1e-300):.0f}x its own extent "
+            f"in {iters} iterations without exiting")
+    # And the whole thing stays fast; it used to take ~150s.
+    assert elapsed < 60.0, f"{elapsed:.1f}s"

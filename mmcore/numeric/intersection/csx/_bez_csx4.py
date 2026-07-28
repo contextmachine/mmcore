@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from math import comb
 
+import math
 import numpy as np
 
 from .._bezier_common import _compute_remaining_intervals
@@ -29,6 +30,10 @@ from mmcore.numeric.intersection._bezier_common import (
     restrict_net_axis, restrict_net_axis_v, geometry_collapsed,
 )
 from mmcore.numeric.intersection.ccx._bez_ccx4 import bez_ccx as bez_ccx_v4
+# Shared with ccx's twin: both centerings run the same four roundings.
+from mmcore.numeric.intersection.ccx._bez_ccx4 import (
+    _CENTERING_OPS as _CCX_CENTERING_OPS,
+)
 from mmcore.numeric.intersection._sq_dist_classify import (
     BoundaryZero,
     _boundary_zero_to_param_point,
@@ -224,13 +229,22 @@ def _cartesian_controls_for_exactness(ctrl, rational):
     return points
 
 
-def _center_homogeneous_for_exactness(ctrl, rational, origin):
+def _center_homogeneous_for_exactness(ctrl, rational, origin,
+                                      with_source_scale=False):
     """Translate homogeneous controls by a common Cartesian origin.
 
     Normalize once before the homogeneous translation to avoid overflow in
     ``origin * weight``, then normalize the translated net again for stable
     evaluation.  Both normalizations are one common nonzero homogeneous
     factor and therefore leave the represented geometry unchanged.
+
+    With ``with_source_scale`` this also returns the magnitude of the two
+    operands the translation subtracts, carried through the same final
+    normalization.  Because the division by ``scale`` happens BEFORE the
+    subtraction, a coordinate whose exact translated value is zero arrives
+    as cancellation noise rather than as an exact zero; any envelope built
+    from the cancelled value alone is then circular.  Twin of ccx's
+    `_center_curve_homogeneous_for_exactness`.
     """
     ctrl = np.asarray(ctrl, dtype=np.float64)
     if rational:
@@ -241,14 +255,18 @@ def _center_homogeneous_for_exactness(ctrl, rational, origin):
             axis=-1)
     scale = float(np.max(np.abs(homog)))
     if not np.isfinite(scale) or scale <= 0.0:
-        return None
+        return (None, None) if with_source_scale else None
     homog /= scale
-    homog[..., :-1] -= (
-        np.asarray(origin, dtype=np.float64) * homog[..., -1:])
+    shift = np.asarray(origin, dtype=np.float64) * homog[..., -1:]
+    operand_mag = np.abs(homog[..., :-1]) + np.abs(shift)
+    homog[..., :-1] -= shift
     local_scale = float(np.max(np.abs(homog)))
     if not np.isfinite(local_scale) or local_scale <= 0.0:
-        return None
-    return np.ascontiguousarray(homog / local_scale)
+        return (None, None) if with_source_scale else None
+    out = np.ascontiguousarray(homog / local_scale)
+    if not with_source_scale:
+        return out
+    return out, np.ascontiguousarray(operand_mag / local_scale)
 
 
 def _strict_csx_root_tol(C, S, rational):
@@ -258,8 +276,10 @@ def _strict_csx_root_tol(C, S, rational):
     if c_pts is None or s_pts is None:
         return None
     origin = np.asarray(c_pts).reshape(-1, 3)[0].copy()
-    c_centered = _center_homogeneous_for_exactness(C, rational, origin)
-    s_centered = _center_homogeneous_for_exactness(S, rational, origin)
+    c_centered, c_src = _center_homogeneous_for_exactness(
+        C, rational, origin, with_source_scale=True)
+    s_centered, s_src = _center_homogeneous_for_exactness(
+        S, rational, origin, with_source_scale=True)
     if c_centered is None or s_centered is None:
         return None
     c_local = c_centered[..., :-1] / c_centered[..., -1:]
@@ -269,7 +289,32 @@ def _strict_csx_root_tol(C, S, rational):
         np.asarray(s_local).reshape(-1, 3),
     ])
     component_scale = np.max(np.abs(points), axis=0)
-    return c_centered, s_centered, component_scale
+    # Per-axis envelope of the centering's own cancellation, in the same
+    # dehomogenized units as `component_scale`.  An axis that is genuinely
+    # absent from both operands keeps a zero envelope, so this can never
+    # hide a real offset; an axis that is only zero up to the translation's
+    # roundoff gets the margin it actually needs.  Factor matches the
+    # certificate's own `32 * degree_factor` family below.
+    c_w = np.abs(c_centered[..., -1:])
+    s_w = np.abs(s_centered[..., -1:])
+    if np.any(c_w == 0.0) or np.any(s_w == 0.0):
+        return None
+    # Factor: this envelope prices ONE subtraction (the common-origin
+    # centering), not a degree-n accumulation — see `_CENTERING_OPS` in
+    # ccx's twin for the per-rounding derivation.  Using the certificate's
+    # own `32*degree_factor` family here was ~256x too loose (measured), and
+    # on an ACCEPT path that surplus is the false-certification window: a
+    # curve lifted 1e-13 off the surface certified as 'exact' at 195/200
+    # random world positions of magnitude 1e2.
+    centering_noise = (_CCX_CENTERING_OPS * np.finfo(np.float64).eps
+                       * np.maximum(
+                           np.max(np.asarray(c_src / c_w).reshape(-1, 3),
+                                  axis=0),
+                           np.max(np.asarray(s_src / s_w).reshape(-1, 3),
+                                  axis=0)))
+    component_scale = np.where(
+        component_scale > centering_noise, component_scale, 0.0)
+    return c_centered, s_centered, component_scale, centering_noise
 
 
 def _strict_csx_residual_ok(C, S, t, u, v, rational, strict_context):
@@ -278,7 +323,8 @@ def _strict_csx_residual_ok(C, S, t, u, v, rational, strict_context):
         pc = eval_curve(C, float(t), rational=rational)
         ps = eval_surface(S, float(u), float(v), rational=rational)
         return False, pc - ps
-    c_centered, s_centered, component_scale = strict_context
+    c_centered, s_centered, component_scale = strict_context[:3]
+    centering_noise = strict_context[3]
     pc = eval_curve(c_centered, float(t), rational=True)
     ps = eval_surface(s_centered, float(u), float(v), rational=True)
     if not (np.all(np.isfinite(pc)) and np.all(np.isfinite(ps))):
@@ -289,6 +335,23 @@ def _strict_csx_residual_ok(C, S, t, u, v, rational, strict_context):
     degree_factor = max(
         1, len(C) + int(S.shape[0]) + int(S.shape[1]))
     bound = (32.0 * degree_factor * np.finfo(np.float64).eps) * scale
+    # DEGENERATE AXES ONLY.  An axis with real content keeps the relative
+    # bound above untouched: widening it there costs resolution where it
+    # matters most, because near a tangency the parameter error grows as
+    # the square root of the residual envelope (a blanket second term moved
+    # this module's near-tangent root off 0.5 by 1.7e-7 against a 1e-7 bar).
+    # An axis whose entire content is the common-origin centering's own
+    # cancellation has no scale to be relative to — `component_scale` is 0
+    # there by construction — so its bound is that cancellation envelope.
+    # Sources genuinely zero on an axis give envelope 0 and the pre-existing
+    # exact-zero behaviour is preserved bit-for-bit; a planar pair merely
+    # translated off its own plane now certifies at every world position
+    # instead of ~70% of them.
+    absent = np.asarray(component_scale, dtype=np.float64) == 0.0
+    bound = np.where(
+        absent,
+        np.maximum(bound, np.asarray(centering_noise, dtype=np.float64)),
+        bound)
     residual = pc - ps
     return bool(np.all(np.abs(residual) <= bound)), residual
 
@@ -310,7 +373,7 @@ def _polish_csx_root(C, S, t, u, v, rational, strict_tol):
     if strict_tol is None:
         polish_C, polish_S, polish_rational = C, S, rational
     else:
-        polish_C, polish_S, _component_scale = strict_tol
+        polish_C, polish_S = strict_tol[0], strict_tol[1]
         polish_rational = True
     t, u, v, G, _ = newton_csx(
         polish_C, polish_S, t, u, v,
@@ -338,7 +401,7 @@ def _polish_csx_boundary_root(
     if strict_tol is None:
         polish_C, polish_S, polish_rational = C, S, rational
     else:
-        polish_C, polish_S, _component_scale = strict_tol
+        polish_C, polish_S = strict_tol[0], strict_tol[1]
         polish_rational = True
 
     for _ in range(max(0, int(max_iter))):
@@ -438,8 +501,10 @@ def _certify_affine_csx_overlap(C, S, a, b, rational):
     if c_pts is None or s_pts is None:
         return False
     origin = np.asarray(c_pts).reshape(-1, 3)[0]
-    C_h = _center_homogeneous_for_exactness(C, rational, origin)
-    S_h = _center_homogeneous_for_exactness(S, rational, origin)
+    C_h, c_src = _center_homogeneous_for_exactness(
+        C, rational, origin, with_source_scale=True)
+    S_h, s_src = _center_homogeneous_for_exactness(
+        S, rational, origin, with_source_scale=True)
     if C_h is None or S_h is None:
         return False
     # The restricted affine path can contain an exactly-zero coordinate
@@ -457,6 +522,16 @@ def _certify_affine_csx_overlap(C, S, a, b, rational):
     source_product_scale = (
         c_xyz_scale * s_weight_scale
         + s_xyz_scale * c_weight_scale)
+    # Centering term — twin of ccx's `_overlap_mapping_is_identity`.  The
+    # two scales above come from the already-centered nets, so they measure
+    # what survived the common-origin cancellation rather than what was
+    # consumed by it; a world translation then destroys precision the
+    # envelope never accounts for.  Priced with `_CCX_CENTERING_OPS` (one
+    # subtraction), so it is ~eps at the model's own origin and grows only
+    # with the precision actually lost.
+    centering_product_scale = (
+        np.max(np.asarray(c_src).reshape(-1, 3), axis=0) * s_weight_scale
+        + np.max(np.asarray(s_src).reshape(-1, 3), axis=0) * c_weight_scale)
     ta, ua, va = (float(x) for x in a)
     tb, ub, vb = (float(x) for x in b)
     curve_h = _restrict_bezier_axis_ordered(C_h, 0, ta, tb)
@@ -493,9 +568,13 @@ def _certify_affine_csx_overlap(C, S, a, b, rational):
     source_factor = (np.longdouble(8192)
                      * np.longdouble(max(1, len(curve_h) + len(surf_h)))
                      * np.longdouble(np.finfo(np.float64).eps))
+    centering_factor = (np.longdouble(_CCX_CENTERING_OPS)
+                        * np.longdouble(np.finfo(np.float64).eps))
     roundoff = (op_factor * (np.abs(left) + np.abs(right))
                 + source_factor * np.asarray(
-                    source_product_scale, dtype=np.longdouble)[None, :])
+                    source_product_scale, dtype=np.longdouble)[None, :]
+                + centering_factor * np.asarray(
+                    centering_product_scale, dtype=np.longdouble)[None, :])
     return bool(np.all(np.isfinite(residual))
                 and np.all(residual <= roundoff))
 
@@ -1003,7 +1082,7 @@ def _collapsed_point_surface_membership(
 
     if strict_context is None:
         return False, float(u), float(v), residual
-    c_centered, s_centered, component_scale = strict_context
+    c_centered, s_centered, component_scale = strict_context[:3]
     point_local = eval_curve(c_centered, float(t), rational=True)
     surface_local = eval_surface(
         s_centered, float(u), float(v), rational=True)
@@ -1189,6 +1268,41 @@ def _cutout_3d(F_cell, G_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,
     return sub_cells
 
 
+# Float64 ceiling on subdivision: a parameter interval narrower than the
+# spacing between adjacent doubles cannot be halved again, so depth beyond
+# ~3*53 (three axes) can never execute.  Any "safe" default above this is
+# not safety, it is dead levels.
+_CSX_DEPTH_FLOAT64_CEILING = 3 * 53
+
+# Safety factor on the derived requirement (dimensionless).  The estimate
+# below assumes the subdivision spends its halvings evenly on the axis that
+# needs them; real cells wander, so allow half again.
+_CSX_DEPTH_SAFETY = 1.5
+
+
+def _derived_max_depth(ptol_t, ptol_u, ptol_v):
+    """Subdivision ceiling implied by the parameter tolerances.
+
+    Isolating a root to a per-axis tolerance takes log2(span/ptol) halvings
+    on that axis, and `_phase2_isolated_search` subdivides ONE axis per
+    level, so the requirement is the SUM over axes.  A constant cannot track
+    this because ptol follows the caller's atol: measured on harness case 11,
+    the requirement is 56.8 at atol=1e-3, 76.7 at 1e-5 and 82.7 at 2.5e-6,
+    while the former constant was 64 -- which is exactly why depth
+    truncations were never observed at 1e-3 (0 in 1,284 CSX calls) and
+    appeared below it, aborting the SSX search with a `work_budget` reason
+    it could not act on.
+    """
+    need = 0.0
+    for ptol in (ptol_t, ptol_u, ptol_v):
+        ptol = float(ptol)
+        if not np.isfinite(ptol) or ptol <= 0.0:
+            return _CSX_DEPTH_FLOAT64_CEILING
+        need += math.log2(1.0 / min(ptol, 1.0)) if ptol < 1.0 else 0.0
+    return int(min(_CSX_DEPTH_FLOAT64_CEILING,
+                   max(16, math.ceil(_CSX_DEPTH_SAFETY * need))))
+
+
 def _phase2_isolated_search(
     F_sub, G_sub, C_sub, S, C_orig, S_orig,
     t_lo, t_hi, atol, rational, ptol_t, ptol_u, ptol_v,
@@ -1216,13 +1330,24 @@ def _phase2_isolated_search(
 
     cells = 0
     exhausted = False
+    # WHY the search stopped, when it did.  A bare boolean cannot
+    # distinguish "ran out of the caller's cells" from "hit my own internal
+    # depth ceiling", and the caller needs that distinction: the first is a
+    # knob it can raise, the second is not.  See `bez_csx`'s
+    # ``truncation_cause``.
+    cause = None
 
     stack = [(F_sub, G_sub, C_sub, Pw.copy(), Sw.copy(),
               t_lo, t_hi, 0.0, 1.0, 0.0, 1.0, 0)]
 
     while stack:
-        if cells >= max_cells or len(isolated) - initial_results >= max_results:
+        if cells >= max_cells:
             exhausted = True
+            cause = cause or "cells"
+            break
+        if len(isolated) - initial_results >= max_results:
+            exhausted = True
+            cause = cause or "results"
             break
         cells += 1
 
@@ -1400,7 +1525,13 @@ def _phase2_isolated_search(
             # This cell survived every exclusion certificate and Newton did
             # not resolve it.  The depth guard is therefore a soft-budget
             # exhaustion, not evidence that the cell is root-free.
+            #
+            # It is ALSO not a resource shortfall: raising the caller's cell
+            # allowance cannot buy more depth.  Reporting it as one made SSX
+            # hard-stop the whole search and blame `work_budget` at 1.2%
+            # ledger utilization (harness case 11 at atol<=1e-5).
             exhausted = True
+            cause = cause or "depth"
             continue
 
         # Subdivide along the axis with the largest span
@@ -1438,7 +1569,7 @@ def _phase2_isolated_search(
             stack.append((F_R, G_R, seg_c.copy(), pw.copy(), sw_R, t0, t1, u0, u1, v_split, v1, depth+1))
 
     # Return only NEW results (exclude the pre-loaded known points)
-    return isolated, exhausted, cells
+    return isolated, exhausted, cells, cause
 
 
 # ---------------------------------------------------------------------------
@@ -1468,7 +1599,7 @@ def bez_csx(
     # levels before every span reaches its computed resolution (an exact
     # corner root in the legacy SSX overlap case needs 53).  Cell and result
     # budgets remain the termination backstops.
-    max_depth=64,
+    max_depth=None,
     max_cells=100_000,
     max_results=4_096,
 ) -> dict:
@@ -1524,6 +1655,7 @@ def bez_csx(
     if int(max_cells) <= 0:
         return {"isolated": [], "overlaps": [], "parameter_fibers": [],
                 "budget_exhausted": True, "cells_processed": 0,
+                "truncation_cause": "preflight",
                 "boundary_topology_complete": False}
 
     strict_root_tol = _strict_csx_root_tol(C, S, rational)
@@ -1626,10 +1758,23 @@ def bez_csx(
     S_orig = S
 
     ptol_t, ptol_u, ptol_v = _compute_param_tols_csx(C, S, atol, rational)
+    if max_depth is None:
+        # Derived from the tolerances actually in force — see
+        # `_derived_max_depth`.  An explicit value still wins, so callers
+        # that must bound the work can.
+        max_depth = _derived_max_depth(ptol_t, ptol_u, ptol_v)
+    max_depth = int(max_depth)
 
     isolated = []
     overlaps = []
     budget_exhausted = False
+    # WHY this call truncated, when it did (schema addition
+    # 2026-07-26).  `budget_exhausted` alone cannot distinguish a
+    # resource shortfall the caller can fix by raising a knob from an
+    # internal structural ceiling it cannot.  SSX escalated the latter
+    # to a global hard stop blaming `work_budget`; see `_run_csx`.
+    #   'cells' | 'results' | 'depth' | 'boundary' | 'preflight'
+    truncation_cause = None
     cells = DownCounter(max_cells)
 
     # ===================================================================
@@ -1653,9 +1798,11 @@ def bez_csx(
         # validated hits in the same situation). The public flag still
         # records that the topology is incomplete.
         budget_exhausted = True
+        truncation_cause = truncation_cause or "boundary"
     elif not all(isinstance(bz, BoundaryZero) for bz in csx_boundary_zeros):
         budget_exhausted = True
         boundary_exhausted = True
+        truncation_cause = truncation_cause or "boundary"
         csx_boundary_zeros = []
 
     t_exclude = []  # t-intervals to cut from the curve
@@ -1853,12 +2000,15 @@ def bez_csx(
                     for a, b in t_intervals[_ii:] if (b - a) >= ptol_t))
         if cells.remaining <= 0 or len(isolated) >= max_results:
             budget_exhausted = True
+            truncation_cause = truncation_cause or (
+                "cells" if cells.remaining <= 0 else "results")
             if _rest_has_disjoint:
                 non_span_truncation = True
             break
         if (fallback_cells_remaining is not None
                 and fallback_cells_remaining <= 0):
             budget_exhausted = True
+            truncation_cause = truncation_cause or "cells"
             if _rest_has_disjoint:
                 non_span_truncation = True
             break
@@ -1866,13 +2016,16 @@ def bez_csx(
         if fallback_cells_remaining is not None:
             phase2_cell_limit = min(
                 phase2_cell_limit, fallback_cells_remaining)
-        _phase2_iso, _phase2_exhausted, _cells_used = _phase2_isolated_search(
+        (_phase2_iso, _phase2_exhausted, _cells_used,
+         _phase2_cause) = _phase2_isolated_search(
             F_sub, G_sub, C_sub, S, C_orig, S_orig,
             t_lo, t_hi, atol, rational, ptol_t, ptol_u, ptol_v,
             known_points=isolated,
             max_depth=max_depth, max_cells=phase2_cell_limit,
             max_results=max_results - len(isolated),
         )
+        if _phase2_cause is not None and truncation_cause is None:
+            truncation_cause = _phase2_cause
         cells.spend(_cells_used)
         if fallback_cells_remaining is not None:
             fallback_cells_remaining -= _cells_used
@@ -1955,6 +2108,9 @@ def bez_csx(
               "parameter_fibers": [],
               "budget_exhausted": bool(budget_exhausted),
               "cells_processed": int(cells.processed),
+              # None unless budget_exhausted; see the declaration above.
+              "truncation_cause": (truncation_cause if budget_exhausted
+                                   else None),
               "boundary_topology_complete": not (
                   boundary_exhausted or overlap_topology_incomplete)}
     if overlap_topology_incomplete:

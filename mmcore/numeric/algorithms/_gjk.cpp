@@ -59,8 +59,33 @@ inline int supportVector(const std::vector<Vec3<T>>& vertices,
 }
 
 // ---------------------------------------------------------------------------
+// Roundoff envelope for the SIGN of dot(u, v).
+//
+// The Voronoi-region tests below ask "is the origin on the positive side?",
+// which is a SIGN question about a length^2 quantity.  They used to be
+// compared against the caller's `tol` -- a LENGTH -- so the verdict depended
+// on the model's size: for geometry of extent s the dot products are ~s^2,
+// and once s^2 fell below tol every test took the wrong branch, the search
+// cycled, and the driver fell out of its loop reporting "separated".
+// Measured cliff: extent <= ~10*tol.  (The tetrahedron case below always
+// used the scale-invariant `> 0`, which is why only some cases were wrong.)
+//
+// The correct bar is zero, widened by the roundoff of the dot itself:
+// three products and two adds, each relative to |u||v|.  Scale-invariant by
+// construction, and independent of any caller tolerance.
+// ---------------------------------------------------------------------------
+template<typename T>
+inline T dotSignMargin(const Vec3<T>& u, const Vec3<T>& v)
+{
+    const T eps = std::numeric_limits<T>::epsilon();
+    return T(8) * eps * std::sqrt(dot(u, u)) * std::sqrt(dot(v, v));
+}
+
+// ---------------------------------------------------------------------------
 // simplex handling
 // ---------------------------------------------------------------------------
+// `tol` is retained in the signature for source compatibility but is NO
+// LONGER used for the sign tests -- see dotSignMargin above.
 template<typename T>
 bool handleSimplex(std::vector<Vec3<T>>& simplex, Vec3<T>& d, T tol)
 {
@@ -76,7 +101,7 @@ bool handleSimplex(std::vector<Vec3<T>>& simplex, Vec3<T>& d, T tol)
             Vec3<T>     ab = b - a;
             Vec3<T>     ao = {-a[0], -a[1], -a[2]};
 
-            if (dot(ab, ao) > tol)
+            if (dot(ab, ao) > dotSignMargin(ab, ao))
             {
                 d = cross(cross(ab, ao), ab);
             }
@@ -102,7 +127,7 @@ bool handleSimplex(std::vector<Vec3<T>>& simplex, Vec3<T>& d, T tol)
             Vec3<T>     abc = cross(ab, ac);
 
             // test region AC
-            if (dot(cross(abc, ac), ao) > tol)
+            if (dot(cross(abc, ac), ao) > dotSignMargin(cross(abc, ac), ao))
             {
                 if (dot(ac, ao) > 0)
                 {
@@ -118,7 +143,7 @@ bool handleSimplex(std::vector<Vec3<T>>& simplex, Vec3<T>& d, T tol)
             else
             {
                 // test region AB
-                if (dot(cross(ab, abc), ao) > tol)
+                if (dot(cross(ab, abc), ao) > dotSignMargin(cross(ab, abc), ao))
                 {
                     simplex.erase(simplex.begin());           // remove C
                     return handleSimplex(simplex, d, tol);
@@ -126,7 +151,7 @@ bool handleSimplex(std::vector<Vec3<T>>& simplex, Vec3<T>& d, T tol)
                 else
                 {
                     // origin is above or below the triangle
-                    if (dot(abc, ao) > tol)
+                    if (dot(abc, ao) > dotSignMargin(abc, ao))
                     {
                         d = abc;
                     }
@@ -250,10 +275,13 @@ bool gjk_collision_detection(const std::vector<Vec3<T>>& vertices1,
 
         if (visited[idx])
         {
-            Vec3<T> diff = cache[idx] - newPoint;
-            T       len  = std::sqrt(dot(diff, diff));
-            if (len > tol)   // loop without progress ⇒ no collision
-                return false;
+            // The support pair (i, j) repeated.  For a DISJOINT pair this is
+            // the normal convergence signal -- the support optimum has been
+            // reached -- and the separating-axis test below is what turns it
+            // into a sound negative, so this must fall through rather than
+            // conclude anything on its own.  (The former `len > tol` test
+            // here was unreachable in practice: repeating (i, j) reproduces
+            // the same difference point, so len is 0.)
         }
         else
         {
@@ -269,5 +297,11 @@ bool gjk_collision_detection(const std::vector<Vec3<T>>& vertices1,
         if (handleSimplex(simplex, d, tol))
             return true;     // origin is inside the simplex → collision
     }
-    return false;            // ran out of iterations
+    // Ran out of iterations: UNKNOWN, not "separated".  The only sound
+    // negative this routine can return is the separating-axis certificate
+    // above (dot(newPoint, d) < 0).  Exhaustion used to return false, so a
+    // starved max_iter reported deeply overlapping hulls as separated --
+    // measured 200/200 false negatives at max_iter 1-2.  "Unknown => not
+    // separated" keeps every caller's `if (!gjk(...)) prune;` sound.
+    return true;
 }

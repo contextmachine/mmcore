@@ -190,6 +190,32 @@ def test_charge_hook_binds_source_and_none_path():
 def test_reason_vocabulary_is_stable():
     # The budget-contract gate scans REASON_* names; the vocabulary is part
     # of the public schema and must not drift silently.
+    #
+    # This used to assert only the individual names, which cannot detect the
+    # thing it exists to detect: a NEW reason drifted in unnoticed twice
+    # (`unresolved_singular_set` at L52 slice 9, `trace_point_cap` at P2
+    # 2026-07-25).  Pin the closed SET so adding a reason forces a
+    # deliberate update here — and, by the checklist below, everywhere else
+    # a reason has to be registered.
+    import mmcore.numeric._work_budget as wb
+
+    expected = {
+        "work_budget", "output_cap", "postprocess_cap", "depth_limit",
+        "parameter_fiber", "overlap_region_unsupported",
+        "unresolved_tangential_zone", "unresolved_multiplicity",
+        "trace_unverified", "trace_point_cap", "unresolved_singular_set",
+    }
+    actual = {getattr(wb, n) for n in dir(wb) if n.startswith("REASON_")}
+    assert actual == expected, (
+        "reason vocabulary changed. A new reason must ALSO be added to: "
+        "examples/ssx/nurbs_ssx5_coverage_check.py STRUCTURAL_REASONS (if "
+        "structural), the bez_ssx public docstring reason list, and the "
+        "schema-v2 listing in "
+        "docs/superpowers/plans/2026-07-12-ssx5-budget-review-and-overlap-contract.md"
+        f"\nadded={actual - expected} removed={expected - actual}")
+
+    # Individual pins kept: the SET check catches additions, these catch a
+    # value being edited in place.
     assert REASON_WORK_BUDGET == "work_budget"
     assert REASON_OUTPUT_CAP == "output_cap"
     assert REASON_POSTPROCESS_CAP == "postprocess_cap"
@@ -199,6 +225,26 @@ def test_reason_vocabulary_is_stable():
     assert REASON_TANGENTIAL_ZONE == "unresolved_tangential_zone"
     assert REASON_MULTIPLICITY == "unresolved_multiplicity"
     assert REASON_TRACE_UNVERIFIED == "trace_unverified"
+
+
+def test_structural_reasons_set_covers_every_structural_reason():
+    """The harness's structural/resource split must not miss a reason.
+
+    `trace_point_cap` was added to the engine and to `_work_budget`'s
+    documented structural family, but not to the coverage harness's closed
+    set — so the tier it names was still counted as a resource FAIL, which
+    is the exact misclassification P2 set out to remove.
+    """
+    import importlib.util
+    import pathlib
+
+    path = (pathlib.Path(__file__).parent.parent
+            / "examples" / "ssx" / "nurbs_ssx5_coverage_check.py")
+    src = path.read_text()
+    # Cheap textual check: importing the harness pulls heavy fixtures.
+    for reason in ("trace_point_cap", "unresolved_singular_set",
+                   "trace_unverified"):
+        assert f"'{reason}'" in src.split("STRUCTURAL_REASONS")[1][:400], reason
 
 
 def test_bernstein_zero_budget_nodes_are_check_then_charge():

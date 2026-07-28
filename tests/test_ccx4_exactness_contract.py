@@ -281,3 +281,74 @@ def test_tolerant_non_affine_overlap_candidate_returns_typed_partial():
     span = result["uncertified_overlap_span"]
     assert span[0] == pytest.approx(0.0, abs=1e-9)
     assert span[1] == pytest.approx(0.8276, abs=5e-3)
+
+
+# ---------------------------------------------------------------------------
+# Item 1 (2026-07-26): the exactness certificates must not decay with world
+# position.
+#
+# `_overlap_mapping_is_identity` and its csx twin took their source scales
+# from the ALREADY-CENTERED nets, so the envelope measured what survived the
+# common-origin cancellation rather than what was consumed by it.  A curve
+# translated away from the origin loses precision in proportion to its world
+# position while those scales stay at the model's own extent, so the bound
+# stopped covering the noise.  Measured on the calibrated fixture above:
+# certified at its native position, refused 139/200 at |T|=1 and 200/200 at
+# |T|=1e6 -- and end-to-end a genuine exact overlap degraded to 'tolerance'
+# and then to no overlap at all.
+# ---------------------------------------------------------------------------
+
+_WHOLE = np.array([
+    [0.251562918778363, -0.03577202263613945, -1941.6385335538441],
+    [0.6475957171083957, 0.0150553739084055, -1941.6390899194341],
+    [0.9438893741924533, 0.00627637665906201, -1941.6256997294456],
+])
+_LO = 0.11162826139544185
+_HI = 0.7826689880851946
+
+
+@pytest.mark.parametrize("mag", [0.0, 1.0, 1e2, 1e3, 1e4, 1e6, 1e9])
+def test_float_built_subcurve_certifies_at_every_world_position(mag):
+    """A true overlap is a true overlap wherever the model sits."""
+    rng = np.random.default_rng(3)
+    for _ in range(25):
+        t = rng.normal(size=3) * mag
+        whole = _WHOLE + t
+        part = _subcurve(whole, _LO, _HI)
+        assert _overlap_mapping_is_identity(
+            whole, part, (_LO, _HI), (0.0, 1.0), rational=False), mag
+
+
+@pytest.mark.parametrize("mag", [0.0, 1.0, 1e3, 1e6, 1e9])
+def test_perturbed_subcurve_is_still_refused_everywhere(mag):
+    """Anti-loosening guard for the added centering term.
+
+    The envelope grows with the precision a translation destroys; it must
+    not grow enough to swallow a real, representable difference.
+    """
+    rng = np.random.default_rng(4)
+    for _ in range(25):
+        t = rng.normal(size=3) * mag
+        whole = _WHOLE + t
+        part = _subcurve(whole, _LO, _HI)
+        part[1, 1] += 1e-6 * max(1.0, abs(mag))
+        assert not _overlap_mapping_is_identity(
+            whole, part, (_LO, _HI), (0.0, 1.0), rational=False), mag
+
+
+@pytest.mark.parametrize("mag", [0.0, 1e3, 1e6])
+def test_exact_overlap_survives_end_to_end(mag):
+    """The public consequence: bez_ccx must still SEE the overlap.
+
+    Before the fix this returned 'tolerance' at the model's own origin and
+    no overlap at all for 36/40 samples at |T|=1e6.
+    """
+    rng = np.random.default_rng(9)
+    for _ in range(10):
+        t = rng.normal(size=3) * mag
+        whole = _WHOLE + t
+        part = _subcurve(whole, _LO, _HI)
+        r = bez_ccx(whole, part, atol=1e-3, rational=False)
+        assert r["overlaps"], (mag, "overlap vanished")
+        assert r["overlaps"][0]["certification"] == "exact", (
+            mag, r["overlaps"][0]["certification"])

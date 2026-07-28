@@ -66,6 +66,7 @@ from mmcore.numeric._work_budget import (  # noqa: F401
     REASON_TANGENTIAL_ZONE,
     REASON_MULTIPLICITY,
     REASON_TRACE_UNVERIFIED,
+    REASON_TRACE_POINT_CAP,
     REASON_SINGULAR_SET,
     SoftWorkBudget as _SSXSoftBudget,
     charge_hook as _charge_hook,
@@ -1956,7 +1957,21 @@ def _ssx_correct(S1, S2, s, t, u, v, rational=True, max_iter=32, tol=1e-14):
 
 
 def _strict_ssx_root_tol(S1, S2, rational=True):
-    """Translation-invariant roundoff scale for an exact Psi zero."""
+    """Roundoff scale for an exact Psi zero, valid in P1's frames.
+
+    PRECONDITION (P1, 2026-07-21): callers pass nets as prepared by the
+    bez_ssx preamble — either the identity frame inside
+    `_NORM_IDENTITY_WINDOW` (the regime the singular-suite floor
+    calibrates, native magnitudes 1..362) or the canonical frame, whose
+    target-band scaling bounds the AABB diagonal into ~[11.3, 22.6]
+    (max|coords| lands in ~[3.3, 11.3] depending on extent anisotropy).
+    The envelope scales with the extent (`diag`); the residual
+    arithmetic it budgets rounds off with the magnitude; the preamble
+    bounds their mismatch, so the 2026-07-20 case-6/11 diagnosis
+    (extent-scaled budget vs magnitude-scaled noise on off-origin
+    models) cannot recur for out-of-window inputs.  Do not call this on
+    raw world-frame nets at large offsets.
+    """
     if rational:
         p1 = S1[..., :-1] / S1[..., -1:]
         p2 = S2[..., :-1] / S2[..., -1:]
@@ -1968,6 +1983,185 @@ def _strict_ssx_root_tol(S1, S2, rational=True):
     scale = max(1.0, diag)
     return max(1024.0 * np.finfo(np.float64).eps * scale,
                1e-12 * scale)
+
+
+# The canonical frame applies ONLY outside this joint-coordinate-magnitude
+# band (2026-07-21 amendment, measured): inside it the engine's absolute
+# envelopes are already correct — all 115 singular-suite fixtures (native
+# magnitudes 1..362, the failing class at <= 12.6) pass bit-for-bit on the
+# identity frame — while re-framing in-window models regresses 4 singular
+# fixtures: the mantissa-exact down-scale (k=4..16) crosses the singular
+# tier's absolute thresholds (tol_f=1e-8/1e-10, |F|<1e-11 accepts), and a
+# centering subtract's ~1-ulp rounding destroys exact degenerate structure
+# (a non-dyadic center broke the exact cusp line).  The trace-certificate
+# defect this frame exists to fix is measured only at magnitudes >= ~71
+# (case 6 recentered) — so normalize from 2**5 up, and from 2**-5 down
+# (mirror bound; scaling tiny models up is mantissa-exact).  Sub-band
+# centering still rounds ~1 ulp when the center is non-dyadic and no
+# fixture exercises magnitudes below 2**-5 — P1b tracks that gap too.
+# Making the singular tier itself scale-invariant is the P1b follow-up
+# (docs/superpowers/issues/2026-07-21-ssx5-p1b-singular-tier-scale-invariance.md).
+# How far a single march may wander inside a cell's LOCAL unit parameter
+# box before it is pathological rather than merely long, measured in box
+# diameters.  Dimensionless and parameter-space: it scales with nothing, and
+# it bounds only the defensive no-ledger path in
+# `_trace_cell_by_registrations` (with a ledger, the caller's allowance is
+# the bound).
+_MARCH_MAX_BOX_TRAVERSALS = 4.0
+
+# No-progress guard for `_march_to_boundary` (see the guard for the measured
+# failure).  Over WINDOW accepted steps, a real curve's net displacement is a
+# decent fraction of the arc it spent — locally the curve is nearly straight,
+# so net/arc is near 1 and falls only where it genuinely doubles back.  An
+# oscillation nets ~zero.  RATIO is how much arc may be spent per unit of net
+# progress before the march is declared stalled; both are dimensionless, so
+# the guard is scale- and tolerance-independent.
+_MARCH_PROGRESS_WINDOW = 32
+_MARCH_PROGRESS_RATIO = 8.0
+
+# Dimensionless factors converting a measured/estimated chord SAGITTA into
+# the slack a predicate must grant a polyline that carries it. Both exist
+# because a chord is not the curve: the marcher may leave a sagitta of up
+# to `sag_tol = 2*atol`, so any predicate measuring a chord against the
+# curve is measuring discretization and must price it. Neither is a
+# tolerance — each multiplies an operand measured from the geometry, so a
+# finely sampled polyline keeps a tight bar and only a coarse one earns a
+# loose one.
+#
+# VALLEY: ratio between `res / sin_ang` at the parametric midpoint and the
+# sagitta itself; measured 1.9-4.0 on the toroidal SSI fixture.
+_VALLEY_SAGITTA_CREDIT = 4.0
+# CONTAINMENT: the duplicate test measures samples that lie ON the curve
+# against a KEEPER'S POLYLINE, so the gap it sees is the keeper's sagitta
+# (measured 9.602e-4 observed vs 9.620e-4 true — they agree). The factor
+# covers `_polyline_sagitta_bound`'s underestimate, measured at 0.63-1.00
+# of the true value.
+_CONTAINMENT_SAGITTA_CREDIT = 4.0
+
+
+_NORM_IDENTITY_WINDOW = (2.0 ** -5, 2.0 ** 5)
+
+# Out-of-window models are centered and scaled INTO the native-proven band
+# around this magnitude (2026-07-21 second amendment, measured): after
+# centering at the joint AABB midpoint, the power-of-2 scale lands the
+# AABB DIAGONAL in [16/sqrt(2), 16*sqrt(2)] ~ [11.3, 22.6] and hence
+# max|coords| (the largest half-extent) in [8/sqrt(6), 8*sqrt(2)] ~
+# [3.27, 11.31] depending on extent anisotropy — inside the
+# fixture-proven [1, 22.6].  (An adversarial-review correction: the
+# band was first stated as [5.66, 11.31], true only for single-axis
+# extents; the sub-5 magnitudes reachable by isotropic models are safe
+# because the crossing-guard below removed the one measured sub-5
+# failure mechanism.)  Both halves of the map are load-bearing:
+# scaling all the way to O(1) was measured UNSAFE on the transversal path
+# (bez-harness case 10, magnitude 79.7, keeps 218/218 coverage down to
+# post-frame magnitude ~10 but silently fragments — 211/218 with
+# complete=True — below ~5; the latent bug is filed as P1c:
+# docs/superpowers/issues/2026-07-21-ssx5-p1c-silent-fragment-completeness.md),
+# and scale-only was measured UNSAFE for offset-dominated inputs (an
+# offset/extent ratio ~4e5 collapses the normalized extent to ~3e-5,
+# where the CSX ladder's absolute floors exceed the scaled atol and the
+# search bails at a few hundred cells claiming work_budget).  Centering
+# preserves extent; the band preserves the marching regime.
+_NORM_TARGET_MAG = 8.0
+
+
+def _ssx_normalization_context(S1, S2, rational=True):
+    """Canonical-frame context (c, k) for the whole-call preamble.
+
+    P1 invariance (2026-07-21 design + windowed + target-band
+    amendments): every absolute roundoff envelope in this module (the
+    strict Psi-zero certificates, the 1e-14 corrector stops) is correct
+    only for coordinates inside the proven magnitude band.  Models inside
+    `_NORM_IDENTITY_WINDOW` keep the identity frame (bit-for-bit legacy
+    arithmetic).  Models outside it are jointly centered at the two nets'
+    Cartesian AABB midpoint and scaled by a power of two chosen so the
+    post-center magnitude (half the largest AABB diagonal) lands near
+    `_NORM_TARGET_MAG` — see the band note above for why both halves are
+    load-bearing.  The power-of-2 snap keeps the scale mantissa-exact;
+    only the one-time centering multiply-subtract rounds.  Degenerate
+    input (zero/non-finite weight, non-finite point, zero extent) falls
+    back to the identity frame: the pipeline behaves exactly as before P1.
+    """
+    identity = (np.zeros(3, dtype=np.float64), 1.0)
+    corners = []
+    for S in (S1, S2):
+        S = np.asarray(S, dtype=np.float64)
+        if rational:
+            w = S[..., -1:]
+            if not np.all(np.isfinite(w)) or np.any(w == 0.0):
+                return identity
+            pts = S[..., :-1] / w
+        else:
+            pts = S
+        if not np.all(np.isfinite(pts)):
+            return identity
+        corners.append(pts.reshape(-1, 3))
+    pts = np.vstack(corners)
+    mag = float(np.max(np.abs(pts)))
+    if _NORM_IDENTITY_WINDOW[0] <= mag <= _NORM_IDENTITY_WINDOW[1]:
+        return identity
+    lo = pts.min(axis=0)
+    hi = pts.max(axis=0)
+    diag = float(np.linalg.norm(hi - lo))
+    if not np.isfinite(diag) or diag <= 0.0:
+        return identity
+    c = 0.5 * (lo + hi)
+    k = float(2.0 ** round(math.log2(diag / (2.0 * _NORM_TARGET_MAG))))
+    return c, k
+
+
+def _normalize_surface_net(S, c, k, rational=True):
+    """Map a control net into the canonical frame: x' = (x - c) / k.
+
+    Rational nets transform homogeneously (numerator -= c*w, then /k), so
+    Cartesian points map exactly as above while weights stay untouched.
+    Always returns a copy; the caller's world-frame net is never mutated.
+    """
+    S = np.asarray(S, dtype=np.float64).copy()
+    c = np.asarray(c, dtype=np.float64)
+    if rational:
+        S[..., :-1] -= c * S[..., -1:]
+        S[..., :-1] /= k
+    else:
+        S -= c
+        S /= k
+    return S
+
+
+def _denormalize_result(result, c, k):
+    """Map every xyz payload of a bez_ssx result back to world frame, once.
+
+    Un-map inventory (2026-07-21 design §3, audited): branch polylines
+    (``SSXBranch.curve = (stuv, xyz)`` — xyz only), ``SSXPoint.xyz``,
+    ``SSXSingularity.xyz``.  Everything else is parameter-space (stuv,
+    cusp-curve samples, region uv loops, unresolved-region stuv boxes) or
+    atol-relative (region certification residuals) and must NOT be touched.
+    Out-of-place arrays plus an id() guard make the map exactly-once even
+    if one object is referenced twice.  Called only at the `_result` choke
+    point, immediately before returning to the caller.
+    """
+    if k == 1.0 and not np.any(c):
+        return result
+    c = np.asarray(c, dtype=np.float64)
+    seen = set()
+
+    def _once(obj):
+        if id(obj) in seen:
+            return False
+        seen.add(id(obj))
+        return True
+
+    for b in result['branches']:
+        if _once(b):
+            stuv, xyz = b.curve
+            b.curve = (stuv, np.asarray(xyz, dtype=np.float64) * k + c)
+    for p in result['points']:
+        if _once(p):
+            p.xyz = np.asarray(p.xyz, dtype=np.float64) * k + c
+    for s in result['singularities']:
+        if _once(s):
+            s.xyz = np.asarray(s.xyz, dtype=np.float64) * k + c
+    return result
 
 
 def _march_intersection_curve(
@@ -2753,6 +2947,65 @@ def _mid_chord_deviates(S1, S2, stuv_a, stuv_b, xyz_a, xyz_b, atol, sag_tol,
     return float(np.linalg.norm(a3 + tt * ab - xm)) > sag_tol
 
 
+def _mid_chord_sagitta(S1, S2, stuv_a, stuv_b, xyz_a, xyz_b, atol, rational):
+    """Measured chord sagitta, or None when the midpoint correction is
+    unreliable.
+
+    Same quantity `_mid_chord_deviates` compares against `sag_tol`, returned
+    as a number. A polyline vertex lies ON the curve; its chords do not, and
+    the marcher is explicitly ALLOWED to leave them a sagitta of up to
+    `sag_tol = 2*atol`. Any downstream predicate that measures a chord
+    against the curve is therefore measuring discretization, and must size
+    its envelope by this value rather than assume the chord is exact.
+    """
+    mid = 0.5 * (np.asarray(stuv_a, dtype=np.float64)
+                 + np.asarray(stuv_b, dtype=np.float64))
+    ms, mt, mu, mv, mres, msin = _ssx_correct(S1, S2, *mid, rational=rational)
+    # Accept-if (ledger L45): an unreliable correction measures nothing, so
+    # it earns no discretization credit — the conservative direction.
+    if not (np.isfinite(mres) and mres <= atol * max(msin, 1e-3)):
+        return None
+    xm = eval_surface(S1, ms, mt, rational=rational)
+    a3 = np.asarray(xyz_a, dtype=np.float64)
+    b3 = np.asarray(xyz_b, dtype=np.float64)
+    ab = b3 - a3
+    denom = float(np.dot(ab, ab))
+    if denom < 1e-30:
+        return None
+    tt = float(np.clip(np.dot(xm - a3, ab) / denom, 0.0, 1.0))
+    return float(np.linalg.norm(a3 + tt * ab - xm))
+
+
+def _polyline_sagitta_bound(xyz) -> float:
+    """Sagitta a polyline carries, estimated from its OWN turn angles.
+
+    kappa*h^2/8 with kappa*h ~ the turn angle at the vertex — the same
+    `chord * angle3 / 8` the step controller uses to size h, so the estimate
+    and the producer's own budget are the same quantity. Purely geometric:
+    no surface evaluations, so it is usable where the surfaces are not in
+    scope (`_drop_duplicate_fragments`).
+
+    Measured against corrected-midpoint sagittas on the toroidal SSI
+    fixture, this recovers 0.63-1.00 of the true value; consumers carry a
+    factor for that underestimate.
+    """
+    xyz = np.asarray(xyz, dtype=np.float64)
+    if len(xyz) < 3:
+        return 0.0
+    d = np.diff(xyz, axis=0)
+    ln = np.linalg.norm(d, axis=1)
+    safe = np.where(ln < 1e-30, 1.0, ln)
+    u = d / safe[:, None]
+    cs = np.clip(np.einsum('ij,ij->i', u[:-1], u[1:]), -1.0, 1.0)
+    th = np.arccos(cs)          # th[i] is the turn at vertex i+1
+    best = 0.0
+    for i in range(len(ln)):
+        left = float(th[i - 1]) if i >= 1 else 0.0
+        right = float(th[i]) if i < len(th) else 0.0
+        best = max(best, float(ln[i]) * max(left, right) / 8.0)
+    return best
+
+
 def _march_to_boundary(
     S1, S2, stuv_start,
     *,
@@ -2974,6 +3227,35 @@ def _march_to_boundary(
             speed = speed_new
         stuv_pts.append(current.copy())
         xyz_pts.append(pt1.copy())
+
+        # NO-PROGRESS GUARD.  A march terminates by crossing a cell face; one
+        # that neither crosses nor advances is not tracing anything.  At an
+        # ISOLATED TANGENCY the intersection is a POINT, so there is no curve
+        # to follow: the predictor steps off it and the corrector pulls
+        # straight back, and the march vibrates in place forever.  Measured
+        # on `test_two_isolated_tangent_points_same_cell`: 245,561
+        # iterations, ZERO boundary-crossing predictions, 50.0% of
+        # consecutive steps reversing direction (mean cos = -0.40), total xyz
+        # path 2.5e-2 accumulated inside an 8.9e-8 neighbourhood -- 279,472x
+        # its own extent, 150s of wall clock for nothing.  The old 400-point
+        # cap hid this by giving up early; sizing the cap either way only
+        # changes how long the vibration lasts.
+        #
+        # The test is dimensionless: over a window of accepted steps a real
+        # curve's net displacement is a decent fraction of the arc it spent
+        # (locally it is nearly straight), while an oscillation nets ~zero.
+        if len(xyz_pts) > _MARCH_PROGRESS_WINDOW:
+            _w0 = np.asarray(xyz_pts[-1 - _MARCH_PROGRESS_WINDOW])
+            _arc = 0.0
+            for _i in range(-_MARCH_PROGRESS_WINDOW, 0):
+                _arc += float(np.linalg.norm(
+                    np.asarray(xyz_pts[_i]) - np.asarray(xyz_pts[_i - 1])))
+            _net = float(np.linalg.norm(np.asarray(xyz_pts[-1]) - _w0))
+            if _arc > 0.0 and _net * _MARCH_PROGRESS_RATIO < _arc:
+                # Not advancing: stop and report no exit, which is the truth.
+                if stats is not None:
+                    stats["no_progress"] = True
+                break
 
     if stats is not None:
         stats["iterations"] = int(iterations)
@@ -4617,12 +4899,39 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
                         break
                     continue
 
-            trace_limit = 400
+            # PER-MARCH ALLOWANCE (derived, 2026-07-26).  This used to be a
+            # hardcoded 400 points, which is not a bound on anything: the
+            # points a march needs are (arc length)/(step size), and the
+            # marcher's step is chosen from atol and curvature, so the
+            # requirement grows as ~1/sqrt(atol) while 400 stayed put.  On
+            # harness case 11 that truncated a single closed loop of length
+            # 1261.25 and cost coverage — AND cost work, because the
+            # fragments were then re-processed: measured at atol=1e-3,
+            # cap 400 -> 92.68% coverage / 20,811 cells, while an
+            # unrestricted march -> 100% / 15,077 cells and complete=True.
+            #
+            # There is no sound geometric cap to derive: with min_step ~4e-6
+            # a parameter-space bound is ~2e5 steps, i.e. no bound at all.
+            # So the SHARED LEDGER is the only limit, which is also what
+            # makes the stop knob-reachable (P2's point): a march that runs
+            # out now runs out of the caller's declared allowance, and says
+            # so.
+            trace_cap_is_internal = False
             if work_budget is not None:
                 if work_budget.exhausted or work_budget.remaining_cells <= 0:
                     _deny_trace_work()
                     break
-                trace_limit = min(trace_limit, work_budget.remaining_cells)
+                trace_limit = work_budget.remaining_cells
+            else:
+                # No ledger to spend from (defensive path).  Bound by the
+                # marcher's own step floor instead: a curve that has taken
+                # `_MARCH_MAX_BOX_TRAVERSALS` box-diameters' worth of minimum
+                # steps inside a unit parameter cell is pathological, not
+                # merely long.  Dimensionless and parameter-space, so it
+                # scales with nothing.
+                trace_limit = int(math.ceil(
+                    _MARCH_MAX_BOX_TRAVERSALS / max(ptol_min, 1e-12)))
+                trace_cap_is_internal = True
             trace_stats = {}
             stuv_local, xyz_local, exit_info = _march_to_boundary(
                 cell.g1.surface, cell.g2.surface, seed_local,
@@ -4639,7 +4948,15 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
                 break
             if (trace_iterations >= trace_limit and exit_info is None):
                 if work_budget is not None:
-                    work_budget.mark_incomplete(REASON_WORK_BUDGET)
+                    # Name the allowance that actually ran out.  Billing the
+                    # shared ledger for an internal per-march cap told
+                    # consumers to raise max_cells; measured on harness case
+                    # 11 at atol=2.5e-6 that knob was at 2.5% utilization and
+                    # raising it changed nothing (the march needs ~1/sqrt(atol)
+                    # points and gets a fixed 400).
+                    work_budget.mark_incomplete(
+                        REASON_TRACE_POINT_CAP if trace_cap_is_internal
+                        else REASON_WORK_BUDGET)
                     if work_budget.remaining_cells <= 0:
                         work_budget.mark_exhausted()
 
@@ -4937,12 +5254,39 @@ def _drop_duplicate_fragments(fragments: list[_Fragment], atol: float,
     Duplicates arise when a partner seed re-traces a segment that was
     already traced — including against truncated/open fragments, so the
     test is purely geometric (no endpoint-pair precondition): a fragment
-    whose EVERY sample lies within 2·atol of a longer kept fragment's
-    polyline duplicates it. Fragments are Newton-corrected onto the same
-    curve, so true re-traces sit within ~atol of each other, while a
-    genuinely distinct second arc of a thin loop deviates by more than the
-    tolerance somewhere along its length and is kept. Sorting by arc
-    length keeps the most complete trace of each segment.
+    whose EVERY sample lies within the keeper's envelope duplicates it.
+    Fragments are Newton-corrected onto the same curve, so true re-traces
+    sit within ~atol of each other, while a genuinely distinct second arc
+    of a thin loop deviates by more than the tolerance somewhere along its
+    length and is kept. Sorting by arc length keeps the most complete
+    trace of each segment.
+
+    The envelope carries the KEEPER'S OWN DISCRETIZATION. A duplicate's
+    samples lie on the curve; the keeper's polyline does not, so the
+    distance between them is the keeper's sagitta, and a bare 2·atol bar
+    silently assumes the keeper is exact. It is not, and the offender is
+    not a marched step at all: the displaced-seed recovery in
+    `_trace_cell_by_registrations` PREPENDS the registered crossing to a
+    march started `alpha` in {0.02, 0.05, 0.1} of the parameter box away
+    along the tangent. That spliced first chord never passes the step
+    controller or `_mid_chord_deviates`, and `alpha` is a bare parameter
+    fraction — so its length and sagitta are INDEPENDENT of atol while
+    `sag_tol = 2*atol` shrinks. Measured on a toroidal SSI pair, the same
+    chord is 0.15099 long with sagitta 9.620e-4 at every tolerance:
+
+        atol      1e-3    5e-4    1e-4     1e-5
+        sagitta   0.48x   0.96x   4.81x   48.10x   of sag_tol
+
+    At atol=1e-4 that keeper's true duplicates measured 9.602e-4 /
+    8.884e-4 against a 2.0e-4 bar. Both survived, the shared junction
+    became a degree-3 node, and the chain walker left the main path and
+    returned along the duplicate reversed — an out-and-back branch whose
+    extra length was exactly the duplicated arc.
+
+    A plain constant cannot fix this: the quantity is discretization
+    error, which is not proportional to atol the way a tolerance is.
+    Widening the bar to a flat 16·atol repaired atol=1e-4 but broke
+    atol=1e-2 (a genuine closed loop became open with a 4.7e-2 gap).
     """
     def _arc_len(fr: _Fragment) -> float:
         xyz = np.asarray(fr.xyz_path, dtype=np.float64)
@@ -4957,12 +5301,18 @@ def _drop_duplicate_fragments(fragments: list[_Fragment], atol: float,
         return list(fragments)
 
     keep: list[_Fragment] = []
+    sag_of: dict[int, float] = {}
     ordered = sorted(fragments, key=_arc_len, reverse=True)
     for pos, f in enumerate(ordered):
         duplicate = False
         for g in keep:
+            g_sag = sag_of.get(id(g))
+            if g_sag is None:
+                g_sag = _polyline_sagitta_bound(g.xyz_path)
+                sag_of[id(g)] = g_sag
             contained = _fragment_contained_in(
-                f, g, 2.0 * atol, work_budget=work_budget)
+                f, g, 2.0 * atol + _CONTAINMENT_SAGITTA_CREDIT * g_sag,
+                work_budget=work_budget)
             if contained is True:
                 duplicate = True
                 break
@@ -5443,17 +5793,40 @@ def _assemble_fragments(
     # interior progress): every SAMPLE is Ψ-valid at tolerance, but the
     # chord is not ON the intersection set. Per _ssx_correct's own contract
     # the true-curve distance at a point is ≈ residual / sin_ang; drop a
-    # branch only when EVERY chord midpoint fails at 2·atol — genuine
-    # branches have good chords (ring chords measure ~1e-4·atol here),
-    # bridges are all-fiction (single chord at 4–12·atol). Cheap: real
-    # branches exit at their first good chord.
+    # branch only when EVERY chord midpoint fails. Cheap: real branches
+    # exit at their first good chord.
+    #
+    # The bar is an ENVELOPE, not a constant. `res / sin_ang` is evaluated
+    # at the chord's PARAMETRIC midpoint, which by construction is not on
+    # the curve — it is off it by the chord's sagitta, which the marcher is
+    # allowed to grow to `sag_tol = 2*atol`. Judging it against a bare
+    # 2*atol therefore prices the verifier at exactly the producer's own
+    # allowance while measuring a quantity 1.9-4x larger, leaving NEGATIVE
+    # margin: measured on a toroidal SSI pair whose chords all cross at
+    # sin_ang = 0.9996 (~87 deg, maximally transversal — no valley at all)
+    # and whose sagittas were 0.42-0.76 of the allowance, all five chords
+    # scored 2.0-6.0e-3 against a 2.0e-3 bar and the arc was deleted. The
+    # loss was non-monotonic in atol (survives 2e-3, dies at 1e-3, survives
+    # 5e-4) and flipped under swapping the two surfaces, because which side
+    # of the knife edge a chord lands on is decided by the step sizes the
+    # adaptive marcher happens to pick.
+    #
+    # So credit each chord the discretization it actually carries. The
+    # credit is capped at the marcher's own `sag_tol` budget: a chord that
+    # exceeds its contract earns no more slack than one that honours it,
+    # and a valley bridge — whose corrected midpoint stays on the chord, so
+    # whose sagitta is ~0 — keeps the original bare 2*atol bar and is still
+    # rejected. `_VALLEY_SAGITTA_CREDIT` covers the measured 1.9-4x ratio
+    # between this estimator and the sagitta itself.
     if S1_full is not None and branches:
         _kept_v = []
         for b in branches:
             stuv_b = np.asarray(b.curve[0], dtype=np.float64)
+            xyz_b = np.asarray(b.curve[1], dtype=np.float64)
             if len(stuv_b) < 2:
                 _kept_v.append(b)
                 continue
+            sag_tol = 2.0 * atol_full
             all_bad = True
             for k in range(len(stuv_b) - 1):
                 if not _assembly_spend(work_budget):
@@ -5474,7 +5847,17 @@ def _assemble_fragments(
                 n2 = float(np.linalg.norm(N2))
                 sin_ang = (float(np.linalg.norm(np.cross(N1, N2))) / (n1 * n2)
                            if n1 > 1e-30 and n2 > 1e-30 else 1.0)
-                if res / max(sin_ang, 1e-3) <= 2.0 * atol_full:
+                metric = res / max(sin_ang, 1e-3)
+                if metric <= sag_tol:
+                    all_bad = False
+                    break
+                sag = _mid_chord_sagitta(
+                    S1_full, S2_full, stuv_b[k], stuv_b[k + 1],
+                    xyz_b[k], xyz_b[k + 1], atol_full, rational_full)
+                if sag is None:
+                    continue
+                if metric <= sag_tol + _VALLEY_SAGITTA_CREDIT * min(
+                        sag, sag_tol):
                     all_bad = False
                     break
             if not all_bad:
@@ -5933,6 +6316,14 @@ def bez_ssx(
     csx_max_cells=100_000,
     boundary_csx_max_cells=20_000,
     csx_max_results=128,
+    # CSX's own Phase-2 subdivision ceiling.  Distinct from `max_depth`
+    # above, which is the SSX cell depth — same word, different
+    # quantity, so forwarding one as the other would be wrong.  This
+    # default is bez_csx's own, so the knob is additive: it exists to
+    # be RAISED when a tight atol needs more CSX depth (harness case
+    # 11 at atol<=1e-5 needs 128), which was previously unreachable
+    # from any public parameter.
+    csx_max_depth=None,
     max_output_items=1_024,
     max_postprocess_work=None,
 ) -> dict:
@@ -5968,9 +6359,49 @@ def bez_ssx(
 
     The kwargs stay expert knobs with safe defaults: read ``complete`` (and
     ``reasons`` if you care why); never tune knobs to get correctness.
+
+    Numerical frame (P1, 2026-07-21 design + amendments 1-2): inputs
+    whose joint coordinate magnitude falls outside `_NORM_IDENTITY_WINDOW`
+    run in a canonical frame — both nets jointly centered at the AABB
+    midpoint and scaled by a power of two into the native-proven band
+    (AABB diagonal ~[11.3, 22.6]; max|coords| ~[3.3, 11.3]) — so the
+    strict Psi-zero certificates,
+    fixed corrector tolerances, and marching machinery see calibrated
+    coordinates for any world placement; in-window inputs keep the
+    bit-for-bit legacy frame.  The contract stays world-in/world-out:
+    xyz outputs are un-mapped exactly once at exit; parameters and
+    weights are frame-invariant; ``atol``/``max_xyz_step`` scale with the
+    frame internally.  Transversal results are similarity-invariant
+    (pinned by tests/test_bez_ssx5_invariance.py); singular structure at
+    extreme scales is the P1b limit
+    (docs/superpowers/issues/2026-07-21-ssx5-p1b-singular-tier-scale-invariance.md).
     """
     S1 = np.asarray(S1, dtype=np.float64)
     S2 = np.asarray(S2, dtype=np.float64)
+    # P1 invariance (2026-07-21 design + amendments): OUT-OF-WINDOW models
+    # run in a canonical frame — jointly centered, power-of-two scaled into
+    # the native band — so the absolute roundoff envelopes below see
+    # calibrated coordinates regardless of where the model sits in world
+    # space; in-window models keep the identity frame and skip the
+    # transform entirely (bit-for-bit pre-P1 arithmetic, including for
+    # non-finite degenerate inputs the context refuses).  A transform that
+    # produces non-finite coefficients (finite input, |c·w| overflow)
+    # falls back to identity rather than corrupting the search.
+    # World-in/world-out: `_result` un-maps xyz exactly once on the way
+    # out; parameters and weights are frame-invariant.  atol and
+    # max_xyz_step are lengths and scale along.
+    _norm_c, _norm_k = _ssx_normalization_context(S1, S2, rational=rational)
+    if _norm_k != 1.0 or np.any(_norm_c):
+        S1_n = _normalize_surface_net(S1, _norm_c, _norm_k, rational=rational)
+        S2_n = _normalize_surface_net(S2, _norm_c, _norm_k, rational=rational)
+        if np.all(np.isfinite(S1_n)) and np.all(np.isfinite(S2_n)):
+            S1, S2 = S1_n, S2_n
+            atol = float(atol) / _norm_k
+            if max_xyz_step is not None:
+                max_xyz_step = float(max_xyz_step) / _norm_k
+        else:
+            _norm_c = np.zeros(3, dtype=np.float64)
+            _norm_k = 1.0
     budget = _SSXSoftBudget(
         max_cells=max(0, int(max_cells)),
         max_csx_calls=max(0, int(max_csx_calls)),
@@ -5994,7 +6425,7 @@ def bez_ssx(
                                    else unresolved_regions),
         }
         result.update(budget.result_fields())
-        return result
+        return _denormalize_result(result, _norm_c, _norm_k)
 
     # A zero public allowance is a hard promise that no expensive solver
     # setup runs.  In particular, the 4-D squared-distance Bernstein net can
@@ -6056,6 +6487,8 @@ def bez_ssx(
             attempt_kwargs = dict(kwargs)
             attempt_kwargs['max_cells'] = allowance
             attempt_kwargs['max_results'] = int(csx_max_results)
+            if csx_max_depth is not None:
+                attempt_kwargs['max_depth'] = int(csx_max_depth)
             attempt_result = bez_csx(curve, surface, **attempt_kwargs)
             attempt_used = max(
                 0, int(attempt_result.get('cells_processed', 0)))
@@ -6103,6 +6536,32 @@ def bez_ssx(
                     (np.array(curve, dtype=np.float64, copy=True),
                      (float(span[0]), float(span[1])),
                      bool(kwargs.get('rational', True))))
+            # Attribution, second axis (2026-07-26): WHY did CSX truncate?
+            # `budget_exhausted` used to be the only signal, so an internal
+            # STRUCTURAL ceiling — CSX's own Phase-2 `max_depth` — was
+            # indistinguishable from the caller's cells running out, and was
+            # escalated to `mark_exhausted(work_budget)`: a GLOBAL hard stop
+            # of the whole SSX search, blaming a knob that could not move.
+            # Measured on harness case 11 at atol<=1e-5: one such truncation
+            # (1,791 of 100,000 CSX cells used, topology complete) fired at
+            # 1.2% of the SSX ledger, collapsing subdivision from 98 cells to
+            # 2 and 17 marches to 1 — 37% of a closed loop, reported as
+            # `work_budget` at 17% utilization.
+            #
+            # A depth ceiling is local and structural: it stops THIS face,
+            # it does not exhaust the run.  Type it `depth_limit` (the
+            # vocabulary already had the word) and keep going.
+            _cause = result.get('truncation_cause')
+            _structural_depth = (_cause == 'depth' and not span_only)
+            if _structural_depth:
+                budget.mark_incomplete(REASON_DEPTH_LIMIT)
+                return {
+                    'isolated': [], 'overlaps': [],
+                    'parameter_fibers': [],
+                    'budget_exhausted': True,
+                    'boundary_topology_complete': False,
+                    'cells_processed': used,
+                }
             if local_truncation_is_soft and not budget.exhausted:
                 budget.mark_incomplete(
                     REASON_OVERLAP_REGION if span_only
@@ -6362,28 +6821,40 @@ def bez_ssx(
             break
         cell = queue.popleft()
 
-        # Cheap AABB pruning first: if control-point bounding boxes don't
-        # overlap, there is no intersection in this cell.
-        if _aabb_disjoint(cell.g1.surface, cell.g2.surface, atol):
-            continue
-
-
-        # GJK separability: tighter than AABB, much cheaper than the sq-dist
-        # net or Gauss separability. Test the convex hulls of the two control
-        # nets — if they're separated, the surfaces don't intersect.
-        if _trust_gjk(cell.g1) and _trust_gjk(cell.g2):
-            P1_pts = (cell.g1.surface[..., :-1] / cell.g1.surface[..., -1:]).reshape(-1, 3)
-            P2_pts = (cell.g2.surface[..., :-1] / cell.g2.surface[..., -1:]).reshape(-1, 3)
-            if not gjk(P1_pts, P2_pts, atol, 15):
+        # P1c soundness guard (2026-07-21): a cell carrying registered
+        # crossings holds strict-certified Psi roots ON it — any exclusion
+        # verdict from the approximate prunes below contradicts certified
+        # evidence and is therefore numerically wrong by construction, not
+        # a proof of emptiness (measured: at case 10 in the canonical
+        # frame, GJK declared a 2-crossing cell "separated" and the arc
+        # through it silently vanished with complete=True; the same class
+        # as the June CSX basin prunes).  Certified evidence outranks
+        # approximate exclusion: crossing-bearing cells always proceed to
+        # classification/tracing.
+        if not cell.crossings:
+            # Cheap AABB pruning first: if control-point bounding boxes
+            # don't overlap, there is no intersection in this cell.
+            if _aabb_disjoint(cell.g1.surface, cell.g2.surface, atol):
                 continue
 
-        # Sq-dist net pruning using the PROPAGATED F_sq (built once at top,
-        # split alongside TΨᵢ at every subdivision — never reconstructed).
-        if cell.F_sq is not None:
-            if _check_min_of_net(cell.F_sq, atol, cell.w_scale):
-                continue
-            if _check_lipschitz(cell.F_sq, atol, cell.w_scale):
-                continue
+            # GJK separability: tighter than AABB, much cheaper than the
+            # sq-dist net or Gauss separability. Test the convex hulls of
+            # the two control nets — if they're separated, the surfaces
+            # don't intersect.
+            if _trust_gjk(cell.g1) and _trust_gjk(cell.g2):
+                P1_pts = (cell.g1.surface[..., :-1] / cell.g1.surface[..., -1:]).reshape(-1, 3)
+                P2_pts = (cell.g2.surface[..., :-1] / cell.g2.surface[..., -1:]).reshape(-1, 3)
+                if not gjk(P1_pts, P2_pts, atol, 15):
+                    continue
+
+            # Sq-dist net pruning using the PROPAGATED F_sq (built once at
+            # top, split alongside TΨᵢ at every subdivision — never
+            # reconstructed).
+            if cell.F_sq is not None:
+                if _check_min_of_net(cell.F_sq, atol, cell.w_scale):
+                    continue
+                if _check_lipschitz(cell.F_sq, atol, cell.w_scale):
+                    continue
 
         # Ledger L4 probe descent: a probe-only cell exists solely to find
         # the Δ-touch its loop-free ancestor's center witness missed (the

@@ -966,3 +966,423 @@ def test_fixture_case_residual_certificate(case, expect_complete,
         assert np.abs(np.linalg.norm(xyz_all[:, :2], axis=1) - 1.0).max() \
             <= 2 * atol
         assert np.abs(xyz_all[:, 2] - 1.0).max() <= 2 * atol
+
+
+# ---------------------------------------------------------------------------
+# P1 invariance acceptance gates (kickoff 2026-07-20 gates 1-2; design
+# 2026-07-21).  Case 6: ~100-unit coords; case 11: ~800-unit part at
+# ~3000-unit offset — both must certify at ORIGINAL world coordinates.
+# These are the committed regressions that FAIL without the canonical
+# frame (pre-fix: case 6 lost half its curve with trace_unverified).
+# ---------------------------------------------------------------------------
+
+
+def _load_fixture_pair(num):
+    with open(FIXTURE_DIR / f"nurbs_nurbs_intersection_{num}.pkl", "rb") as f:
+        return pickle.load(f)[0]
+
+
+def test_case6_original_coords_complete_at_atol_1e3():
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+
+    s1, s2 = _load_fixture_pair(6)
+    r = nurbs_ssx(s1, s2, atol=1e-3)
+    assert r["complete"], r["status"]["reasons"]
+    assert r["status"]["reasons"] == []
+    assert len(r["branches"]) == 1
+    xyz = np.asarray(r["branches"][0].curve[1], dtype=float)
+    # Kickoff engine truth: one x=y-mirror-symmetric arm in the plane z=1
+    # from ~[4.37, 75] to ~[75, 4.37] passing through ~[5.47, 5.47].
+    assert np.all(np.abs(xyz[:, 2] - 1.0) <= 5e-3)
+    lo, hi = (xyz[0], xyz[-1]) if xyz[0][0] < xyz[-1][0] else (xyz[-1], xyz[0])
+    assert np.allclose(lo[:2], [4.37, 75.0], atol=1.0)
+    assert np.allclose(hi[:2], [75.0, 4.37], atol=1.0)
+
+
+def test_case11_original_coords_complete_at_atol_0_1():
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+
+    s1, s2 = _load_fixture_pair(11)
+    r = nurbs_ssx(s1, s2, atol=0.1)
+    assert r["complete"], r["status"]["reasons"]
+    assert r["status"]["reasons"] == []
+    assert len(r["branches"]) == 1
+
+
+def test_case11_original_coords_certificate_clean_at_atol_1e3():
+    # P1 fixes the certificate half; the knob-unreachable tier (P2) may
+    # still mark work_budget — trace_unverified specifically must be gone.
+    from mmcore.numeric._work_budget import REASON_TRACE_UNVERIFIED
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+
+    s1, s2 = _load_fixture_pair(11)
+    r = nurbs_ssx(s1, s2, atol=1e-3)
+    assert REASON_TRACE_UNVERIFIED not in r["status"]["reasons"], r["status"]
+
+
+# ---------------------------------------------------------------------------
+# Cluster-4 burn-down (2026-07-25): user-authored boundary-coincidence pair.
+#
+# s1 is a bilinear whose height is z = 5(1-u)v, so its z=0 locus is exactly
+# its u=1 and v=0 DOMAIN EDGES; s2 is a planar (z=0) non-parallelogram quad.
+# The true intersection is those two straight edges clipped to s2's quad.
+# Their shared corner (-36, 2, 0) lies OUTSIDE s2, so the result is two
+# separate boundary-coincident branches, not one polyline through the corner.
+#
+# The pair's joint magnitude is 36 — above the identity window — so the whole
+# call runs in the k=2 canonical frame.  Before the Phase-2 hull-prune
+# translation fix, the centered frame's cancellation noise made
+# `_vector_residual_hull_excludes_zero` delete the v=0 span's boundary
+# crossing; the CSX overlap tier then failed to arm and the span evaporated
+# into reasons=['overlap_region_unsupported'] at 29% coverage.
+#
+# Truth below is computed analytically (segment/quad clipping), not recorded
+# from the engine.
+# ---------------------------------------------------------------------------
+
+_BC_S1_CP = np.array([[[-16.0, -27.0, 0.0], [-8.0, -25.0, 5.0]],
+                      [[-36.0, 2.0, 0.0], [-20.0, -3.0, 0.0]]])
+_BC_S2_CP = np.array([[[-34.0, -7.0, 0.0], [-26.0, 2.0, 0.0]],
+                      [[-19.0, -20.0, 0.0], [-17.0, -10.0, 0.0]]])
+
+# v=0 edge clipped to the quad: t in [0.377142857143, 0.781553398058]
+# u=1 edge clipped to the quad: t in [0.489130434783, 0.816326530612]
+_BC_TRUTH = [
+    (np.array([-23.542857142857, -16.062857142857, 0.0]),
+     np.array([-31.631067961165, -4.334951456311, 0.0]), 14.2465057482),
+    (np.array([-28.173913043478, -0.445652173913, 0.0]),
+     np.array([-22.938775510204, -2.081632653061, 0.0]), 5.4848060240),
+]
+
+
+def _boundary_coincidence_pair():
+    def surf(cp, ku, kv):
+        return NURBSSurfaceTuple(
+            order_u=2, order_v=2,
+            knot_u=np.array([0.0, 0.0, ku, ku]),
+            knot_v=np.array([0.0, 0.0, kv, kv]),
+            control_points=cp, weights=np.ones((2, 2)))
+
+    return (surf(_BC_S1_CP, 29.20616373, 18.68154169),
+            surf(_BC_S2_CP, 19.84943324, 12.04159458))
+
+
+def _polyline_length(xyz):
+    xyz = np.asarray(xyz, dtype=float)
+    if len(xyz) < 2:
+        return 0.0
+    return float(np.sum(np.linalg.norm(np.diff(xyz, axis=0), axis=1)))
+
+
+def test_boundary_coincidence_two_edge_branches():
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+
+    s1, s2 = _boundary_coincidence_pair()
+    res = nurbs_ssx(s1, s2, atol=1e-3)
+
+    assert res["complete"] is True, res["status"]["reasons"]
+    assert res["status"]["reasons"] == []
+    assert len(res["branches"]) == 2, [b.kind for b in res["branches"]]
+
+    got = []
+    for b in res["branches"]:
+        xyz = np.asarray(b.curve[1], dtype=float)
+        assert len(xyz) >= 2, b.kind
+        # The whole locus is the z=0 plane.
+        assert np.max(np.abs(xyz[:, 2])) <= 1e-6, np.max(np.abs(xyz[:, 2]))
+        got.append(xyz)
+
+    # Match each analytic segment to one branch by endpoint proximity, then
+    # pin its length: a truncated span (the pre-fix failure mode shipped 29%
+    # of the v=0 edge) fails the length check even if the endpoints round.
+    remaining = list(range(len(got)))
+    for a, b_end, length in _BC_TRUTH:
+        best, best_d = None, np.inf
+        for j in remaining:
+            xyz = got[j]
+            d = min(np.linalg.norm(xyz[0] - a) + np.linalg.norm(xyz[-1] - b_end),
+                    np.linalg.norm(xyz[0] - b_end) + np.linalg.norm(xyz[-1] - a))
+            if d < best_d:
+                best, best_d = j, d
+        assert best_d <= 1e-2, (best_d, a, b_end)
+        assert abs(_polyline_length(got[best]) - length) <= 1e-2, (
+            _polyline_length(got[best]), length)
+        remaining.remove(best)
+    assert not remaining
+
+
+def test_boundary_coincidence_survives_similarity():
+    """The class is scale/translation invariant; so must the result be.
+
+    Cells straddle the identity-window cliff in both directions.
+    """
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+
+    s1, s2 = _boundary_coincidence_pair()
+    for c, k in [(np.zeros(3), 1.0),
+                 (np.zeros(3), 1.0 / 64.0),
+                 (np.zeros(3), 256.0),
+                 (np.array([1e3, -2e3, 5e2]), 1.0),
+                 (np.array([-5e3, 3e3, 1e4]), 8.0)]:
+        t1 = NURBSSurfaceTuple(
+            order_u=2, order_v=2, knot_u=s1.knot_u, knot_v=s1.knot_v,
+            control_points=s1.control_points * k + c, weights=s1.weights)
+        t2 = NURBSSurfaceTuple(
+            order_u=2, order_v=2, knot_u=s2.knot_u, knot_v=s2.knot_v,
+            control_points=s2.control_points * k + c, weights=s2.weights)
+        res = nurbs_ssx(t1, t2, atol=1e-3 * k)
+        assert res["complete"] is True, (c, k, res["status"]["reasons"])
+        assert len(res["branches"]) == 2, (c, k, [b.kind for b in res["branches"]])
+        lengths = sorted(_polyline_length(b.curve[1]) for b in res["branches"])
+        expect = sorted(t[2] * k for t in _BC_TRUTH)
+        for got_l, exp_l in zip(lengths, expect):
+            assert abs(got_l - exp_l) <= 1e-2 * k, (c, k, lengths, expect)
+
+
+# ---------------------------------------------------------------------------
+# P2 (2026-07-25): the public work knobs must actually reach the engine.
+#
+# `_make_aggregate` documents explicit values as "absolute aggregate
+# promises", but every per-pair `bez_ssx` call was then clamped to the
+# module default (250k cells) regardless of what the caller asked for.  With
+# a single candidate pair that is pure knob-unreachability: measured on
+# harness case 11 at atol=2.5e-6, passing max_cells=2_000_000 still stopped
+# the engine at 249,657/250,000 and reported reasons=['work_budget'] —
+# telling the consumer to raise a knob that provably does nothing.
+#
+# The default path must stay bit-identical (the per-pair default is a
+# fairness share, not a ceiling to be lifted for everyone); only an explicit
+# aggregate promise is redistributed across the remaining candidates.
+# ---------------------------------------------------------------------------
+
+def _capture_bez_ssx_budgets(monkeypatch, surfs, **kwargs):
+    import mmcore.numeric.intersection.ssx._nssx5 as nm
+
+    seen = []
+    orig = nm.bez_ssx
+
+    def spy(P1, P2, **kw):
+        seen.append({k: kw.get(k) for k in
+                     ("max_cells", "max_csx_calls", "max_output_items")})
+        return orig(P1, P2, **kw)
+
+    monkeypatch.setattr(nm, "bez_ssx", spy)
+    nm.nurbs_ssx(surfs[0], surfs[1], **kwargs)
+    return seen
+
+
+def test_explicit_max_cells_reaches_the_engine(monkeypatch):
+    from mmcore.numeric.intersection.ssx._nssx5 import _BEZ_DEFAULT_MAX_CELLS
+
+    pair = _boundary_coincidence_pair()
+    seen = _capture_bez_ssx_budgets(
+        monkeypatch, pair, atol=1e-3, max_cells=2_000_000)
+    assert seen, "no bez_ssx call captured"
+    assert max(s["max_cells"] for s in seen) > _BEZ_DEFAULT_MAX_CELLS, seen
+
+
+def test_default_budget_path_is_unchanged(monkeypatch):
+    """The per-pair default is a fairness share; an unset budget must give
+    each pair exactly the module default, as before."""
+    from mmcore.numeric.intersection.ssx._nssx5 import _BEZ_DEFAULT_MAX_CELLS
+
+    pair = _boundary_coincidence_pair()
+    seen = _capture_bez_ssx_budgets(monkeypatch, pair, atol=1e-3)
+    assert seen
+    for s in seen:
+        assert s["max_cells"] == _BEZ_DEFAULT_MAX_CELLS, seen
+
+
+def test_explicit_budget_is_absolute_for_every_pair(monkeypatch):
+    """Multi-candidate coverage — the case the first version got wrong.
+
+    With one candidate pair any per-pair policy looks identical, so the
+    original two tests could not see that an even fair-share slice starves
+    the hot pair.  Work is not spread evenly over BVH candidates: on harness
+    case 1 (43 pairs) slicing turned an explicit max_cells=250_000 from
+    complete into reasons=['work_budget'] with 61% of the aggregate unspent.
+    The contract (`_make_aggregate`: "explicit values are absolute aggregate
+    promises"; _ncsx4/_nccx4 hand each call the whole remainder) requires
+    every pair to be offered what is LEFT, not a slice of it.
+    """
+    import mmcore.numeric.intersection.ssx._nssx5 as nm
+    from mmcore.numeric.intersection.ssx._nssx5 import _per_pair_allowance
+
+    class Agg:
+        def __init__(self, cells, explicit):
+            self.remaining_cells = cells
+            self.remaining_csx_calls = 10 ** 9
+            self.remaining_output_items = 10 ** 9
+            self.explicit_cells = explicit
+            self.explicit_csx = False
+            self.explicit_output = False
+
+    # explicit: every pair is offered the full remainder, at any n
+    for n in (1, 2, 4, 43):
+        cells, _csx, _out = _per_pair_allowance(Agg(1_000_000, True), n)
+        assert cells == 1_000_000, (n, cells)
+
+    # default: the module default is the per-pair share, unchanged
+    for n in (1, 2, 4, 43):
+        cells, _csx, _out = _per_pair_allowance(
+            Agg(nm._BEZ_DEFAULT_MAX_CELLS * n, False), n)
+        assert cells == nm._BEZ_DEFAULT_MAX_CELLS, (n, cells)
+
+    # a nearly-drained explicit ledger still offers exactly what is left
+    cells, _csx, _out = _per_pair_allowance(Agg(7, True), 43)
+    assert cells == 7
+
+
+def test_multi_candidate_default_path_grants_are_unchanged(monkeypatch):
+    """Regression pin on the DEFAULT path with more than one candidate."""
+    import mmcore.numeric.intersection.ssx._nssx5 as nm
+
+    s1, s2 = _boundary_coincidence_pair()
+    m1 = insert_midknot(s1, axis=0)
+    m2 = insert_midknot(s2, axis=0)
+    seen = _capture_bez_ssx_budgets(monkeypatch, (m1, m2), atol=1e-3)
+    assert len(seen) >= 2, f"expected a multi-candidate split, got {len(seen)}"
+    for s in seen:
+        assert s["max_cells"] == nm._BEZ_DEFAULT_MAX_CELLS, seen
+
+
+# ---------------------------------------------------------------------------
+# Case 11 (2026-07-26): the per-march allowance must be the caller's ledger,
+# not a hardcoded point count.
+#
+# The tracer used `trace_limit = 400`, which bounds nothing: the points a
+# march needs are (arc length)/(step size), and the step is chosen from atol
+# and curvature, so the requirement grows ~1/sqrt(atol) while 400 stayed
+# put.  Harness case 11's true intersection is ONE CLOSED LOOP of length
+# 1261.25; at atol=1e-3 the cap truncated it to 92.68% coverage AND cost
+# extra work (20,811 cells vs 15,077), because the fragments were then
+# re-processed.
+# ---------------------------------------------------------------------------
+
+_CASE11_TRUE_LENGTH = 1261.25
+
+
+def _load_case11():
+    import pathlib
+    import pickle
+    with open(FIXTURE_DIR / "nurbs_nurbs_intersection_11.pkl", "rb") as f:
+        return pickle.load(f)[0]
+
+
+@pytest.mark.parametrize("atol", [1e-1, 1e-2, 1e-3])
+def test_case11_recovers_the_whole_closed_loop(atol):
+    """One closed loop, whole, at every tolerance the budget can afford."""
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+
+    s1, s2 = _load_case11()
+    r = nurbs_ssx(s1, s2, atol=atol)
+
+    assert r["complete"] is True, r["status"]["reasons"]
+    assert r["status"]["reasons"] == []
+    assert len(r["branches"]) == 1, [b.kind for b in r["branches"]]
+    branch = r["branches"][0]
+    assert bool(branch.closed), "the loop must close, not fragment"
+    xyz = np.asarray(branch.curve[1], dtype=float)
+    length = float(np.sum(np.linalg.norm(np.diff(xyz, axis=0), axis=1)))
+    assert abs(length - _CASE11_TRUE_LENGTH) <= 1.0, length
+
+
+def test_case11_march_allowance_comes_from_the_ledger(monkeypatch):
+    """Pin the derivation, not just its effect.
+
+    A march must be offered what the shared ledger has left. The former
+    fixed 400 is what made the stop knob-unreachable: no budget the caller
+    could set would change it.
+    """
+    import mmcore.numeric.intersection.ssx._bez_ssx5 as bm
+
+    seen = []
+    orig = bm._march_to_boundary
+
+    def spy(*a, **k):
+        if k.get("max_points") is not None:
+            seen.append(int(k["max_points"]))
+        return orig(*a, **k)
+
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+
+    monkeypatch.setattr(bm, "_march_to_boundary", spy)
+    s1, s2 = _load_case11()
+    bm_result = nurbs_ssx(s1, s2, atol=1e-3)
+    assert seen, "no march observed"
+    # Every allowance must exceed the old hardcoded cap by a wide margin,
+    # because it is now a slice of a 250k-cell ledger rather than a constant.
+    assert min(seen) > 400, sorted(seen)[:5]
+    assert bm_result["complete"] is True
+
+
+# ---------------------------------------------------------------------------
+# Truncation-cause propagation (2026-07-26).  A CSX depth ceiling is local
+# and structural; it must stop that face, not the run, and must not be
+# reported as a resource shortfall.
+#
+# Measured before the fix, harness case 11 at atol=1e-5: ONE bez_csx call
+# hit its Phase-2 max_depth (1,791 of 100,000 CSX cells used, topology
+# complete) and `_run_csx` escalated it to mark_exhausted(work_budget) --
+# a global stop at 1.2% of the SSX ledger.  Subdivision collapsed from 98
+# cells to 2, 17 marches to 1, and 37.1% of a closed loop was reported as
+# complete=False/'work_budget' at 17% ledger utilization.
+# ---------------------------------------------------------------------------
+
+def test_depth_ceiling_is_typed_and_local():
+    """The reason names the real limit, and the search is not aborted.
+
+    Forced deterministically with the explicit knob rather than by picking a
+    tolerance that happens to exceed the ceiling: the derived default now
+    tracks atol, so no fixed atol reliably triggers this any more (which is
+    the point of the derivation).
+    """
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+
+    s1, s2 = _load_case11()
+    # depth=40 is shallow enough to trip the ceiling but not so shallow that
+    # CSX finds nothing at all: it yields a genuinely PARTIAL result, which
+    # is what distinguishes "this face stopped" from "the run was aborted".
+    r = nurbs_ssx(s1, s2, atol=1e-3, csx_max_depth=40)
+
+    assert r["status"]["reasons"] == ["depth_limit"], r["status"]["reasons"]
+    # A structural ceiling must not masquerade as resource exhaustion: the
+    # ledger is nowhere near spent, so 'work_budget' would have been a lie.
+    w = r["status"]["work"]
+    assert w["cells_processed"] < 0.9 * w["max_cells"]
+    # ...and the search continued rather than being globally aborted: most
+    # of the loop is still traced despite the truncated face.
+    assert r["branches"], "a local depth ceiling aborted the whole run"
+    total = sum(_polyline_length(b.curve[1]) for b in r["branches"])
+    assert total > 0.5 * _CASE11_TRUE_LENGTH, total
+
+
+def test_derived_depth_needs_no_knob_at_tight_tolerance():
+    """The default tracks atol, so tight work completes unconfigured.
+
+    atol=1e-5 was 37.1% covered with a `work_budget` reason when the ceiling
+    was the constant 64 (required depth there is 76.7).
+    """
+    from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+
+    s1, s2 = _load_case11()
+    r = nurbs_ssx(s1, s2, atol=1e-5)
+
+    assert r["complete"] is True, r["status"]["reasons"]
+    assert r["status"]["reasons"] == []
+    total = sum(_polyline_length(b.curve[1]) for b in r["branches"])
+    assert abs(total - _CASE11_TRUE_LENGTH) <= 1.0, total
+
+
+def test_derived_depth_stays_inside_float64_resolution():
+    """The ceiling can never exceed what subdivision can actually execute."""
+    from mmcore.numeric.intersection.csx._bez_csx4 import (
+        _derived_max_depth, _CSX_DEPTH_FLOAT64_CEILING,
+    )
+
+    # Absurdly tight tolerances must clamp, not run away.
+    assert _derived_max_depth(1e-300, 1e-300, 1e-300) == _CSX_DEPTH_FLOAT64_CEILING
+    assert _derived_max_depth(0.0, 0.0, 0.0) == _CSX_DEPTH_FLOAT64_CEILING
+    # And a loose tolerance must still clear its measured requirement (56.8
+    # at atol=1e-3 on this fixture).
+    assert _derived_max_depth(6.3e-6, 5.1e-6, 3.37e-6) >= 57

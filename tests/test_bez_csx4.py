@@ -144,7 +144,7 @@ def test_phase2_max_depth_reports_unresolved_cell(monkeypatch):
         [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
         [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]],
     ])
-    roots, exhausted, cells = csx_mod._phase2_isolated_search(
+    roots, exhausted, cells, cause = csx_mod._phase2_isolated_search(
         np.zeros((2, 2, 2)), np.zeros((2, 2, 2, 3)), C,
         S, C, S,
         0.0, 1.0, 1e-6, False, 1e-12, 1e-12, 1e-12,
@@ -154,6 +154,11 @@ def test_phase2_max_depth_reports_unresolved_cell(monkeypatch):
     assert roots == []
     assert cells == 1
     assert exhausted is True
+    # 2026-07-26: and it must say WHY.  A depth ceiling is structural — no
+    # cell allowance can buy more of it — so a consumer must be able to tell
+    # it apart from a resource shortfall instead of escalating it to a
+    # global work_budget stop.
+    assert cause == "depth"
 
 
 def test_partial_boundary_topology_is_discarded(monkeypatch):
@@ -1064,3 +1069,125 @@ def test_near_band_pair_certifies_cheaply():
     assert o["t_range"][0] == pytest.approx(0.0, abs=1e-9)
     assert 0.40 <= o["t_range"][1] <= 0.50
     assert r["cells_processed"] <= 2_000, r["cells_processed"]
+
+
+# ---------------------------------------------------------------------------
+# Cluster-4 burn-down (2026-07-25): the strict root certificate must not
+# depend on where the model sits in world space.
+#
+# `_strict_csx_root_tol` centers both nets on a common origin, dividing by
+# the net scale BEFORE subtracting `origin * w`.  A coordinate that is
+# identically zero after that translation is therefore reached only up to
+# the subtraction's cancellation, and both the per-axis `component_scale`
+# and the evaluated points carry that noise.  Bounding the residual by those
+# already-cancelled magnitudes made the certificate refuse TRUE roots of a
+# planar pair at ~30% of random world positions (measured, seed below) —
+# the same defect the CCX Phase-2 hull prune had, in the certificate that
+# gates every CSX boundary root.
+#
+# Geometry: the s1 v=0 edge and s2 of the user's boundary-coincidence pair.
+# Their exact crossing is t = 0.377142857142857 on the curve, (u, v) =
+# (0.697142857142857, 0) on the surface.
+# ---------------------------------------------------------------------------
+
+_PLANAR_C = np.array([[-16.0, -27.0, 0.0, 1.0], [-36.0, 2.0, 0.0, 1.0]])
+_PLANAR_S = np.array([[[-34.0, -7.0, 0.0, 1.0], [-26.0, 2.0, 0.0, 1.0]],
+                      [[-19.0, -20.0, 0.0, 1.0], [-17.0, -10.0, 0.0, 1.0]]])
+_PLANAR_T = 0.377142857142857
+_PLANAR_U = 0.697142857142857
+_PLANAR_V = 0.0
+
+
+def test_strict_csx_certificate_is_translation_invariant():
+    from mmcore.numeric.intersection.csx._bez_csx4 import (
+        _strict_csx_root_tol, _strict_csx_residual_ok,
+    )
+
+    rng = np.random.default_rng(11)
+    rejected = []
+    for _ in range(300):
+        c = rng.uniform(-100.0, 100.0, 3)
+        C = _PLANAR_C.copy()
+        C[:, :3] -= c * C[:, 3:]
+        S = _PLANAR_S.copy()
+        S[..., :3] -= c * S[..., 3:]
+        ctx = _strict_csx_root_tol(C, S, True)
+        assert ctx is not None
+        ok, _res = _strict_csx_residual_ok(
+            C, S, _PLANAR_T, _PLANAR_U, _PLANAR_V, True, ctx)
+        if not ok:
+            rejected.append(c)
+    assert not rejected, (
+        f"{len(rejected)}/300 world positions rejected an exact root; "
+        f"first: {rejected[0] if rejected else None}")
+
+
+def test_strict_csx_certificate_still_rejects_a_real_offset():
+    """Anti-loosening guard: a genuine off-surface point stays rejected.
+
+    The point below is the true crossing lifted one model unit in z — far
+    outside any roundoff envelope at every world position.
+    """
+    from mmcore.numeric.intersection.csx._bez_csx4 import (
+        _strict_csx_root_tol, _strict_csx_residual_ok,
+    )
+
+    rng = np.random.default_rng(11)
+    for _ in range(50):
+        c = rng.uniform(-100.0, 100.0, 3)
+        C = _PLANAR_C.copy()
+        C[:, :3] -= c * C[:, 3:]
+        C[:, 2] += 1.0 * C[:, 3]          # lift the curve off the plane
+        S = _PLANAR_S.copy()
+        S[..., :3] -= c * S[..., 3:]
+        ctx = _strict_csx_root_tol(C, S, True)
+        assert ctx is not None
+        ok, _res = _strict_csx_residual_ok(
+            C, S, _PLANAR_T, _PLANAR_U, _PLANAR_V, True, ctx)
+        assert not ok, c
+
+
+# ---------------------------------------------------------------------------
+# Truncation-cause schema (2026-07-26).
+#
+# `budget_exhausted` alone cannot distinguish a resource shortfall the caller
+# can fix by raising a knob from an internal structural ceiling it cannot.
+# SSX escalated the latter into a GLOBAL hard stop blaming `work_budget`:
+# measured on harness case 11 at atol<=1e-5, one CSX depth truncation (1,791
+# of 100,000 cells used, topology complete) fired at 1.2% of the SSX ledger
+# and collapsed the search from 98 cells to 2.
+# ---------------------------------------------------------------------------
+
+def test_truncation_cause_is_none_when_complete():
+    S = np.array([
+        [[0.0, 0.0, 0.0, 1.0], [0.0, 2.0, 0.0, 1.0]],
+        [[2.0, 0.0, 0.0, 1.0], [2.0, 2.0, 0.0, 1.0]],
+    ])
+    C = np.array([[1.0, 1.0, -1.0, 1.0], [1.0, 1.0, 1.0, 1.0]])
+    r = bez_csx(C, S, atol=1e-3, rational=True)
+    assert r["budget_exhausted"] is False
+    assert r["truncation_cause"] is None
+
+
+def test_truncation_cause_reports_preflight_refusal():
+    S = np.array([
+        [[0.0, 0.0, 0.0, 1.0], [0.0, 2.0, 0.0, 1.0]],
+        [[2.0, 0.0, 0.0, 1.0], [2.0, 2.0, 0.0, 1.0]],
+    ])
+    C = np.array([[1.0, 1.0, -1.0, 1.0], [1.0, 1.0, 1.0, 1.0]])
+    r = bez_csx(C, S, atol=1e-3, rational=True, max_cells=0)
+    assert r["budget_exhausted"] is True
+    assert r["truncation_cause"] == "preflight"
+
+
+def test_truncation_cause_reports_cells_when_the_allowance_runs_out():
+    """A genuine resource shortfall must still say so."""
+    S = np.array([
+        [[0.0, 0.0, 0.0, 1.0], [0.0, 2.0, 0.0, 1.0]],
+        [[2.0, 0.0, 0.0, 1.0], [2.0, 2.0, 0.0, 1.0]],
+    ])
+    C = np.array([[0.0, 0.0, 0.0, 1.0], [2.0, 2.0, 0.0, 1.0]])   # on-surface
+    r = bez_csx(C, S, atol=1e-9, rational=True, max_cells=12)
+    if r["budget_exhausted"]:
+        assert r["truncation_cause"] in ("cells", "results", "boundary",
+                                         "depth"), r["truncation_cause"]

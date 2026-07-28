@@ -82,6 +82,12 @@ def _compute_param_tols(C1, C2, atol, rational):
     return float(tol_u), float(tol_v)
 
 
+# Roundings in the common-origin centering of one coordinate: one division,
+# one multiply, one subtract, one final normalization.  Used as the eps
+# multiplier for the centering envelope in BOTH this module and csx's twin.
+_CENTERING_OPS = 4.0
+
+
 def _cartesian_curve_controls_for_exactness(C, rational):
     C = np.asarray(C, dtype=np.float64)
     if rational:
@@ -97,8 +103,26 @@ def _cartesian_curve_controls_for_exactness(C, rational):
     return points
 
 
-def _center_curve_homogeneous_for_exactness(C, rational, origin):
-    """Return a stably normalized homogeneous curve translated by origin."""
+def _center_curve_homogeneous_for_exactness(C, rational, origin,
+                                            with_source_scale=False):
+    """Return a stably normalized homogeneous curve translated by origin.
+
+    With ``with_source_scale`` this also returns, per coordinate entry, the
+    magnitude of the TWO OPERANDS the translation subtracts, carried through
+    the same final normalization as the values themselves.
+
+    Why any caller needs that: the net is divided by ``scale`` BEFORE it is
+    translated, so a coordinate whose exact translated value is zero is
+    computed as ``fl(x/scale) - fl(origin*fl(w/scale))`` — pure cancellation.
+    The error of that difference is governed by the operands, not by the
+    cancelled result, so an envelope built only from the (already cancelled)
+    output is arbitrarily far below the noise it must absorb.  Callers whose
+    test direction is UNSOUND on an underestimate must add this term; see
+    `_vector_residual_hull_excludes_zero`.  This mirrors the
+    `source_product_scale` term that `_overlap_mapping_is_identity` and
+    csx's `_certify_affine_csx_overlap` already carry for their own
+    post-centering restriction step.
+    """
     C = np.asarray(C, dtype=np.float64)
     if rational:
         H = C.copy()
@@ -107,24 +131,53 @@ def _center_curve_homogeneous_for_exactness(C, rational, origin):
             [C, np.ones((len(C), 1), dtype=np.float64)], axis=1)
     scale = float(np.max(np.abs(H)))
     if not np.isfinite(scale) or scale <= 0.0:
-        return None
+        return (None, None) if with_source_scale else None
     H /= scale
-    H[:, :-1] -= np.asarray(origin, dtype=np.float64) * H[:, -1:]
+    shift = np.asarray(origin, dtype=np.float64) * H[:, -1:]
+    # Operand magnitudes BEFORE the cancelling subtract.  A coordinate that
+    # is genuinely absent from the sources (all controls zero and no shift
+    # on that axis) keeps a zero floor here, so a real one-sided offset can
+    # never be hidden by this term.
+    operand_mag = np.abs(H[:, :-1]) + np.abs(shift)
+    H[:, :-1] -= shift
     local_scale = float(np.max(np.abs(H)))
     if not np.isfinite(local_scale) or local_scale <= 0.0:
-        return None
-    return np.ascontiguousarray(H / local_scale)
+        return (None, None) if with_source_scale else None
+    out = np.ascontiguousarray(H / local_scale)
+    if not with_source_scale:
+        return out
+    return out, np.ascontiguousarray(operand_mag / local_scale)
 
 
 def _ccx_exactness_context(C1, C2, rational):
-    """Common-origin context for translation-invariant equality tests."""
+    """Common-origin context for translation-invariant equality tests.
+
+    ``component_scale`` is the per-axis control scale that
+    `_eval_curve_scaled_components` DIVIDES by, so an axis whose entire
+    post-centering content is the centering's own cancellation noise must
+    report scale 0 (= "this coordinate is absent"), exactly as it does when
+    the sources are literally zero on that axis.  Reporting the noise itself
+    would amplify it to O(1) on division and make the strict predicate
+    reject genuine roots — measured on the user's boundary-coincidence pair,
+    where a z-planar pair keeps scale 0 in world coordinates but acquired a
+    ~1e-17 "scale" once centered, after which every root was refused.
+
+    The absence test is the coordinate's own roundoff envelope, built from
+    the operand magnitudes the centering subtraction consumed and expressed
+    in the same dehomogenized units as ``component_scale``.  Its factor is
+    the ``32 * degree_factor`` family `_strict_residual_ok` already uses, so
+    an axis is dropped only when it is unresolvable rather than merely
+    small: on this fixture the noise sits ~4 orders below the bar.
+    """
     points1 = _cartesian_curve_controls_for_exactness(C1, rational)
     points2 = _cartesian_curve_controls_for_exactness(C2, rational)
     if points1 is None or points2 is None:
         return None
     origin = points1[0].copy()
-    H1 = _center_curve_homogeneous_for_exactness(C1, rational, origin)
-    H2 = _center_curve_homogeneous_for_exactness(C2, rational, origin)
+    H1, src1 = _center_curve_homogeneous_for_exactness(
+        C1, rational, origin, with_source_scale=True)
+    H2, src2 = _center_curve_homogeneous_for_exactness(
+        C2, rational, origin, with_source_scale=True)
     if H1 is None or H2 is None:
         return None
     local1 = H1[:, :-1] / H1[:, -1:]
@@ -132,7 +185,30 @@ def _ccx_exactness_context(C1, C2, rational):
     component_scale = np.maximum(
         np.max(np.abs(local1), axis=0),
         np.max(np.abs(local2), axis=0))
-    return H1, H2, component_scale
+    w1 = np.abs(H1[:, -1:])
+    w2 = np.abs(H2[:, -1:])
+    if np.any(w1 == 0.0) or np.any(w2 == 0.0):
+        return None
+    # Factor derivation (review 2026-07-26 — the FACTOR has an operand too).
+    # This envelope bounds ONE subtraction, not a degree-n accumulation:
+    #   a = fl(x/scale)              1 rounding
+    #   b = fl(origin * fl(w/scale)) 2 roundings
+    #   d = fl(a - b)                1 rounding   (+1 for the /local_scale)
+    # so |err| <= ~4*eps*(|a|+|b|) = _CENTERING_OPS*eps*operand_mag.  The
+    # first version used the `32*degree_factor` family borrowed from
+    # `_strict_residual_ok`, but that factor prices a de Casteljau chain and
+    # is ~256x too large here (measured); on an ACCEPT path that surplus is
+    # exactly the false-root window, so it is not a free safety margin.
+    centering_noise = (_CENTERING_OPS * np.finfo(np.float64).eps
+                       * np.maximum(np.max(src1 / w1, axis=0),
+                                    np.max(src2 / w2, axis=0)))
+    component_scale = np.where(
+        component_scale > centering_noise, component_scale, 0.0)
+    # The envelope travels WITH the context: a consumer that treats a
+    # zero-scale axis as "must be exactly zero" needs it, because after a
+    # centering the exact zero is only ever reached when the sources were
+    # themselves exactly zero on that axis (`_reported_residual_ok`).
+    return H1, H2, component_scale, centering_noise
 
 
 def _eval_curve_scaled_components(C, t, rational, component_scale):
@@ -190,11 +266,22 @@ def _strict_residual_ok(C1, C2, u, v, rational, component_scale=None):
         component_scale = _ccx_exactness_context(C1, C2, rational)
     if component_scale is None:
         return False, p1, p2
-    C1_centered, C2_centered, scales = component_scale
+    C1_centered, C2_centered, scales = component_scale[:3]
+    scales = np.asarray(scales, dtype=np.float64)
+    centering_noise = np.asarray(component_scale[3], dtype=np.float64)
+    absent = scales == 0.0
+    # ABSENT MUST NOT MEAN IGNORED (review 2026-07-26).
+    # `_eval_curve_scaled_components` skips any axis whose scale is 0, so
+    # marking a noise-level axis absent used to drop it from this test
+    # entirely — and this is the module's ONLY membership gate.  Two
+    # segments in parallel planes x=X0 and x=X0+1e-8 were then certified as
+    # intersecting at X0=1e6.  Evaluate those axes UNSCALED instead, and
+    # bound them by the centering envelope they are absent WITH RESPECT TO.
+    eval_scales = np.where(absent, 1.0, scales)
     p1_scaled = _eval_curve_scaled_components(
-        C1_centered, u, True, scales)
+        C1_centered, u, True, eval_scales)
     p2_scaled = _eval_curve_scaled_components(
-        C2_centered, v, True, scales)
+        C2_centered, v, True, eval_scales)
     if (p1_scaled is None or p2_scaled is None
             or not np.all(np.isfinite(p1_scaled))
             or not np.all(np.isfinite(p2_scaled))):
@@ -203,6 +290,23 @@ def _strict_residual_ok(C1, C2, u, v, rational, component_scale=None):
     bound = ((32.0 * degree_factor * np.finfo(np.float64).eps)
              * np.maximum(1.0, np.maximum(
                  np.abs(p1_scaled), np.abs(p2_scaled))))
+    # Sources genuinely zero on an axis give envelope 0, so the pre-existing
+    # exact-zero behaviour is preserved bit-for-bit for a plane through the
+    # origin; a plane at z=const keeps a real, nonzero envelope.
+    # A PRESENT axis carries the same centering loss, just expressed in its
+    # own scaled units.  Without this the bound demands agreement to
+    # ~32*deg*eps of the SCALED value while the centered coordinates
+    # themselves carry noise proportional to the model's WORLD position, so
+    # nothing can be certified far from the origin: measured on the
+    # float-built-subcurve fixture, `_strict_polish_ccx` returned None
+    # 3020/3020 times at |T|=1e6 (5 of 6 at the model's own origin), which
+    # is how a genuine exact overlap degraded to no overlap at all.
+    # Absent axes are already bounded by the unscaled envelope above.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        scaled_noise = np.where(absent, 0.0,
+                                centering_noise / np.where(absent, 1.0, scales))
+    scaled_noise = np.where(np.isfinite(scaled_noise), scaled_noise, 0.0)
+    bound = np.where(absent, centering_noise, bound + scaled_noise)
     return bool(np.all(np.abs(p1_scaled - p2_scaled) <= bound)), p1, p2
 
 
@@ -227,22 +331,32 @@ def _strict_polish_ccx(C1, C2, u, v, rational, component_scale=None,
     if component_scale is None:
         polish_C1, polish_C2, polish_rational = C1, C2, rational
     else:
-        polish_C1, polish_C2, _scales = component_scale
+        polish_C1, polish_C2 = component_scale[0], component_scale[1]
         polish_rational = True
 
     def _reported_residual_ok(G):
         if component_scale is None:
             return False
-        _C1_centered, _C2_centered, scales = component_scale
+        scales = component_scale[2]
+        # Per-axis centering-roundoff envelope (see `_ccx_exactness_context`).
+        noise = component_scale[3]
         G = np.asarray(G, dtype=np.float64)
         scales = np.asarray(scales, dtype=np.float64)
+        noise = np.asarray(noise, dtype=np.float64)
         if G.shape != scales.shape or not np.all(np.isfinite(G)):
             return False
         degree_factor = max(1, len(C1) + len(C2))
         limit = 32.0 * degree_factor * np.finfo(np.float64).eps
-        for value, scale in zip(G, scales):
+        for value, scale, axis_noise in zip(G, scales, noise):
             if scale == 0.0:
-                if value != 0.0:
+                # An absent axis carries no scale to normalize by, so the
+                # bar is its own centering envelope.  Sources that really
+                # are zero on this axis give envelope 0 and the test
+                # degenerates to the exact `value == 0` it always was;
+                # a centered planar pair, whose zero is reached only up to
+                # the translation's cancellation, is admitted on the same
+                # terms instead of being refused for being off by 1e-19.
+                if abs(value) > axis_noise:
                     return False
             elif abs(value / scale) > limit:
                 return False
@@ -287,12 +401,19 @@ def _restrict_curve_interval(C, lo, hi):
 _bernstein_product_1d = bernstein_product_1d
 
 
-def _homogeneous_curve_for_identity(C, rational, origin):
-    H = _center_curve_homogeneous_for_exactness(
-        C, rational, origin)
+def _homogeneous_curve_for_identity(C, rational, origin,
+                                    with_source_scale=False):
+    if not with_source_scale:
+        H = _center_curve_homogeneous_for_exactness(C, rational, origin)
+        if H is None:
+            return None
+        return np.asarray(H, dtype=np.longdouble)
+    H, src = _center_curve_homogeneous_for_exactness(
+        C, rational, origin, with_source_scale=True)
     if H is None:
-        return None
-    return np.asarray(H, dtype=np.longdouble)
+        return None, None
+    return (np.asarray(H, dtype=np.longdouble),
+            np.asarray(src, dtype=np.longdouble))
 
 
 def _overlap_mapping_is_identity(C1, C2, u_range, v_range, rational):
@@ -313,8 +434,10 @@ def _overlap_mapping_is_identity(C1, C2, u_range, v_range, rational):
     if points1 is None or points2 is None:
         return False
     origin = points1[0]
-    H1 = _homogeneous_curve_for_identity(C1, rational, origin)
-    H2 = _homogeneous_curve_for_identity(C2, rational, origin)
+    H1, src1 = _homogeneous_curve_for_identity(
+        C1, rational, origin, with_source_scale=True)
+    H2, src2 = _homogeneous_curve_for_identity(
+        C2, rational, origin, with_source_scale=True)
     if H1 is None or H2 is None or H1.shape[1] != H2.shape[1]:
         return False
     h1_xyz_scale = np.max(np.abs(H1[:, :-1]), axis=0)
@@ -324,6 +447,20 @@ def _overlap_mapping_is_identity(C1, C2, u_range, v_range, rational):
     source_product_scale = (
         h1_xyz_scale * h2_weight_scale
         + h2_xyz_scale * h1_weight_scale)
+    # Third term (2026-07-26): the common-origin CENTERING itself.
+    # The two scales above are taken from the already-centered nets, so
+    # they measure what survived the cancellation, not what was consumed by
+    # it -- the same circular measurement removed from the Phase-2 prune in
+    # the cluster-4 tier.  A curve translated away from the origin loses
+    # precision proportional to its WORLD position while these scales stay
+    # at the model's own extent, so the envelope stopped covering the
+    # noise: this module's own calibrated float-built-subcurve fixture
+    # certifies at its native position but was refused 139/200 at |T|=1 and
+    # 200/200 at |T|=1e6, downgrading genuine exact overlaps to
+    # 'tolerance' and then to no overlap at all.
+    centering_product_scale = (
+        np.max(src1, axis=0) * h2_weight_scale
+        + np.max(src2, axis=0) * h1_weight_scale)
     H1 = _restrict_curve_interval(H1, float(u_range[0]), float(u_range[1]))
     H2 = _restrict_curve_interval(H2, float(v_range[0]), float(v_range[1]))
     if H1 is None or H2 is None:
@@ -346,12 +483,20 @@ def _overlap_mapping_is_identity(C1, C2, u_range, v_range, rational):
     # hide a real offset.
     source_factor = (np.longdouble(8192 * max(1, len(H1) + len(H2)))
                      * np.longdouble(np.finfo(np.float64).eps))
+    # The centering is ONE subtraction (four roundings) — priced with
+    # `_CENTERING_OPS`, not with the restriction's accumulation factor.  At
+    # the model's own origin its operands are O(the model), so this term is
+    # ~eps and changes nothing; it grows only in proportion to the
+    # precision a world translation actually destroys.
+    centering_factor = (np.longdouble(_CENTERING_OPS)
+                        * np.longdouble(np.finfo(np.float64).eps))
     for axis in range(H1.shape[1] - 1):
         lhs = _bernstein_product_1d(H1[:, axis], w2)
         rhs = _bernstein_product_1d(H2[:, axis], w1)
         residual = np.abs(lhs - rhs)
         roundoff = (
-            op_factor * (np.abs(lhs) + np.abs(rhs))
+            centering_factor * centering_product_scale[axis]
+            + op_factor * (np.abs(lhs) + np.abs(rhs))
             + source_factor * source_product_scale[axis])
         if np.any(residual > roundoff):
             return False
@@ -613,14 +758,43 @@ def _vector_residual_hull_excludes_zero(C1, C2, rational, depth):
     subdivision- and product-roundoff margin, the two curve pieces cannot
     intersect.  Independent homogeneous scales cancel because each curve is
     normalized as a whole before the cross product.
+
+    Envelope (2026-07-25, cluster-4 burn-down).  The margin is the house
+    TWO-TERM derived form, not the operator term alone:
+
+      * the OPERATOR term ``op_factor*(|lhs|+|rhs|)`` covers the cross
+        products, which are formed from the values at hand;
+      * the SOURCE term covers the common-origin centering that produced
+        those values.  Centering divides by the net scale and only then
+        subtracts ``origin*w``, so a coordinate that is identically zero
+        after translation arrives as cancellation noise rather than as an
+        exact zero.  Bounding that noise by the cancelled value itself is
+        circular — measured on the user's boundary-coincidence pair, the
+        z row carried 5.7e-19 of noise against a 2.6e-31 operator margin
+        and this prune deleted the entire root cell of a transversal
+        crossing.  The term is therefore built from the operand magnitudes
+        the subtraction consumed (`with_source_scale`).
+
+    Direction matters here in a way it does not for the sibling
+    certificates: `_overlap_mapping_is_identity` and csx's
+    `_certify_affine_csx_overlap` ask "is this residual explainable as
+    zero?", where too small a margin merely REFUSES to certify.  This
+    predicate asserts a residual is provably NON-zero and deletes the cell,
+    with no downstream recourse — an underestimate silently loses
+    solutions.  Reusing their (calibrated-from-below) source factor is thus
+    conservative in exactly the right direction here.  A coordinate genuinely
+    absent from both sources keeps a zero source floor, so the prune retains
+    full strength on real separations.
     """
     points1 = _cartesian_curve_controls_for_exactness(C1, rational)
     points2 = _cartesian_curve_controls_for_exactness(C2, rational)
     if points1 is None or points2 is None:
         return False
     origin = points1[0]
-    H1 = _homogeneous_curve_for_identity(C1, rational, origin)
-    H2 = _homogeneous_curve_for_identity(C2, rational, origin)
+    H1, src1 = _homogeneous_curve_for_identity(
+        C1, rational, origin, with_source_scale=True)
+    H2, src2 = _homogeneous_curve_for_identity(
+        C2, rational, origin, with_source_scale=True)
     if H1 is None or H2 is None or H1.shape[1] != H2.shape[1]:
         return False
     w1 = H1[:, -1]
@@ -632,11 +806,27 @@ def _vector_residual_hull_excludes_zero(C1, C2, rational, depth):
     eps = np.finfo(np.longdouble).eps
     op_factor = np.longdouble(
         1024 * max(1, depth + 1) * max(len(H1), len(H2))) * eps
+    # The centering runs in the source float64 precision ahead of the
+    # long-double cross products, so its term scales with eps_float64.
+    # FACTOR (review 2026-07-26): `_CENTERING_OPS`, not the siblings'
+    # `8192*(n1+n2)`.  That constant prices a Bernstein product/restriction
+    # chain; what is being bounded here is the same single subtraction as in
+    # `_ccx_exactness_context`.  Borrowing it cost ~3 orders of prune reach
+    # at large world positions — measured floor 2.9e-11 at |T|=1 and 2.9e-2
+    # at |T|=1e9, the latter ABOVE a default atol=1e-3, i.e. the prune had
+    # stopped separating anything at tolerance scale out there.
+    source_factor = (np.longdouble(_CENTERING_OPS)
+                     * np.longdouble(np.finfo(np.float64).eps))
+    abs_w1 = np.abs(w1)
+    abs_w2 = np.abs(w2)
     for axis in range(H1.shape[1] - 1):
         lhs = H1[:, axis, None] * w2[None, :]
         rhs = w1[:, None] * H2[None, :, axis]
         residual = lhs - rhs
-        roundoff = op_factor * (np.abs(lhs) + np.abs(rhs))
+        source_term = (src1[:, axis, None] * abs_w2[None, :]
+                       + abs_w1[:, None] * src2[None, :, axis])
+        roundoff = (op_factor * (np.abs(lhs) + np.abs(rhs))
+                    + source_factor * source_term)
         if (np.all(residual > roundoff)
                 or np.all(residual < -roundoff)):
             return True
