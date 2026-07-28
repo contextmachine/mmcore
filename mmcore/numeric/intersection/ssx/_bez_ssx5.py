@@ -2019,6 +2019,26 @@ _MARCH_MAX_BOX_TRAVERSALS = 4.0
 _MARCH_PROGRESS_WINDOW = 32
 _MARCH_PROGRESS_RATIO = 8.0
 
+# Dimensionless factors converting a measured/estimated chord SAGITTA into
+# the slack a predicate must grant a polyline that carries it. Both exist
+# because a chord is not the curve: the marcher may leave a sagitta of up
+# to `sag_tol = 2*atol`, so any predicate measuring a chord against the
+# curve is measuring discretization and must price it. Neither is a
+# tolerance — each multiplies an operand measured from the geometry, so a
+# finely sampled polyline keeps a tight bar and only a coarse one earns a
+# loose one.
+#
+# VALLEY: ratio between `res / sin_ang` at the parametric midpoint and the
+# sagitta itself; measured 1.9-4.0 on the toroidal SSI fixture.
+_VALLEY_SAGITTA_CREDIT = 4.0
+# CONTAINMENT: the duplicate test measures samples that lie ON the curve
+# against a KEEPER'S POLYLINE, so the gap it sees is the keeper's sagitta
+# (measured 9.602e-4 observed vs 9.620e-4 true — they agree). The factor
+# covers `_polyline_sagitta_bound`'s underestimate, measured at 0.63-1.00
+# of the true value.
+_CONTAINMENT_SAGITTA_CREDIT = 4.0
+
+
 _NORM_IDENTITY_WINDOW = (2.0 ** -5, 2.0 ** 5)
 
 # Out-of-window models are centered and scaled INTO the native-proven band
@@ -2925,6 +2945,65 @@ def _mid_chord_deviates(S1, S2, stuv_a, stuv_b, xyz_a, xyz_b, atol, sag_tol,
         return False
     tt = float(np.clip(np.dot(xm - a3, ab) / denom, 0.0, 1.0))
     return float(np.linalg.norm(a3 + tt * ab - xm)) > sag_tol
+
+
+def _mid_chord_sagitta(S1, S2, stuv_a, stuv_b, xyz_a, xyz_b, atol, rational):
+    """Measured chord sagitta, or None when the midpoint correction is
+    unreliable.
+
+    Same quantity `_mid_chord_deviates` compares against `sag_tol`, returned
+    as a number. A polyline vertex lies ON the curve; its chords do not, and
+    the marcher is explicitly ALLOWED to leave them a sagitta of up to
+    `sag_tol = 2*atol`. Any downstream predicate that measures a chord
+    against the curve is therefore measuring discretization, and must size
+    its envelope by this value rather than assume the chord is exact.
+    """
+    mid = 0.5 * (np.asarray(stuv_a, dtype=np.float64)
+                 + np.asarray(stuv_b, dtype=np.float64))
+    ms, mt, mu, mv, mres, msin = _ssx_correct(S1, S2, *mid, rational=rational)
+    # Accept-if (ledger L45): an unreliable correction measures nothing, so
+    # it earns no discretization credit — the conservative direction.
+    if not (np.isfinite(mres) and mres <= atol * max(msin, 1e-3)):
+        return None
+    xm = eval_surface(S1, ms, mt, rational=rational)
+    a3 = np.asarray(xyz_a, dtype=np.float64)
+    b3 = np.asarray(xyz_b, dtype=np.float64)
+    ab = b3 - a3
+    denom = float(np.dot(ab, ab))
+    if denom < 1e-30:
+        return None
+    tt = float(np.clip(np.dot(xm - a3, ab) / denom, 0.0, 1.0))
+    return float(np.linalg.norm(a3 + tt * ab - xm))
+
+
+def _polyline_sagitta_bound(xyz) -> float:
+    """Sagitta a polyline carries, estimated from its OWN turn angles.
+
+    kappa*h^2/8 with kappa*h ~ the turn angle at the vertex — the same
+    `chord * angle3 / 8` the step controller uses to size h, so the estimate
+    and the producer's own budget are the same quantity. Purely geometric:
+    no surface evaluations, so it is usable where the surfaces are not in
+    scope (`_drop_duplicate_fragments`).
+
+    Measured against corrected-midpoint sagittas on the toroidal SSI
+    fixture, this recovers 0.63-1.00 of the true value; consumers carry a
+    factor for that underestimate.
+    """
+    xyz = np.asarray(xyz, dtype=np.float64)
+    if len(xyz) < 3:
+        return 0.0
+    d = np.diff(xyz, axis=0)
+    ln = np.linalg.norm(d, axis=1)
+    safe = np.where(ln < 1e-30, 1.0, ln)
+    u = d / safe[:, None]
+    cs = np.clip(np.einsum('ij,ij->i', u[:-1], u[1:]), -1.0, 1.0)
+    th = np.arccos(cs)          # th[i] is the turn at vertex i+1
+    best = 0.0
+    for i in range(len(ln)):
+        left = float(th[i - 1]) if i >= 1 else 0.0
+        right = float(th[i]) if i < len(th) else 0.0
+        best = max(best, float(ln[i]) * max(left, right) / 8.0)
+    return best
 
 
 def _march_to_boundary(
@@ -5175,12 +5254,39 @@ def _drop_duplicate_fragments(fragments: list[_Fragment], atol: float,
     Duplicates arise when a partner seed re-traces a segment that was
     already traced — including against truncated/open fragments, so the
     test is purely geometric (no endpoint-pair precondition): a fragment
-    whose EVERY sample lies within 2·atol of a longer kept fragment's
-    polyline duplicates it. Fragments are Newton-corrected onto the same
-    curve, so true re-traces sit within ~atol of each other, while a
-    genuinely distinct second arc of a thin loop deviates by more than the
-    tolerance somewhere along its length and is kept. Sorting by arc
-    length keeps the most complete trace of each segment.
+    whose EVERY sample lies within the keeper's envelope duplicates it.
+    Fragments are Newton-corrected onto the same curve, so true re-traces
+    sit within ~atol of each other, while a genuinely distinct second arc
+    of a thin loop deviates by more than the tolerance somewhere along its
+    length and is kept. Sorting by arc length keeps the most complete
+    trace of each segment.
+
+    The envelope carries the KEEPER'S OWN DISCRETIZATION. A duplicate's
+    samples lie on the curve; the keeper's polyline does not, so the
+    distance between them is the keeper's sagitta, and a bare 2·atol bar
+    silently assumes the keeper is exact. It is not, and the offender is
+    not a marched step at all: the displaced-seed recovery in
+    `_trace_cell_by_registrations` PREPENDS the registered crossing to a
+    march started `alpha` in {0.02, 0.05, 0.1} of the parameter box away
+    along the tangent. That spliced first chord never passes the step
+    controller or `_mid_chord_deviates`, and `alpha` is a bare parameter
+    fraction — so its length and sagitta are INDEPENDENT of atol while
+    `sag_tol = 2*atol` shrinks. Measured on a toroidal SSI pair, the same
+    chord is 0.15099 long with sagitta 9.620e-4 at every tolerance:
+
+        atol      1e-3    5e-4    1e-4     1e-5
+        sagitta   0.48x   0.96x   4.81x   48.10x   of sag_tol
+
+    At atol=1e-4 that keeper's true duplicates measured 9.602e-4 /
+    8.884e-4 against a 2.0e-4 bar. Both survived, the shared junction
+    became a degree-3 node, and the chain walker left the main path and
+    returned along the duplicate reversed — an out-and-back branch whose
+    extra length was exactly the duplicated arc.
+
+    A plain constant cannot fix this: the quantity is discretization
+    error, which is not proportional to atol the way a tolerance is.
+    Widening the bar to a flat 16·atol repaired atol=1e-4 but broke
+    atol=1e-2 (a genuine closed loop became open with a 4.7e-2 gap).
     """
     def _arc_len(fr: _Fragment) -> float:
         xyz = np.asarray(fr.xyz_path, dtype=np.float64)
@@ -5195,12 +5301,18 @@ def _drop_duplicate_fragments(fragments: list[_Fragment], atol: float,
         return list(fragments)
 
     keep: list[_Fragment] = []
+    sag_of: dict[int, float] = {}
     ordered = sorted(fragments, key=_arc_len, reverse=True)
     for pos, f in enumerate(ordered):
         duplicate = False
         for g in keep:
+            g_sag = sag_of.get(id(g))
+            if g_sag is None:
+                g_sag = _polyline_sagitta_bound(g.xyz_path)
+                sag_of[id(g)] = g_sag
             contained = _fragment_contained_in(
-                f, g, 2.0 * atol, work_budget=work_budget)
+                f, g, 2.0 * atol + _CONTAINMENT_SAGITTA_CREDIT * g_sag,
+                work_budget=work_budget)
             if contained is True:
                 duplicate = True
                 break
@@ -5681,17 +5793,40 @@ def _assemble_fragments(
     # interior progress): every SAMPLE is Ψ-valid at tolerance, but the
     # chord is not ON the intersection set. Per _ssx_correct's own contract
     # the true-curve distance at a point is ≈ residual / sin_ang; drop a
-    # branch only when EVERY chord midpoint fails at 2·atol — genuine
-    # branches have good chords (ring chords measure ~1e-4·atol here),
-    # bridges are all-fiction (single chord at 4–12·atol). Cheap: real
-    # branches exit at their first good chord.
+    # branch only when EVERY chord midpoint fails. Cheap: real branches
+    # exit at their first good chord.
+    #
+    # The bar is an ENVELOPE, not a constant. `res / sin_ang` is evaluated
+    # at the chord's PARAMETRIC midpoint, which by construction is not on
+    # the curve — it is off it by the chord's sagitta, which the marcher is
+    # allowed to grow to `sag_tol = 2*atol`. Judging it against a bare
+    # 2*atol therefore prices the verifier at exactly the producer's own
+    # allowance while measuring a quantity 1.9-4x larger, leaving NEGATIVE
+    # margin: measured on a toroidal SSI pair whose chords all cross at
+    # sin_ang = 0.9996 (~87 deg, maximally transversal — no valley at all)
+    # and whose sagittas were 0.42-0.76 of the allowance, all five chords
+    # scored 2.0-6.0e-3 against a 2.0e-3 bar and the arc was deleted. The
+    # loss was non-monotonic in atol (survives 2e-3, dies at 1e-3, survives
+    # 5e-4) and flipped under swapping the two surfaces, because which side
+    # of the knife edge a chord lands on is decided by the step sizes the
+    # adaptive marcher happens to pick.
+    #
+    # So credit each chord the discretization it actually carries. The
+    # credit is capped at the marcher's own `sag_tol` budget: a chord that
+    # exceeds its contract earns no more slack than one that honours it,
+    # and a valley bridge — whose corrected midpoint stays on the chord, so
+    # whose sagitta is ~0 — keeps the original bare 2*atol bar and is still
+    # rejected. `_VALLEY_SAGITTA_CREDIT` covers the measured 1.9-4x ratio
+    # between this estimator and the sagitta itself.
     if S1_full is not None and branches:
         _kept_v = []
         for b in branches:
             stuv_b = np.asarray(b.curve[0], dtype=np.float64)
+            xyz_b = np.asarray(b.curve[1], dtype=np.float64)
             if len(stuv_b) < 2:
                 _kept_v.append(b)
                 continue
+            sag_tol = 2.0 * atol_full
             all_bad = True
             for k in range(len(stuv_b) - 1):
                 if not _assembly_spend(work_budget):
@@ -5712,7 +5847,17 @@ def _assemble_fragments(
                 n2 = float(np.linalg.norm(N2))
                 sin_ang = (float(np.linalg.norm(np.cross(N1, N2))) / (n1 * n2)
                            if n1 > 1e-30 and n2 > 1e-30 else 1.0)
-                if res / max(sin_ang, 1e-3) <= 2.0 * atol_full:
+                metric = res / max(sin_ang, 1e-3)
+                if metric <= sag_tol:
+                    all_bad = False
+                    break
+                sag = _mid_chord_sagitta(
+                    S1_full, S2_full, stuv_b[k], stuv_b[k + 1],
+                    xyz_b[k], xyz_b[k + 1], atol_full, rational_full)
+                if sag is None:
+                    continue
+                if metric <= sag_tol + _VALLEY_SAGITTA_CREDIT * min(
+                        sag, sag_tol):
                     all_bad = False
                     break
             if not all_bad:
