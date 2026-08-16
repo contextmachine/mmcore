@@ -2040,9 +2040,10 @@ def refine_curve(curve: NURBSCurveTuple, new_knots, density: int = 0, **kwargs):
 
     cptsw=to_homogeneous_1d( np.asarray(curve.control_points,dtype=float),np.asarray(curve.weights,dtype=float))
 
-    new_cptsw,new_knots=knot_refinement(curve.order-1, np.asarray(curve.knot,dtype=float).tolist(),cptsw.tolist(),density=density, add_knot_list=np.asarray(list(set(new_knots)-set(curve.knot)),dtype=float).tolist(),**kwargs)
+    old_knots = _get_knots(curve)
+    new_cptsw,new_knots=knot_refinement(curve.order-1, old_knots.tolist(),cptsw.tolist(),density=density, add_knot_list=np.asarray(list(set(np.asarray(new_knots,dtype=float).tolist())-set(old_knots.tolist())),dtype=float).tolist(),**kwargs)
     new_cpts,new_weights=from_homogeneous_1d(np.asarray(new_cptsw))
-    return curve._replace(knot=np.asarray(new_knots,dtype=float),control_points=new_cpts,weights=new_weights)
+    return _replace_curve(curve, knots=np.asarray(new_knots,dtype=float), control_points=new_cpts, weights=new_weights)
 
 
 def reverse_curve(curve: NURBSCurveTuple) -> NURBSCurveTuple:
@@ -2103,17 +2104,63 @@ def _get_order(curve):
 
 
 def _get_knots(curve):
-    return np.asarray(curve.knot, dtype=float)
+    """Knot vector of either curve representation.
+
+    The tuple ABI (:class:`NURBSCurveTuple`) spells the field ``knot``; the Cython
+    :class:`mmcore.geom.nurbs.NURBSCurve` spells the property ``knots``. Both reach
+    this module — ``mmcore/construction/_ruled.py`` converts tuples *to* the Cython
+    type before calling in — so reading one name unconditionally raises
+    ``AttributeError`` for the other. Ask the object which name it has.
+    """
+    knots = curve.knot if hasattr(curve, "knot") else curve.knots
+    return np.asarray(knots, dtype=float)
+
+
+def _replace_curve(curve, *, knots=None, control_points=None, weights=None):
+    """Return a curve of the SAME representation with the given fields replaced.
+
+    ``_replace`` exists only on the named tuple. The Cython curve is rebuilt through its
+    constructor rather than mutated, because its ``control_points`` setter refuses a
+    change in point count ("You cannot change the number of control points") — and knot
+    refinement adds control points by definition, so in-place assignment can never be the
+    right route here. Building a new curve also leaves the caller's original untouched,
+    which matters: ``mmcore/construction/_ruled.py`` still holds it.
+
+    Returning the input representation unchanged is likewise load-bearing — ``_ruled.py``
+    reads the Cython-only ``._control_points`` off the result.
+    """
+    if hasattr(curve, "_replace"):
+        fields = {}
+        if knots is not None:
+            fields["knot"] = np.asarray(knots, dtype=float)
+        if control_points is not None:
+            fields["control_points"] = control_points
+        if weights is not None:
+            fields["weights"] = weights
+        return curve._replace(**fields)
+
+    if control_points is None and weights is None:
+        # Knot-only edit: the point count is unchanged, so the setter is safe and
+        # preserves periodicity and cached state via knots_update_hook().
+        out = curve.copy()
+        if knots is not None:
+            out.knots = np.ascontiguousarray(knots, dtype=float)
+        return out
+
+    cpts = np.asarray(curve.control_points, dtype=float) if control_points is None else np.asarray(control_points, dtype=float)
+    w = np.asarray(curve.weights, dtype=float) if weights is None else np.asarray(weights, dtype=float)
+    k = _get_knots(curve) if knots is None else np.asarray(knots, dtype=float)
+
+    return type(curve)(
+        np.ascontiguousarray(to_homogeneous_1d(cpts, w), dtype=float),
+        int(curve.degree),
+        knots=np.ascontiguousarray(k, dtype=float),
+    )
 
 
 def _set_knots(curve, new_knot):
     """Return a curve with updated knot vector while preserving everything else."""
-    new_knot = np.asarray(new_knot, dtype=float)
-    if hasattr(curve, "_replace"):
-        return curve._replace(knot=new_knot)
-    # fallback: assume mutable
-    curve.knot = new_knot
-    return curve
+    return _replace_curve(curve, knots=new_knot)
 
 
 def _interior(knots, order):

@@ -35,15 +35,34 @@ compile_args = ["-O3","-DNPY_NO_DEPRECATED_API=NPY_2_0_API_VERSION"]
 cpp_compile_args = ["-std=c++17"]
 link_args = []
 include_dirs = [numpy.get_include(),os.getcwd()]
+
+# Profiling / line tracing are DEBUG-ONLY. They used to be unconditional, which put
+# CPython function-call profiling overhead on the hottest numerical paths of every
+# ordinary build with no way to switch it off (build.py never read os.environ, and
+# there was no setup argument). Opt in explicitly:
+#
+#     MMCORE_DEBUG_TRACE=1 python build.py
+#
+# Anything other than unset/empty/"0"/"false"/"no" enables it.
+MMCORE_DEBUG_TRACE = os.environ.get("MMCORE_DEBUG_TRACE", "").strip().lower() not in (
+    "",
+    "0",
+    "false",
+    "no",
+)
+
 define_macros = [
     ("VOID", "void"),
     ("REAL", "double"),
     ("NO_TIMER", 1),
     ("TRILIBRARY", 1),
     ("ANSI_DECLARATORS", 1),
-    ("CYTHON_TRACE",1),
-    ("CYTHON_TRACE_NOGIL",1),
 ]
+if MMCORE_DEBUG_TRACE:
+    define_macros += [
+        ("CYTHON_TRACE", 1),
+        ("CYTHON_TRACE_NOGIL", 1),
+    ]
 if sys.platform == "darwin" :
     compile_args += ["-mcpu=native",'-flto']#+["-march=armv8-a+simd"]
 
@@ -70,13 +89,6 @@ cython_extensions = [
     Extension(
         "mmcore.numeric._cap_witness",
         ["mmcore/numeric/_cap_witness.pyx"],
-        extra_compile_args=compile_args,
-        extra_link_args=link_args,
-        include_dirs=include_dirs,
-    ),
-    Extension(
-        "mmcore.numeric.cbern",
-        ["mmcore/numeric/cbern.pyx"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
         include_dirs=include_dirs,
@@ -306,9 +318,8 @@ compiler_directives = dict(
     language_level="3str",
     freethreading_compatible=True,
     #subinterpreters_compatible=True,
-    profile=True,
-    linetrace =True
-
+    profile=MMCORE_DEBUG_TRACE,
+    linetrace=MMCORE_DEBUG_TRACE,
 )
 compiler_directives["embedsignature.format"] = 'python'
 

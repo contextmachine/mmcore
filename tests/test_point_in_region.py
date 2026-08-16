@@ -110,6 +110,11 @@ def test_point_on_square_edge_raises():
         point_in_region(np.array([0.0, 0.5, 0.0]), region, tol=1e-6)
 
 
+# Measured at 1745s — 65% of the entire suite's wall clock, and it passes while
+# warning that "containment may be unreliable". Deselecting it (-m "not slow") takes
+# the suite from ~45 min to ~16 min. It is skipped by default in no configuration:
+# run the full suite, or `-m slow` to run only this, to keep exercising it.
+@pytest.mark.slow
 def test_point_whose_segment_is_tangent_to_circle_is_outside():
     """Construct P so the default segment direction is exactly tangent to the unit circle.
 

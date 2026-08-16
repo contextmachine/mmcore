@@ -6,16 +6,32 @@ import numpy as np
 import pytest
 
 from mmcore.geom._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve,to_homogeneous_1d
-from mmcore.geom._nurbs_compose import (
-    compose_nurbs_curves,
-    compose_bernstein_polynomials,
-    find_composition_breakpoints,
-    extract_bezier_from_bspline,
-    BezierSegment,
-    compose_bezier_segments,
-    find_polynomial_roots_in_interval
+
+# QUARANTINED — see docs/RESTRUCTURE.md Q11.
+#
+# This suite targets ``mmcore/geom/_nurbs_compose.py``, which is absent from disk.
+# The owner's answer to Q11 says the functionality "moved to mmcore/numeric/sbern.py",
+# but that re-point is NOT possible as written, and this was measured rather than assumed:
+#
+#   * All 7 imported symbols (compose_nurbs_curves, compose_bernstein_polynomials,
+#     find_composition_breakpoints, extract_bezier_from_bspline, BezierSegment,
+#     compose_bezier_segments, find_polynomial_roots_in_interval) have ZERO occurrences
+#     anywhere in the repository, sbern.py included.
+#   * sbern.py exposes a different-shaped composition API (compose_curve_curve takes raw
+#     control-point arrays; this suite expects NURBSCurveTuple in / BezierSegment out).
+#   * The three sbern names this file used to import were never referenced in the body.
+#   * `git log --diff-filter=D` finds no deletion commit: _nurbs_compose.py was never
+#     tracked, so its content is not recoverable from history.
+#
+# All 15 tests below exercise the missing module, so none can run. The file is kept
+# (not deleted) because it is the only surviving specification of the exact-composition
+# contract. Deciding whether to re-implement that API in sbern.py or drop the suite is
+# an owner decision; until then the module is skipped so the suite stays collectable.
+pytest.skip(
+    "quarantined: mmcore.geom._nurbs_compose is absent and has no equivalent in "
+    "mmcore.numeric.sbern (see docs/RESTRUCTURE.md Q11)",
+    allow_module_level=True,
 )
-from mmcore.numeric.sbern import compose_curve_curve, bern_to_nurbs_bezier, nurbs_bezier_to_bern
 
 
 

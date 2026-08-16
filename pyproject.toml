@@ -113,3 +113,13 @@ exclude = '''
 [tool.cython-lint]
 max-line-length = 140
 ignore = ['E503', 'E504']
+
+
+[tool.pytest.ini_options]
+# Registered so `@pytest.mark.slow` does not raise PytestUnknownMarkWarning.
+# Nothing is deselected by default: the full suite still runs everything.
+#   pytest tests -m "not slow"   ~16 min  (skips the 1745s tangent case)
+#   pytest tests                 ~45 min  (everything)
+markers = [
+    "slow: takes minutes rather than seconds; deselect with -m 'not slow'",
+]
