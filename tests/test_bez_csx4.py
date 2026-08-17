@@ -303,7 +303,7 @@ def test_collapsed_curve_detection_is_translation_invariant():
 
 
 def test_rational_param_tolerance_is_translation_invariant_for_constant_geometry():
-    from mmcore.geom._nurbs_param_tol import (
+    from mmcore.nurbs._nurbs_param_tol import (
         bez_curve_param_tolerance, bez_surface_param_tolerance,
     )
 

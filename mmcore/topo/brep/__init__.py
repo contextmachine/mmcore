@@ -1687,8 +1687,8 @@ class BRep:
 
         Returns a list of newly created (Face, Shell) pairs.
         """
-        from mmcore.geom._nurbs_eval import NURBSSurfaceTuple, NURBSCurveTuple
-        from mmcore.geom._nurbs_knots import reverse_curve, trim_curve
+        from mmcore.nurbs._nurbs_eval import NURBSSurfaceTuple, NURBSCurveTuple
+        from mmcore.nurbs._nurbs_knots import reverse_curve, trim_curve
 
         results = []
 
@@ -1733,7 +1733,7 @@ class BRep:
                 if edge.geom is None:
                     continue
                 crv = self.G_CRV[edge.geom]
-                from mmcore.geom._nurbs_eval import evaluate_nurbs_curve
+                from mmcore.nurbs._nurbs_eval import evaluate_nurbs_curve
                 t0, t1 = edge.param
                 n_sample = 16
                 pts = np.array([
@@ -1768,7 +1768,7 @@ class BRep:
             twin_first = self.HE[he_first.twin]
             body_face = self.F[twin_first.face]
             if body_face.surf is not None:
-                from mmcore.geom._nurbs_eval import evaluate_nurbs_surface
+                from mmcore.nurbs._nurbs_eval import evaluate_nurbs_surface
                 srf = self.G_SRF[body_face.surf]
                 (u_min, u_max), (v_min, v_max) = srf.interval()
                 mid_eval = evaluate_nurbs_surface(srf, (u_min + u_max) / 2, (v_min + v_max) / 2, d_order=0)
@@ -1928,12 +1928,12 @@ class BRep:
             vertices: list of Vertex objects (one per boundary curve start)
             edges: list of Edge objects (one per boundary curve)
         """
-        from mmcore.geom.nurbs_iso import extract_isocurve
+        from mmcore.nurbs.nurbs_iso import extract_isocurve
         from mmcore.numeric.closest_point import nurbs_curve_closest_point
 
         # --- default: extract the 4 natural boundary isocurves ---
         if boundary_curves is None:
-            from mmcore.geom._nurbs_knots import reverse_curve
+            from mmcore.nurbs._nurbs_knots import reverse_curve
             (u_min, u_max), (v_min, v_max) = surface.interval()
             # Natural isocurve directions:
             #   bottom (v=v_min): u_min → u_max
@@ -2093,13 +2093,13 @@ class BRep:
 
         Returns the pcurve ID (in G_PCRV), or None if preconditions aren't met.
         """
-        from mmcore.geom._nurbs_eval import (
+        from mmcore.nurbs._nurbs_eval import (
             evaluate_nurbs_curve,
             evaluate_nurbs_surface,
             NURBSCurveTuple,
         )
         from mmcore.numeric.closest_point import nurbs_surface_closest_point
-        from mmcore.geom._nurbs_interp import interpolate_curve
+        from mmcore.nurbs._nurbs_interp import interpolate_curve
 
         he = self.HE[he_id]
         edge = self.E[he.edge]
@@ -2169,7 +2169,7 @@ class BRep:
         he.pcurve = pcurve_id
         return pcurve_id
 
-from mmcore.geom._nurbs_eval import evaluate_nurbs_curve, evaluate_nurbs_surface
+from mmcore.nurbs._nurbs_eval import evaluate_nurbs_curve, evaluate_nurbs_surface
 
 def _march_curve_on_surface(crv_3d, srf, t_start, t_end, uv_start, uv_end, tol):
     """March along a 3D curve, tracking its image in surface UV space.
@@ -2283,7 +2283,7 @@ def _newton_uv_correction(srf, uv_init, target_3d, max_iter=5, tol=1e-6):
 
     Starts from uv_init (a good prediction) and refines.
     """
-    from mmcore.geom._nurbs_eval import evaluate_nurbs_surface
+    from mmcore.nurbs._nurbs_eval import evaluate_nurbs_surface
 
     uv = uv_init.copy()
     for _ in range(max_iter):

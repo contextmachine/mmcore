@@ -902,7 +902,7 @@ def _tangency_witness(cell, atol, *, enumerate_all=True):
     from mmcore.numeric.intersection.ssx._ssx5_singular import (
         BoxNet, psi_vector_net, solve_zero_dim,
     )
-    from mmcore.geom._nurbs_param_tol import bez_surface_param_tolerance
+    from mmcore.nurbs._nurbs_param_tol import bez_surface_param_tolerance
     try:
         gn, _ = _delta_float_gn(
             cell.T1, cell.T2, cell.T3, cell.T4,
@@ -3630,7 +3630,7 @@ def _march_phi_curve(
 
 def _cell_ptol4(cell, atol):
     """Per-axis parametric tolerance of the cell's LOCAL sub-surfaces (4,)."""
-    from mmcore.geom._nurbs_param_tol import bez_surface_param_tolerance
+    from mmcore.nurbs._nurbs_param_tol import bez_surface_param_tolerance
     ps, pt = bez_surface_param_tolerance(cell.g1.surface, atol, rational=True)
     pu, pv = bez_surface_param_tolerance(cell.g2.surface, atol, rational=True)
     return np.maximum(np.array([float(ps), float(pt), float(pu), float(pv)]), 1e-9)
@@ -4350,7 +4350,7 @@ def _deflate_tangent_cell(S1, S2, T1, T2, T3, T4, box, crossings, atol,
     if cell is not None:
         end_tol = 4.0 * _cell_ptol4(cell, atol)
     else:
-        from mmcore.geom._nurbs_param_tol import bez_surface_param_tolerance
+        from mmcore.nurbs._nurbs_param_tol import bez_surface_param_tolerance
         ps, pt = bez_surface_param_tolerance(S1, atol, rational=rational)
         pu, pv = bez_surface_param_tolerance(S2, atol, rational=rational)
         end_tol = 4.0 * np.maximum(
@@ -4758,7 +4758,7 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
     deleted real curve segments whenever the partner crossing was missing
     or less accurate than 1e-6 — CSX only guarantees ~ptol accuracy.
     """
-    from mmcore.geom._nurbs_param_tol import bez_surface_param_tolerance
+    from mmcore.nurbs._nurbs_param_tol import bez_surface_param_tolerance
 
     fragments: list[_Fragment] = []
     points: list = []
@@ -6692,7 +6692,7 @@ def bez_ssx(
     # crossings/exit points whose stuv agree within this radius are the
     # same physical point. CSX roots and marcher exits are each accurate
     # to ~ptol, so 4x covers both ends.
-    from mmcore.geom._nurbs_param_tol import bez_surface_param_tolerance
+    from mmcore.nurbs._nurbs_param_tol import bez_surface_param_tolerance
     _gp_s, _gp_t = bez_surface_param_tolerance(S1_h_top, atol, rational=True)
     _gp_u, _gp_v = bez_surface_param_tolerance(S2_h_top, atol, rational=True)
     unify_tol = 4.0 * np.maximum(

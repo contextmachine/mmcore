@@ -1,7 +1,7 @@
 from mmcore.numeric.intersection.ccx._bez_overlap import _bez_curve_overlap
 
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 
 crv1 = NURBSCurveTuple(
     order=4,
@@ -17,7 +17,7 @@ crv1 = NURBSCurveTuple(
     weights=np.array([1.0, 1.0, 1.0, 1.0]),
 )
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 
 crv2 = NURBSCurveTuple(
     order=4,

@@ -1569,7 +1569,7 @@ def test_short_cusp_curve_typed_as_curve_not_isolated():
     # The connectivity probe (midpoint Newton between consecutive
     # solutions along the cloud's principal axis) types it 'cusp_curve'.
     from mmcore.numeric.intersection.ssx._ssx5_singular import c1_pass
-    from mmcore.geom._nurbs_param_tol import bez_surface_param_tolerance
+    from mmcore.nurbs._nurbs_param_tol import bez_surface_param_tolerance
     x3 = [1.0, -1.0 / 3.0, -1.0 / 3.0, 1.0]
     y3 = [-1.0, 1.0, -1.0, 1.0]
     S1 = np.array([[[x3[i], y3[i], float(j)] for j in range(2)] for i in range(4)])
@@ -1594,7 +1594,7 @@ def test_two_isolated_cusps_stay_isolated():
     # (their midpoint Newton falls back onto an endpoint or diverges).
     from math import comb
     from mmcore.numeric.intersection.ssx._ssx5_singular import c1_pass
-    from mmcore.geom._nurbs_param_tol import bez_surface_param_tolerance
+    from mmcore.nurbs._nurbs_param_tol import bez_surface_param_tolerance
 
     def mono_to_bern(a, n):
         return np.array([sum(a[j] * comb(i, j) / comb(n, j)

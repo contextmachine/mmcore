@@ -1,6 +1,6 @@
 import numpy as np
 
-from mmcore.geom.curves import NURBSpline
+from mmcore.nurbs.curves import NURBSpline
 from mmcore.implicit import Implicit2D
 from examples.primitives.rectangle import Rectangle
 

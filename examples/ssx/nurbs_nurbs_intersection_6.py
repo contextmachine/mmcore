@@ -5,7 +5,7 @@
 """
 import time
 import numpy as np
-from mmcore.geom._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple
+from mmcore.nurbs._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple
 from mmcore.construction import cylinder_surface_2pt
 
 # Creating intersection objects

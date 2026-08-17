@@ -5,9 +5,9 @@ from pathlib import Path
 import numpy as np
 
 from mmcore.construction import nurbs_curve
-from mmcore.geom._nurbs_eval import _nurbs_to_tuple
-from mmcore.geom._nurbs_knots import normalize_knots_surface_inplace
-from mmcore.geom.nurbs import NURBSSurface
+from mmcore.nurbs._nurbs_eval import _nurbs_to_tuple
+from mmcore.nurbs._nurbs_knots import normalize_knots_surface_inplace
+from mmcore.nurbs._core import NURBSSurface
 from mmcore.numeric.intersection.ssx import nurbs_ssx
 pts1 = np.array(
     [

@@ -6,7 +6,7 @@ from numpy.typing import NDArray
 
 from mmcore.numeric._aabb import aabb_intersect_fast_3d
 from mmcore.numeric.aabb import aabb,aabb_intersect,ray_aabb_intersect,segment_aabb_intersect,segment_aabb_clip,aabb_segm3d
-from mmcore.geom.nurbs import NURBSCurve,split_curve
+from mmcore.nurbs._core import NURBSCurve,split_curve
 from mmcore.numeric.vectors import scalar_unit,scalar_norm,scalar_dot
 from mmcore.numeric.algorithms.moller import intersect_triangles_segment_one
 

@@ -10,9 +10,9 @@ import json
 import numpy as np
 from pathlib import Path
 
-from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
-from mmcore.geom._nurbs_knots import trim_curve
-from mmcore.geom.nurbs_iso import extract_isocurve
+from mmcore.nurbs._nurbs_eval import NURBSSurfaceTuple
+from mmcore.nurbs._nurbs_knots import trim_curve
+from mmcore.nurbs.nurbs_iso import extract_isocurve
 from mmcore.numeric.closest_point import nurbs_curve_closest_point
 from mmcore.topo.brep import BRep
 

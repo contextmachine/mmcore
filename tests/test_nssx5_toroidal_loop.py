@@ -30,7 +30,7 @@ CLOSURE, ARC LENGTH, and the absence of a self-retrace.
 import numpy as np
 import pytest
 
-from mmcore.geom._nurbs_eval import NURBSSurfaceTuple, evaluate_nurbs_surface
+from mmcore.nurbs._nurbs_eval import NURBSSurfaceTuple, evaluate_nurbs_surface
 from mmcore.numeric.intersection.ssx import nurbs_ssx
 
 # Converged reference (atol=1e-5, both orderings agree to 1e-8).

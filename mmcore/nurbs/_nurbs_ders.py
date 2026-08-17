@@ -3,7 +3,7 @@ from typing import Tuple
 
 import scipy.linalg
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple,NURBSSurfaceTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple,NURBSSurfaceTuple
 
 
 # ---------- Utilities: knots, spans, basis, derivatives ----------
@@ -27,7 +27,7 @@ def _find_span(n: int, p: int, u: float, U: np.ndarray) -> int:
         else:
             return mid
 
-from mmcore.geom.nurbs import basis_functions
+from mmcore.nurbs._core import basis_functions
 def _basis_funs(i: int, u: float, p: int, U: np.ndarray) -> np.ndarray:
     """
     Algorithm A2.2 from The NURBS Book: nonzero basis functions N_{i-p..i,p}(u).

@@ -7,10 +7,10 @@ import pickle
 
 import numpy as np
 from mmcore.construction._cylinder import cylinder_surface
-from mmcore.geom._nurbs_construct import circle
-from mmcore.geom._nurbs_eval import NURBSSurfaceTuple, NURBSCurveTuple, evaluate_nurbs_curve
-from mmcore.geom.nurbs_iso import extract_isocurve
-from mmcore.geom._nurbs_knots import reverse_curve
+from mmcore.nurbs._nurbs_construct import circle
+from mmcore.nurbs._nurbs_eval import NURBSSurfaceTuple, NURBSCurveTuple, evaluate_nurbs_curve
+from mmcore.nurbs.nurbs_iso import extract_isocurve
+from mmcore.nurbs._nurbs_knots import reverse_curve
 from mmcore.numeric.closest_point import nurbs_curve_closest_point
 from mmcore.topo.brep import BRep
 

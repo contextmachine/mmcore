@@ -6,7 +6,7 @@ from copy import deepcopy
 
 import numpy as np
 
-from mmcore.geom._nurbs_eval import (
+from mmcore.nurbs._nurbs_eval import (
     nurbs_interval,
     _find_span_linear,
     _copy_curve,
@@ -2107,7 +2107,7 @@ def _get_knots(curve):
     """Knot vector of either curve representation.
 
     The tuple ABI (:class:`NURBSCurveTuple`) spells the field ``knot``; the Cython
-    :class:`mmcore.geom.nurbs.NURBSCurve` spells the property ``knots``. Both reach
+    :class:`mmcore.nurbs._core.NURBSCurve` spells the property ``knots``. Both reach
     this module — ``mmcore/construction/_ruled.py`` converts tuples *to* the Cython
     type before calling in — so reading one name unconditionally raises
     ``AttributeError`` for the other. Ask the object which name it has.

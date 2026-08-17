@@ -1,5 +1,5 @@
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
+from mmcore.nurbs._nurbs_eval import NURBSSurfaceTuple
 
 
 val = NURBSSurfaceTuple(

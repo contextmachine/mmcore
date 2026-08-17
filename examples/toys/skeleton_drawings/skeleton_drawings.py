@@ -39,7 +39,7 @@ def next_name(name, i=0):
     return pth.__str__()
 
 
-from mmcore.geom.nurbs import NURBSCurve, greville_abscissae
+from mmcore.nurbs._core import NURBSCurve, greville_abscissae
 from mmcore.numeric import evaluate_curvature
 from mmcore.numeric.vectors import norm  # High performance vectorized norm
 

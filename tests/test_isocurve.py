@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
-from mmcore.geom.nurbs_iso import extract_isocurve
-from mmcore.geom.nurbs import NURBSSurface, NURBSCurve
+from mmcore.nurbs.nurbs_iso import extract_isocurve
+from mmcore.nurbs._core import NURBSSurface, NURBSCurve
 
 @pytest.fixture
 def sample_surface():

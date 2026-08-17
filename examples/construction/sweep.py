@@ -4,7 +4,7 @@ from mmcore.construction import sweep1
 
 
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple,_tuple_to_nurbs
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple,_tuple_to_nurbs
 
 
 rail=NURBSCurveTuple(

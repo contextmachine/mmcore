@@ -2,8 +2,8 @@ import math
 
 import numpy as np
 
-from mmcore.geom._nurbs_construct import circle,ruled
-from mmcore.geom._nurbs_eval import to_homogeneous_1d, from_homogeneous_2d, NURBSSurfaceTuple
+from mmcore.nurbs._nurbs_construct import circle,ruled
+from mmcore.nurbs._nurbs_eval import to_homogeneous_1d, from_homogeneous_2d, NURBSSurfaceTuple
 
 
 def cylinder_surface(radius=1.0, height=1.0,start_angle=0.0, end_angle=2 * math.pi, origin=None, normal=None, xaxis=None, yaxis=None ):

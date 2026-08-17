@@ -341,7 +341,7 @@ def newton_surface_closest_point(S, point, u0, v0, *, rational=False,
 # Shared cell helpers
 # ---------------------------------------------------------------------------
 from mmcore.numeric.bern import de_casteljau_split_nd
-from mmcore.geom._nurbs_param_tol import bez_curve_param_tolerance, bez_surface_param_tolerance
+from mmcore.nurbs._nurbs_param_tol import bez_curve_param_tolerance, bez_surface_param_tolerance
 
 
 def _split_net(net, axis, t=0.5):
@@ -1104,12 +1104,12 @@ def _try_add_boundary(S, point, out, u, v, rational, atol, ptol_u, ptol_v):
 # ---------------------------------------------------------------------------
 # NURBS-level wrappers
 # ---------------------------------------------------------------------------
-from mmcore.geom.nurbs import NURBSCurve, NURBSSurface
-from mmcore.geom._nurbs_eval import (
+from mmcore.nurbs._core import NURBSCurve, NURBSSurface
+from mmcore.nurbs._nurbs_eval import (
     _nurbs_to_tuple, _curve_interval, _surface_interval,
     to_homogeneous_1d, to_homogeneous_2d,
 )
-from mmcore.geom._nurbs_knots import decompose_curve, decompose_surface
+from mmcore.nurbs._nurbs_knots import decompose_curve, decompose_surface
 
 
 def _patch_curve_net(patch):

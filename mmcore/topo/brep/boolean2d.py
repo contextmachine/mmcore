@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
-from mmcore.geom._nurbs_knots import reverse_curve, split_curve_multiple, trim_curve
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
+from mmcore.nurbs._nurbs_knots import reverse_curve, split_curve_multiple, trim_curve
 from mmcore.numeric.intersection.ccx._nccx4 import nurbs_ccx_multiple
 from mmcore.topo.brep import BRep
 
@@ -415,7 +415,7 @@ def _collect_curves_with_sources(
     return curves, sources
 
 
-from mmcore.geom._nurbs_param_tol import nurbs_curve_param_tolerance
+from mmcore.nurbs._nurbs_param_tol import nurbs_curve_param_tolerance
 
 
 def _split_curves_at_intersections(

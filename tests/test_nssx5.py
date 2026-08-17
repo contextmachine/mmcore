@@ -8,7 +8,7 @@ import pickle
 import numpy as np
 import pytest
 
-from mmcore.geom._nurbs_eval import (
+from mmcore.nurbs._nurbs_eval import (
     NURBSSurfaceTuple,
     evaluate_nurbs_curve,
     evaluate_nurbs_surface,

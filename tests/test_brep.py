@@ -386,7 +386,7 @@ def test_validate_catches_bad_pcurve_ref():
 # ============================================================================
 """Tests for BRep geometry-aware methods using real NURBS curves."""
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 from mmcore.topo.brep import BRep
 
 

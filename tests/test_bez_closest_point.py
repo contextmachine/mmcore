@@ -475,7 +475,7 @@ def test_surface_closest_on_corner():
 from mmcore.numeric._bez_closest_point import (
     nurbs_curve_closest_points, nurbs_surface_closest_points,
 )
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple
 
 
 def _bezier_curve_tuple(ctrl_xyz, weights):
@@ -496,7 +496,7 @@ def test_nurbs_curve_closest_global_matches_dense():
     P = np.array([1.5, 1.0, 0.0])
     res = nurbs_curve_closest_points(crv, P, atol=1e-6)
     # Dense ground truth over the global domain [0,1]
-    from mmcore.geom._nurbs_eval import evaluate_nurbs_curve
+    from mmcore.nurbs._nurbs_eval import evaluate_nurbs_curve
     ts = np.linspace(0, 1, 4000)
     d = np.array([np.linalg.norm(evaluate_nurbs_curve(crv, t, d_order=0)["C"] - P) for t in ts])
     assert abs(res[0]["distance"] - d.min()) < 1e-4
@@ -1015,7 +1015,7 @@ def test_rhino_paraboloid_single_closed_ring():
 # ---------------------------------------------------------------------------
 
 def _flat_square_surface():
-    from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
+    from mmcore.nurbs._nurbs_eval import NURBSSurfaceTuple
     axis = np.array([0.0, 0.0, 1.0, 1.0])
     pts = np.zeros((2, 2, 3))
     pts[..., 0] = [[0.0, 0.0], [1.0, 1.0]]

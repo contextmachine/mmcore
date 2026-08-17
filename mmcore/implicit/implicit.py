@@ -4,14 +4,14 @@ import abc
 from typing import Union
 import numpy as np
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple,BSplineCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple,BSplineCurveTuple
 
 from mmcore.numeric.marching import marching_implicit_curve_points
 from mmcore.implicit.tree import ImplicitTree3D, ImplicitTree2D
 from mmcore.numeric.vectors import scalar_norm
 
 from mmcore.numeric.fdm import fdm
-from mmcore.geom._nurbs_interp  import interpolate_curve
+from mmcore.nurbs._nurbs_interp  import interpolate_curve
 
 
 def op_union(d1, d2):
@@ -200,7 +200,7 @@ class Implicit2D(Implicit):
     def intersection_with_curve(self, curve):
         """
 
-        :param curve: mmcore.geom.curves.Curve |
+        :param curve: mmcore.nurbs.curves.Curve |
 
         Returns:
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 IN_RHINO = False
 
-from mmcore.geom._nurbs_eval import _tuple_to_nurbs, _nurbs_to_tuple, NURBSCurveTuple, to_homogeneous_1d,NURBSSurfaceTuple,to_homogeneous_2d, \
+from mmcore.nurbs._nurbs_eval import _tuple_to_nurbs, _nurbs_to_tuple, NURBSCurveTuple, to_homogeneous_1d,NURBSSurfaceTuple,to_homogeneous_2d, \
     from_homogeneous_2d
 try:
     import Rhino.Geometry as rg

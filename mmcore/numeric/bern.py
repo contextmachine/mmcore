@@ -1440,7 +1440,7 @@ def sign_change_edges_nd(
     return src, dst
 
 
-from mmcore.geom._nurbs_knots import generate_knots
+from mmcore.nurbs._nurbs_knots import generate_knots
 
 @lru_cache(maxsize=None)
 def bern_greville_abscissae(control_points_count: int, interval=(0., 1.)) -> np.ndarray:

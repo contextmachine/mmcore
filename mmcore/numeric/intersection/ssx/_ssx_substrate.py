@@ -16,15 +16,15 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from inspect import currentframe
 
-from mmcore.geom._nurbs_construct import nurbs_curve
-from mmcore.geom._nurbs_eval import evaluate_nurbs_curve, evaluate_nurbs_surface, NURBSSurfaceTuple
-from mmcore.geom._nurbs_interp import interpolate_curve, interpolate_nurbs_curve
+from mmcore.nurbs._nurbs_construct import nurbs_curve
+from mmcore.nurbs._nurbs_eval import evaluate_nurbs_curve, evaluate_nurbs_surface, NURBSSurfaceTuple
+from mmcore.nurbs._nurbs_interp import interpolate_curve, interpolate_nurbs_curve
 
 import functools
 import pickle
 from dataclasses import dataclass, field
 
-from mmcore.geom._nurbs_eval import (
+from mmcore.nurbs._nurbs_eval import (
     NURBSCurveTuple,
     _nurbs_to_tuple,
     _surface_interval,
@@ -51,7 +51,7 @@ from mmcore.numeric.sbern import bern_to_nurbs_bezier
 import numpy as np
 from numpy.typing import NDArray
 
-from mmcore.geom._nurbs_knots import decompose_surface, link_curves, reverse_curve
+from mmcore.nurbs._nurbs_knots import decompose_surface, link_curves, reverse_curve
 from mmcore.numeric._aabb import aabb, aabb_intersect_fast_3d, aabb_intersection
 from mmcore.numeric.algorithms.cygjk import gjk
 from mmcore.numeric.vectors import unit

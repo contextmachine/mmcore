@@ -8,7 +8,7 @@ agreement is to machine precision.
 import numpy as np
 import pytest
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
 from mmcore.numeric.sbern import compose_nurbs_curve_curve, compose_curve_curve
 
 

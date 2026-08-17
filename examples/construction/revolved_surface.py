@@ -1,7 +1,7 @@
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 from mmcore.construction import revolved
-from mmcore.geom._nurbs_knots import decompose_surface
+from mmcore.nurbs._nurbs_knots import decompose_surface
 
 control_points = np.array(
     [

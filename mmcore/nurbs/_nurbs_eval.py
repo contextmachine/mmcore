@@ -10,7 +10,7 @@ from numpy.typing import NDArray
 
 
 
-from mmcore.geom import nurbs
+from mmcore.nurbs import _core as nurbs
 
 from mmcore.numeric.calgorithms import evaluate_curvature
 np.set_printoptions(suppress=True)

@@ -8,12 +8,12 @@ from __future__ import annotations
 import numpy as np
 from numpy import ndarray, dtype
 
-from mmcore.geom.nurbs import NURBSCurve
-from mmcore.geom._nurbs_eval import (
+from mmcore.nurbs._core import NURBSCurve
+from mmcore.nurbs._nurbs_eval import (
     NURBSCurveTuple, to_homogeneous_1d, _nurbs_to_tuple,
 )
-from mmcore.geom._nurbs_knots import decompose_curve
-from mmcore.geom._nurbs_param_tol import nurbs_curve_param_tolerance
+from mmcore.nurbs._nurbs_knots import decompose_curve
+from mmcore.nurbs._nurbs_param_tol import nurbs_curve_param_tolerance
 from mmcore.numeric.bvh.lbvh import build_bvh, AABB, bvh_intersect
 from mmcore.numeric.intersection.ccx._bez_ccx4 import bez_ccx as bez_ccx_v4
 from mmcore.numeric._bezier_common import eval_curve
@@ -187,7 +187,7 @@ def _dedup_isolated_pair(entries, curve1, curve2, tol):
 # ---------------------------------------------------------------------------
 # nurbs_ccx: two-curve intersection
 # ---------------------------------------------------------------------------
-from mmcore.geom._nurbs_eval import evaluate_nurbs_curve
+from mmcore.nurbs._nurbs_eval import evaluate_nurbs_curve
 def nurbs_ccx(
     curve1, curve2, tol: float = 1e-3, *, return_status: bool = True,
     **kwargs,
@@ -460,7 +460,7 @@ def nurbs_ccx_multiple(
                 inter['u'], inter['v'], *segm1.interval(), *segm2.interval(),
             )
             # Verify NURBS-level distance at knot seams
-            from mmcore.geom._nurbs_eval import evaluate_nurbs_curve
+            from mmcore.nurbs._nurbs_eval import evaluate_nurbs_curve
             pt1 = evaluate_nurbs_curve(curves[curve1_i], u_glob, 0)['C']
             pt2 = evaluate_nurbs_curve(curves[curve2_i], v_glob, 0)['C']
             if float(np.linalg.norm(pt1 - pt2)) >= tol:

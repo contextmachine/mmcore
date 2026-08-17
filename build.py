@@ -122,8 +122,8 @@ cython_extensions = [
         include_dirs=include_dirs,
     ),
     Extension(
-        "mmcore.geom.nurbs",
-        ["mmcore/geom/nurbs.pyx"],
+        "mmcore.nurbs._core",
+        ["mmcore/nurbs/_core.pyx"],
         language="c++",
         extra_compile_args=cpp_compile_args + compile_args,
         extra_link_args=link_args,
@@ -153,8 +153,8 @@ cython_extensions = [
     ),
 
     Extension(
-        "mmcore.geom.primitives",
-        ["mmcore/geom/primitives.pyx"],
+        "mmcore.nurbs.primitives",
+        ["mmcore/nurbs/primitives.pyx"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
         include_dirs=include_dirs,
@@ -167,8 +167,8 @@ cython_extensions = [
         include_dirs=include_dirs,
     ),
     Extension(
-        "mmcore.geom.parametric",
-        ["mmcore/geom/parametric.pyx"],
+        "mmcore.nurbs.parametric",
+        ["mmcore/nurbs/parametric.pyx"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
         include_dirs=include_dirs,

@@ -1,5 +1,5 @@
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve, NURBSSurfaceTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve, NURBSSurfaceTuple
 
 import numpy as np
 
@@ -534,7 +534,7 @@ def _nurbs_curve_param_tol_optimistic(curve: NURBSCurveTuple, tol: float, der:NU
 
 
 from numpy.typing import NDArray
-from mmcore.geom._nurbs_eval import from_homogeneous_1d,from_homogeneous_2d,to_homogeneous_2d
+from mmcore.nurbs._nurbs_eval import from_homogeneous_1d,from_homogeneous_2d,to_homogeneous_2d
 def bez_curve_param_tolerance(bez: NDArray, tol: float, rational:bool=False, interval=(0.,1.)) -> float:
 
     if interval is None:
@@ -592,7 +592,7 @@ def nurbs_surface_param_tolerance(curve: NURBSSurfaceTuple, tol: float,*args,**k
 
 if __name__=="__main__":
     import tqdm
-    from mmcore.geom._nurbs_knots import generate_knots
+    from mmcore.nurbs._nurbs_knots import generate_knots
     from itertools import pairwise
     
     color_interpolation = NURBSCurveTuple(3, np.array([1., 1., 1., 0., 0., 0.
@@ -676,7 +676,7 @@ if __name__=="__main__":
         for interv in pb:
             fun(interv[0], interv[1])
     
-    from mmcore.geom._nurbs_construct import circle
+    from mmcore.nurbs._nurbs_construct import circle
     curve3 = circle(10, normal=np.array((1.,1.,0.5))/np.linalg.norm((1.,1.,0.5)))
     curve4 = np.array([[-45.36434109, -7.12015504, 0.],
                        [-25.49612403, 13.94186047, 0.],

@@ -7,7 +7,7 @@ import json
 import numpy as np
 import pytest
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
 from mmcore.numeric.intersection.ccx._nccx4 import nurbs_ccx, nurbs_ccx_multiple
 import mmcore.numeric.intersection.ccx._nccx4 as nccx4
 

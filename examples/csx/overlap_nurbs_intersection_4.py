@@ -1,12 +1,12 @@
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, _tuple_to_nurbs, evaluate_nurbs_curve
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, _tuple_to_nurbs, evaluate_nurbs_curve
 
 import time
 
 
 import rich
 
-from mmcore.geom._nurbs_knots import trim_curve
+from mmcore.nurbs._nurbs_knots import trim_curve
 from mmcore.numeric import evaluate_curvature_vec
 from mmcore.numeric.approx import adaptive_curve_sampler
 from mmcore.numeric.intersection.csx import nurbs_csx

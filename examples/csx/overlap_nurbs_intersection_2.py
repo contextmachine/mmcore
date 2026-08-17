@@ -7,14 +7,14 @@ import time
 
 import rich
 
-from mmcore.geom._nurbs_eval import _tuple_to_nurbs, _curve_interval, evaluate_nurbs_curve
-from mmcore.geom._nurbs_knots import trim_curve
+from mmcore.nurbs._nurbs_eval import _tuple_to_nurbs, _curve_interval, evaluate_nurbs_curve
+from mmcore.nurbs._nurbs_knots import trim_curve
 from mmcore.numeric.intersection.csx import nurbs_csx
 import logging
-from mmcore.geom.nurbs_iso import extract_surface_boundaries_tuple
+from mmcore.nurbs.nurbs_iso import extract_surface_boundaries_tuple
 # Creating intersection objects
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
+from mmcore.nurbs._nurbs_eval import NURBSSurfaceTuple
 def parse_args():
     parser = argparse.ArgumentParser()
     ssx_params = parser.add_argument_group(title="CSX Parameters")
@@ -51,7 +51,7 @@ st2 = NURBSSurfaceTuple(order_u=2, order_v=2, knot_u=np.array([  0.        ,   0
        [[ 128.25004889, -129.85828719,    0.        ],
         [ 128.25004889,  129.85828719,    0.        ]]]), weights=np.array([[1., 1.],
        [1., 1.]]))
-from mmcore.geom._nurbs_knots import join_curves
+from mmcore.nurbs._nurbs_knots import join_curves
 bnds=join_curves(extract_surface_boundaries_tuple(st1))
 #s2 = _tuple_to_nurbs(st2)
 #s1 = _tuple_to_nurbs(st1)

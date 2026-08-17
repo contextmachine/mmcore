@@ -2,7 +2,7 @@ from __future__ import annotations
 import math
 from typing import NamedTuple
 
-from mmcore.geom._nurbs_eval import (
+from mmcore.nurbs._nurbs_eval import (
     NURBSCurveTuple,
     _curve_interval,
     to_homogeneous_1d, to_homogeneous_2d, evaluate_nurbs_surface,

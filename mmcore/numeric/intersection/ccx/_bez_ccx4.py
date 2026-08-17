@@ -75,7 +75,7 @@ def _compute_param_tols(C1, C2, atol, rational):
     Returns (tol_u, tol_v) — the maximum parameter perturbation in each
     curve that corresponds to geometric deviation <= atol.
     """
-    from mmcore.geom._nurbs_param_tol import bez_curve_param_tolerance
+    from mmcore.nurbs._nurbs_param_tol import bez_curve_param_tolerance
     tol_u = bez_curve_param_tolerance(C1, tol=atol, rational=rational)
     tol_v = bez_curve_param_tolerance(C2, tol=atol, rational=rational)
 

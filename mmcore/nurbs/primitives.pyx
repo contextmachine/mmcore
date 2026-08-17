@@ -5,7 +5,7 @@ from libc.math cimport fabs, sqrt,fmin,fmax,pow,pi,sin,cos
 from libc.stdlib cimport malloc,free
 from cpython cimport PyTuple_New,PyTuple_Pack,PyTuple_GetItem,PyTuple_GET_ITEM
 cimport numpy as np
-from mmcore.geom.parametric cimport ParametricSurface
+from mmcore.nurbs.parametric cimport ParametricSurface
 from mmcore.numeric.vectors cimport scalar_cross
 @cython.boundscheck(False)
 @cython.wraparound(False)

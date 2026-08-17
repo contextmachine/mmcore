@@ -1,11 +1,11 @@
 import numpy as np
 
 from mmcore.extras.renderer.renderer3d import OrbitCamera, Viewer
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 from mmcore.numeric.intersection.ccx._nccx4 import nurbs_ccx
 
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 
 
 curve1 = NURBSCurveTuple(
@@ -18,7 +18,7 @@ curve1 = NURBSCurveTuple(
     weights=np.array([1., 1., 1., 1.])
 )
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 
 
 curve2 = NURBSCurveTuple(

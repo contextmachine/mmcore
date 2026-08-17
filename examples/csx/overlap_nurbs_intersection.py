@@ -6,8 +6,8 @@ import numpy as np
 import rich
 
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, _tuple_to_nurbs, evaluate_nurbs_curve
-from mmcore.geom.nurbs_iso import extract_isocurve
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, _tuple_to_nurbs, evaluate_nurbs_curve
+from mmcore.nurbs.nurbs_iso import extract_isocurve
 from mmcore.numeric.closest_point import nurbs_surface_closest_point
 from mmcore.numeric.intersection.csx import nurbs_csx
 import logging

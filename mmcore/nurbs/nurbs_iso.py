@@ -4,9 +4,9 @@ from typing import List
 
 import numpy as np
 
-from mmcore.geom.nurbs import NURBSSurface, NURBSCurve, find_span, basis_functions
+from mmcore.nurbs._core import NURBSSurface, NURBSCurve, find_span, basis_functions
 
-from mmcore.geom._nurbs_eval import  NURBSCurveTuple,NURBSSurfaceTuple,_surface_interval,to_homogeneous_2d,from_homogeneous_2d,to_homogeneous_1d,from_homogeneous_1d
+from mmcore.nurbs._nurbs_eval import  NURBSCurveTuple,NURBSSurfaceTuple,_surface_interval,to_homogeneous_2d,from_homogeneous_2d,to_homogeneous_1d,from_homogeneous_1d
 
 
 def extract_surface_boundaries(surface: NURBSSurface|NURBSSurfaceTuple) -> List[NURBSCurve]|List[NURBSCurveTuple]:
@@ -35,7 +35,7 @@ def extract_surface_boundaries(surface: NURBSSurface|NURBSSurfaceTuple) -> List[
     v1_curve = extract_isocurve(surface, v_max, 'v')  # u-direction curve at v=1
 
     return [u0_curve, u1_curve, v0_curve, v1_curve]
-from mmcore.geom._nurbs_eval import _nurbs_to_tuple,_tuple_to_nurbs
+from mmcore.nurbs._nurbs_eval import _nurbs_to_tuple,_tuple_to_nurbs
 
 def extract_isocurve(
         surface: NURBSSurface|NURBSSurfaceTuple, param: float, direction: str = "u"

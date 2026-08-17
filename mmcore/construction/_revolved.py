@@ -1,7 +1,7 @@
 import numpy as np
 import math
 
-from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
+from mmcore.nurbs._nurbs_eval import NURBSSurfaceTuple
 __all__=["make_revolved_surf", "revolved", "revolved"]
 def point_to_line(S, T, P):
     """
@@ -359,7 +359,7 @@ if __name__ == "__main__":
 
 
 
-    from mmcore.geom._nurbs_eval import NURBSCurveTuple
+    from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
     control_points=np.array(
             [
                 [72.0, -67.0, 0.0],

@@ -5,7 +5,7 @@ from scipy.optimize import linprog
 from scipy.spatial import ConvexHull
 from mmcore.numeric.algorithms.moller import intersect_triangles_segment_one
 
-from mmcore.geom.nurbs import NURBSCurve, NURBSSurface
+from mmcore.nurbs._core import NURBSCurve, NURBSSurface
 
 
 from mmcore.numeric.aabb import aabb_intersect,aabb

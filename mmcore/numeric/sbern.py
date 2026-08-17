@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-from mmcore.geom._nurbs_knots import (
+from mmcore.nurbs._nurbs_knots import (
     generate_knots,
     decompose_surface,
     decompose_curve,
@@ -19,7 +19,7 @@ from functools import lru_cache
 
 import numpy as np
 
-from mmcore.geom._nurbs_eval import NURBSSurfaceTuple, NURBSCurveTuple, to_homogeneous_2d, from_homogeneous_1d, to_homogeneous_1d, \
+from mmcore.nurbs._nurbs_eval import NURBSSurfaceTuple, NURBSCurveTuple, to_homogeneous_2d, from_homogeneous_1d, to_homogeneous_1d, \
     from_homogeneous_2d, evaluate_nurbs_curve
 
 # Relative tolerance for locating which Bézier sub‑patch / segment a parameter

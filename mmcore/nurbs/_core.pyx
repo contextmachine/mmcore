@@ -1,7 +1,7 @@
 # cython: language_level=3
 # distutils: language = c++
 import functools
-from mmcore.geom.knots cimport find_span_linear,knot_insertion_alpha,knot_removal_alpha_i,knot_removal_alpha_j,find_span_inline,   find_multiplicity
+from mmcore.nurbs.knots cimport find_span_linear,knot_insertion_alpha,knot_removal_alpha_i,knot_removal_alpha_j,find_span_inline,   find_multiplicity
 
 cimport cython
 from libcpp.vector cimport vector
@@ -14,7 +14,7 @@ from libc.string cimport memcpy,memcmp
 from libc.math cimport sqrt,fabs,fmax,fminf,fmin,pow
 from libc.stdint cimport uint32_t,int32_t
 
-cimport mmcore.geom.nurbs
+cimport mmcore.nurbs._core
 
 from mmcore.numeric.algorithms.quicksort cimport uniqueSorted
 

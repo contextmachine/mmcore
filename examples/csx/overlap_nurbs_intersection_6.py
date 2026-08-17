@@ -1,29 +1,29 @@
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, _tuple_to_nurbs, evaluate_nurbs_curve
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, _tuple_to_nurbs, evaluate_nurbs_curve
 
 import time
 
 
 import rich
 
-from mmcore.geom._nurbs_knots import trim_curve
+from mmcore.nurbs._nurbs_knots import trim_curve
 from mmcore.numeric import evaluate_curvature_vec
 from mmcore.numeric.approx import adaptive_curve_sampler
 
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, _tuple_to_nurbs
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, _tuple_to_nurbs
 
 import time
 
 
 import rich
 
-from mmcore.geom._nurbs_knots import trim_curve
+from mmcore.nurbs._nurbs_knots import trim_curve
 from mmcore.numeric.intersection.csx import nurbs_csx
 
 
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 
 import argparse
 def parse_args():
@@ -118,7 +118,7 @@ curve = NURBSCurveTuple(
            1., 1., 1., 1., 1., 1.])
 )
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
+from mmcore.nurbs._nurbs_eval import NURBSSurfaceTuple
 
 
 s1 = NURBSSurfaceTuple(
@@ -149,8 +149,8 @@ s2 = NURBSSurfaceTuple(
     weights=np.array([[1., 1.],
            [1., 1.]])
 )
-from mmcore.geom.nurbs_iso import extract_surface_boundaries
-from mmcore.geom._nurbs_knots import join_curves
+from mmcore.nurbs.nurbs_iso import extract_surface_boundaries
+from mmcore.nurbs._nurbs_knots import join_curves
 results_all=[]
 curves2=join_curves(extract_surface_boundaries(s2))
 curves1=join_curves(extract_surface_boundaries(s1))

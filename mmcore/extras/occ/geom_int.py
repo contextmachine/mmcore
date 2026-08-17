@@ -95,7 +95,7 @@ def occ_curve(
     )
 
 
-from mmcore.geom._nurbs_knots import generate_knots, find_multiplicity,from_homogeneous_1d
+from mmcore.nurbs._nurbs_knots import generate_knots, find_multiplicity,from_homogeneous_1d
 
 
 def occ_curve_from_points(points, degree: int = 3, rational:bool=False) -> Geom_BSplineCurve:
@@ -124,8 +124,8 @@ def occ_curve_from_points(points, degree: int = 3, rational:bool=False) -> Geom_
         is_periodic,
     )
 
-from mmcore.geom._nurbs_knots import generate_knots, find_multiplicity
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_knots import generate_knots, find_multiplicity
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 def occ_curve_from_nt(curve:NURBSCurveTuple) -> Geom_BSplineCurve:
     """Construct a NURBS OCC curve from a NURBSCurveTuple.
     :param curve: mmcore's NURBS curve representation.

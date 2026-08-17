@@ -1,5 +1,5 @@
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 
 
 val = [NURBSCurveTuple(

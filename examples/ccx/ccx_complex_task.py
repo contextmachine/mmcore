@@ -13,15 +13,15 @@ from mmcore.numeric.bvh import (
     intersect_bvh,
     BoundingBox, BVHNode,
 )
-from mmcore.geom.nurbs import NURBSCurve,split_curve,split_curve_multiple
+from mmcore.nurbs._core import NURBSCurve,split_curve,split_curve_multiple
 
-from mmcore.geom.features import points_order,PointsOrder
+from mmcore.nurbs.features import points_order,PointsOrder
 from mmcore.numeric.intersection.ccx import ccx
 from mmcore.numeric.aabb import aabb
 
 
 
-from mmcore.geom.polygon import is_point_in_polygon
+from mmcore.nurbs.polygon import is_point_in_polygon
 from mmcore.numeric.vectors import scalar_norm
 
 
@@ -245,8 +245,8 @@ def nurbs_pipeline():
     print('clean up')
 import tqdm
 import json
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
-from mmcore.geom._nurbs_knots import generate_knots
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_knots import generate_knots
 def nurbs_from_pts(pts,degree=3)->NURBSCurveTuple:
 
     if len(pts)-1<degree:

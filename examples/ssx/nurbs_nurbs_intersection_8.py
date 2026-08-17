@@ -3,12 +3,12 @@
  This example demonstrates the intersection of two NURBS surfaces with partial overlaps.
 """
 import time
-from mmcore.geom._nurbs_eval import _tuple_to_nurbs
+from mmcore.nurbs._nurbs_eval import _tuple_to_nurbs
 
 
 # Creating intersection objects
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
+from mmcore.nurbs._nurbs_eval import NURBSSurfaceTuple
 
 
 s1 = NURBSSurfaceTuple(

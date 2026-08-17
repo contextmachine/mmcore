@@ -3,7 +3,7 @@ import numpy as np
 
 from mmcore.construction import nurbs_curve,NURBSCurveTuple
 from mmcore.numeric.intersection.ccx import nurbs_ccx
-from mmcore.geom._nurbs_knots import split_curve_multiple,trim_curve
+from mmcore.nurbs._nurbs_knots import split_curve_multiple,trim_curve
 curve1:NURBSCurveTuple = nurbs_curve(np.array(
         [
             [-19.77608536, 23.10065701, 0.0],

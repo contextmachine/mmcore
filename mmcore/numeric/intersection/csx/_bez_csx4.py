@@ -170,7 +170,7 @@ def _compute_param_tols_csx(C, S, atol, rational):
 
     Returns (ptol_t, ptol_u, ptol_v).
     """
-    from mmcore.geom._nurbs_param_tol import bez_curve_param_tolerance, bez_surface_param_tolerance
+    from mmcore.nurbs._nurbs_param_tol import bez_curve_param_tolerance, bez_surface_param_tolerance
     ptol_t = float(bez_curve_param_tolerance(C, tol=atol, rational=rational))
     ptol_u, ptol_v = bez_surface_param_tolerance(S, tol=atol, rational=rational)
     return ptol_t, float(ptol_u), float(ptol_v)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 import numpy as np
 
-from mmcore.geom._nurbs_eval import NURBSSurfaceTuple, NURBSCurveTuple, NURBSTupleType
+from mmcore.nurbs._nurbs_eval import NURBSSurfaceTuple, NURBSCurveTuple, NURBSTupleType
 
 NURBSType =NURBSTupleType
 

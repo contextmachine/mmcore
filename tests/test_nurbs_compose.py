@@ -1,6 +1,6 @@
 """Exact NURBS/Bezier composition contract, pinned against mmcore.numeric.sbern.
 
-History: this suite originally targeted ``mmcore/geom/_nurbs_compose.py`` (never
+History: this suite originally targeted ``mmcore/nurbs/_nurbs_compose.py`` (never
 tracked, unrecoverable). Its capability lives in ``sbern`` — the
 ``TestNURBSComposition`` class calls sbern directly, and the four convenience
 helpers below are thin test-local derivations over sbern primitives
@@ -17,12 +17,12 @@ bern_to_nurbs_bezier round trip through a rational composition.
 import numpy as np
 import pytest
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
 
 from mmcore.numeric.sbern import (nurbs_bezier_to_bern, bern_to_nurbs_bezier,
                                   compose_curve_curve, _segment_interval,
                                   _collect_split_parameters)
-from mmcore.geom._nurbs_knots import decompose_curve
+from mmcore.nurbs._nurbs_knots import decompose_curve
 
 
 # --- test-local helpers over sbern primitives -------------------------------

@@ -11,15 +11,15 @@ import glfw
 import numpy as np
 from OpenGL.GL import *
 
-from mmcore.geom._nurbs_eval import (
+from mmcore.nurbs._nurbs_eval import (
     NURBSCurveTuple,
     NURBSSurfaceTuple,
     _tuple_to_nurbs,
     to_homogeneous_1d,
 )
-from mmcore.geom._nurbs_knots import decompose_curve
+from mmcore.nurbs._nurbs_knots import decompose_curve
 from mmcore.numeric.bvh.lbvh import AABB
-from mmcore.geom.nurbs_iso import extract_isocurve, extract_surface_boundaries
+from mmcore.nurbs.nurbs_iso import extract_isocurve, extract_surface_boundaries
 from mmcore.topo.mesh.tess import surface_to_mesh, tessellate_brep_face
 
 
@@ -1066,7 +1066,7 @@ class Viewer:
         shade=True,
     ):
         """Add a BRep to the viewer."""
-        from mmcore.geom._nurbs_knots import trim_curve
+        from mmcore.nurbs._nurbs_knots import trim_curve
 
         results = []
 

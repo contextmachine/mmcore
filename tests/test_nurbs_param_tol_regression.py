@@ -17,7 +17,7 @@ silently shifting legacy acceptance/dedup radii.
 import numpy as np
 import pytest
 
-from mmcore.geom._nurbs_param_tol import (
+from mmcore.nurbs._nurbs_param_tol import (
     bez_curve_param_tolerance,
     bez_surface_param_tolerance,
 )

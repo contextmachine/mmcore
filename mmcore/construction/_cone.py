@@ -3,7 +3,7 @@ from typing import Iterable, Optional, Tuple
 
 import numpy as np
 
-from mmcore.geom._nurbs_eval import (
+from mmcore.nurbs._nurbs_eval import (
     NURBSCurveTuple,
     NURBSSurfaceTuple,
     from_homogeneous_2d,

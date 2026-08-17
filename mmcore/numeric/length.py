@@ -3,9 +3,9 @@ import math
 
 from mmcore.numeric.vectors import scalar_norm,norm
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple,to_homogeneous_1d
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple,to_homogeneous_1d
 
-from mmcore.geom._nurbs_knots import decompose_curve
+from mmcore.nurbs._nurbs_knots import decompose_curve
 
 def curvature_based_step(tolerance, curvature_radius):
     return 2 * np.sqrt(2 * curvature_radius * tolerance - tolerance ** 2)

@@ -6,8 +6,8 @@ import numpy as np
 import json
 import sys
 
-from mmcore.geom.nurbs import NURBSCurve
-from mmcore.geom._nurbs_eval import _nurbs_to_tuple,_tuple_to_nurbs
+from mmcore.nurbs._core import NURBSCurve
+from mmcore.nurbs._nurbs_eval import _nurbs_to_tuple,_tuple_to_nurbs
 from mmcore.extras.renderer.renderer2d import Renderer2D
 
 from mmcore.numeric.intersection.ccx import nurbs_ccx

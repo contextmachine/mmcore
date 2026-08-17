@@ -8,14 +8,14 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import NDArray
 
-from mmcore.geom.nurbs import NURBSCurve, NURBSSurface
-from mmcore.geom._nurbs_eval import (
+from mmcore.nurbs._core import NURBSCurve, NURBSSurface
+from mmcore.nurbs._nurbs_eval import (
     NURBSCurveTuple, NURBSSurfaceTuple,
     to_homogeneous_1d, to_homogeneous_2d,
     _nurbs_to_tuple,
 )
-from mmcore.geom._nurbs_knots import decompose_curve, decompose_surface
-from mmcore.geom._nurbs_param_tol import (
+from mmcore.nurbs._nurbs_knots import decompose_curve, decompose_surface
+from mmcore.nurbs._nurbs_param_tol import (
     nurbs_curve_param_tolerance, nurbs_surface_param_tolerance,
 )
 from mmcore.numeric.bvh.lbvh import AABB, build_bvh, bvh_intersect

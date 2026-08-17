@@ -5,8 +5,8 @@ import math
 
 from numpy._typing import NDArray
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, from_homogeneous_2d
-from mmcore.geom._nurbs_knots import normalize_knots_curve, to_homogeneous_1d, make_curves_compatible, \
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, from_homogeneous_2d
+from mmcore.nurbs._nurbs_knots import normalize_knots_curve, to_homogeneous_1d, make_curves_compatible, \
     make_curves_compatible_multiple
 
 
@@ -178,7 +178,7 @@ def ruled(curve1:NURBSCurveTuple, curve2:NURBSCurveTuple)->NURBSSurfaceTuple:
                               knot_v=v_knots,
                               control_points=np.ascontiguousarray(control_points[...,:-1]),
                               weights=np.ascontiguousarray(control_points[...,-1]))
-from mmcore.geom._nurbs_interp import interpolate_curve
+from mmcore.nurbs._nurbs_interp import interpolate_curve
 
 from typing import NamedTuple, Literal, List
 
@@ -246,7 +246,7 @@ def loft(curves: list[NURBSCurveTuple],
 # ---------------------------------------------------------------------
 
 
-from mmcore.geom._nurbs_eval import evaluate_nurbs_curve,bspline_basis
+from mmcore.nurbs._nurbs_eval import evaluate_nurbs_curve,bspline_basis
 # ---------------------------------------------------------------------
 #  Gordon-surface construction
 # ---------------------------------------------------------------------
@@ -381,8 +381,8 @@ def construct_gordon_surface(
 
 
 
-from mmcore.geom._nurbs_knots import generate_knots
-from mmcore.geom._nurbs_eval import from_homogeneous_1d, from_homogeneous_2d
+from mmcore.nurbs._nurbs_knots import generate_knots
+from mmcore.nurbs._nurbs_eval import from_homogeneous_1d, from_homogeneous_2d
 
 
 def nurbs_curve(control_points, degree=None, rational=False, interval=None, periodic=False, **kwargs) -> NURBSCurveTuple:

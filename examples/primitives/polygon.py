@@ -1,6 +1,6 @@
 import numpy as np
-from mmcore.geom.curves.curve import Curve
-from mmcore.geom.curves.bspline import NURBSpline
+from mmcore.nurbs.curves.curve import Curve
+from mmcore.nurbs.curves.bspline import NURBSpline
 from mmcore.implicit import Implicit2D
 from mmcore.numeric.aabb import aabb
 

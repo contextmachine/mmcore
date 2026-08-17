@@ -1,7 +1,7 @@
 import itertools
 
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
 
 
 val = [ NURBSCurveTuple(

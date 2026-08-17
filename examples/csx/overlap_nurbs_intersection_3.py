@@ -8,10 +8,10 @@ from mmcore._test_data import csx as csx_cases
 
 from mmcore.numeric.intersection.csx import nurbs_csx
 
-from mmcore.geom._nurbs_eval import _tuple_to_nurbs, _nurbs_to_tuple, evaluate_nurbs_curve
-from mmcore.geom._nurbs_knots import split_curve_multiple
+from mmcore.nurbs._nurbs_eval import _tuple_to_nurbs, _nurbs_to_tuple, evaluate_nurbs_curve
+from mmcore.nurbs._nurbs_knots import split_curve_multiple
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 import argparse
 def parse_args():
     parser = argparse.ArgumentParser()

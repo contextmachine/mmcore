@@ -4,7 +4,7 @@ import math
 import numpy as np
 
 from ._revolved import revolved
-from mmcore.geom._nurbs_construct import circle
+from mmcore.nurbs._nurbs_construct import circle
 
 
 def torus(major_radius=1.0, minor_radius=0.25,

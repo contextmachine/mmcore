@@ -7,7 +7,7 @@ import numpy as np
 
 from mmcore.numeric.bvh.lbvh import AABB
 
-from mmcore.geom._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple, _nurbs_to_tuple
+from mmcore.nurbs._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple, _nurbs_to_tuple
 try:
     from mmcore.extras.renderer.renderer3d import Viewer, OrbitCamera
     VIEWER_INSTALLED = True

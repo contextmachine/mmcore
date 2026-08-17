@@ -5,7 +5,7 @@ import numpy as np
 import pytest  # noqa: F401  # used from Task 2 onward (pytest.raises)
 
 from mmcore.construction import circle  # noqa: F401  # used from Task 2 onward
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 from mmcore.topo.brep import BRep
 from mmcore.topo.brep.boolean2d import (
     difference,
@@ -510,7 +510,7 @@ def test_T9_surface_derived_input_accepted_by_boolean():
     should be a valid input to the boolean ops — proves that the pipeline
     is agnostic to how the input BRep was constructed.
     """
-    from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
+    from mmcore.nurbs._nurbs_eval import NURBSSurfaceTuple
     # trivial planar surface: the z=0 unit square
     surf = NURBSSurfaceTuple(
         order_u=2, order_v=2,
@@ -557,7 +557,7 @@ import numpy as np
 import pytest
 
 from mmcore.construction import circle
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 from mmcore.topo.brep.boolean2d import point_in_region
 
 

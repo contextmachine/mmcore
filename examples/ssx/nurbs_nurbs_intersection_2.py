@@ -1,8 +1,8 @@
 import time
 
 import numpy as np
-from mmcore.geom._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple, _nurbs_to_tuple
-from mmcore.geom.nurbs import NURBSSurface
+from mmcore.nurbs._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple, _nurbs_to_tuple
+from mmcore.nurbs._core import NURBSSurface
 from mmcore.numeric.intersection.ssx import nurbs_ssx
 
 s1 = _nurbs_to_tuple(NURBSSurface(

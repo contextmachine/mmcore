@@ -1,7 +1,7 @@
 """Lossless module-path migration for pickle fixtures.
 
 Rewrites the module paths embedded in a pickle (e.g.
-``mmcore.geom._nurbs_eval`` -> ``mmcore.nurbs._nurbs_eval``) by
+``mmcore.nurbs._nurbs_eval`` -> ``mmcore.nurbs._nurbs_eval``) by
 load-with-remap + re-dump.  No geometry is recomputed: the ssx engine is
 never run.  Only the class-reference strings change; every value
 (ints, floats, ndarray buffers, dtypes, list/tuple structure) is carried
@@ -11,14 +11,14 @@ REAL-RENAME USAGE (run this AFTER the source rename lands, with the new
 package importable):
 
     python pickle_module_migrate.py migrate \
-        --map mmcore.geom._nurbs_eval=mmcore.nurbs._nurbs_eval \
+        --map mmcore.nurbs._nurbs_eval=mmcore.nurbs._nurbs_eval \
         --out-dir /some/out/dir \
         examples/ssx/nurbs_nurbs_intersection_{5,6,8,10,11}.pkl
 
 then verify each pair:
 
     python pickle_module_migrate.py verify OLD.pkl NEW.pkl \
-        --map mmcore.geom._nurbs_eval=mmcore.nurbs._nurbs_eval
+        --map mmcore.nurbs._nurbs_eval=mmcore.nurbs._nurbs_eval
 
 `verify` loads OLD through the remap and NEW natively and deep-compares
 the two object trees (ndarray: shape+dtype+bit-exact buffer; NamedTuple:
@@ -154,6 +154,10 @@ def deep_compare(a, b, path="root", diffs=None):
 
     if ta is not tb:
         diffs.append(f"{path}: type {ta.__name__} != {tb.__name__}")
+        return diffs
+    # arbitrary objects (dataclasses, plain classes): compare state dicts
+    if hasattr(a, "__dict__") and not isinstance(a, (int, float, str, bytes, bool, complex)):
+        deep_compare(vars(a), vars(b), f"{path}.__dict__", diffs)
         return diffs
     if isinstance(a, float):
         # bit-exact float comparison

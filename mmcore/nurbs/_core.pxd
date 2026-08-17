@@ -4,8 +4,8 @@
 
 cimport cython
 
-from mmcore.geom.knots cimport find_span_linear,knot_insertion_alpha,knot_insertion_alpha,find_span_inline
-from mmcore.geom.parametric cimport ParametricCurve,ParametricSurface
+from mmcore.nurbs.knots cimport find_span_linear,knot_insertion_alpha,knot_insertion_alpha,find_span_inline
+from mmcore.nurbs.parametric cimport ParametricCurve,ParametricSurface
 from mmcore.numeric.binom cimport binomial_coefficient,binomial_coefficients
 from libc.stdlib cimport malloc,free
 from libcpp.vector cimport vector

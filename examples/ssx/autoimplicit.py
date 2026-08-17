@@ -1,8 +1,8 @@
 import itertools
 import numpy as np
-from mmcore.geom.curves import NURBSpline
-from mmcore.geom.curves.offset import OffsetOnSurface
-from mmcore.geom.surfaces import PyRuled, Surface, CurveOnSurface
+from mmcore.nurbs.curves import NURBSpline
+from mmcore.nurbs.curves.offset import OffsetOnSurface
+from mmcore.nurbs.surfaces import PyRuled, Surface, CurveOnSurface
 from mmcore.numeric import scalar_dot
 from mmcore.numeric.closest_point import closest_points_on_surface
 from mmcore.numeric.divide_and_conquer import (
@@ -53,7 +53,7 @@ ppt = np.array(
     [[-0.37262838311109858, 19.712808549356065, 16.404873399828443], [-2.0414404128973751, -1.2964047904304496, 3.1698065065994614]]
 )
 
-from mmcore.geom.primitives import Cylinder
+from mmcore.nurbs.primitives import Cylinder
 
 cc = Cylinder(*ppt, 3.0)
 from mmcore.numeric.marching import marching_intersection_curve_points
@@ -63,7 +63,7 @@ res = marching_intersection_curve_points(
     cc.implicit, surface.implicit, cc.gradient, surface.gradient, initial_point, tol=1e-3, step=0.8
 ).tolist()
 print(res)
-from mmcore.geom.curves.bspline import interpolate_nurbs_curve
+from mmcore.nurbs.curves.bspline import interpolate_nurbs_curve
 
 uvs = closest_points_on_surface(surface, np.array(res))
 curve = CurveOnSurface(surface, interpolate_nurbs_curve(uvs, degree=2))

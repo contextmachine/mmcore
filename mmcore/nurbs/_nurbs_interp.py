@@ -2,9 +2,9 @@ import numpy as np
 
 from scipy.linalg import lu_solve,lu_factor
 from numpy.typing import NDArray
-from mmcore.geom._nurbs_eval import _find_span_linear, compute_basis_function_derivatives_np, bspline_basis, \
+from mmcore.nurbs._nurbs_eval import _find_span_linear, compute_basis_function_derivatives_np, bspline_basis, \
     NURBSCurveTuple
-from mmcore.geom._nurbs_knots import generate_knots
+from mmcore.nurbs._nurbs_knots import generate_knots
 def compute_knot_vector(degree, num_points, params):
     """ Computes a knot vector from the parameter list using averaging method.
 
@@ -326,9 +326,9 @@ def interpolate_nurbs_curve(points, degree,  use_centripetal=False,rational=Fals
     else:
         w=np.ones_like(cp[:,0])
     return NURBSCurveTuple(order=degree+1, knot=np.array(kv), control_points=cp, weights=w)
-from mmcore.geom.nurbs import ders_basis_funs as _ders_basis_funs
-from mmcore.geom.nurbs import find_span as _find_span
-from mmcore.geom._nurbs_eval import from_homogeneous_1d,to_homogeneous_1d
+from mmcore.nurbs._core import ders_basis_funs as _ders_basis_funs
+from mmcore.nurbs._core import find_span as _find_span
+from mmcore.nurbs._nurbs_eval import from_homogeneous_1d,to_homogeneous_1d
 import numpy as np
 from scipy.special import comb, factorial
 from typing import NamedTuple, List, Optional

@@ -4,7 +4,7 @@ from typing import Union
 
 import numpy as np
 
-from mmcore.geom._nurbs_eval import NURBSSurfaceTuple, evaluate_nurbs_surface
+from mmcore.nurbs._nurbs_eval import NURBSSurfaceTuple, evaluate_nurbs_surface
 
 
 def normal_angle_gap(n1, n2):
