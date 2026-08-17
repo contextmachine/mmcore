@@ -1,8 +1,11 @@
 # mmcore — Target Package Structure (decided plan)
 
-**Status:** IN EXECUTION — Q1–Q15 answered and folded in; **Phase 1 is EXECUTED and
-COMMITTED** (`aa818c2`, 2026-08-16). **NEW-Q1…NEW-Q4 are RESOLVED** (owner approval
-2026-08-16, §8.2) and Phase 2 is approved and running on branch `restructure-phase2`.
+**Status:** EXECUTED — all phases complete on branch `restructure-phase2`
+(2026-08-16): Phase 1 at `aa818c2` on tiny; Step 0 + batches 2a–2e + Steps 13–14 as
+the `restructure(*)` commit series. Import surface clean (6 benign extras leaves
+only), layering violations 15 → 0, `geom/` → `nurbs/` with `_core.pyx`, pickles
+migrated losslessly. This document is now the historical record of the migration;
+the living conventions moved to `docs/ARCHITECTURE.md`.
 **Baseline:** branch `tiny` @ `f6b3655`, measured 2026-08-13; Phase 1 delta re-measured
 2026-08-14 (§7.0); Phase 2 preflight re-pinned at `aa818c2` with zero drift, 2026-08-16.
 **Execution companion:** `docs/superpowers/plans/2026-08-16-restructure-phase2-execution.md`
