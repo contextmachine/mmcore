@@ -21,7 +21,10 @@ cnp.import_array()
 
 ctypedef cnp.float64_t f64
 
-cdef const ssize_t _STACK_MAX = 32  # stack basis buffers up to this degree (fast for small splines)
+cdef enum:  # compile-time constant: a C 'const' variable is not a constant
+    # expression, so const-sized stack arrays are VLAs — a GCC/Clang extension
+    # MSVC rejects (C2057/C2466). An enum member is a true constant expression.
+    _STACK_MAX = 32  # stack basis buffers up to this degree (fast for small splines)
 
 
 # ---------------------------------------------------------------------------

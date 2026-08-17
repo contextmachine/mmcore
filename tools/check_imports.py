@@ -15,9 +15,15 @@ from __future__ import annotations
 
 import importlib
 import io
+import os
 import subprocess
 import sys
 import warnings
+
+# Running as `python tools/check_imports.py` puts tools/ (the script dir) on
+# sys.path, not the repo root — and in CI mmcore is never pip-installed
+# (poetry install --no-root). Import the checkout explicitly.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # The 6 benign optional-dependency leaves (docs/RESTRUCTURE.md section 1).
 # These fail with ModuleNotFoundError on their optional import when the
