@@ -3,7 +3,6 @@ import itertools
 import numpy as np
 from mmcore.nurbs._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
 from mmcore.nurbs._nurbs_knots import trim_curve
-from mmcore.nurbs.curves.deboor import evaluate_nurbs
 
 val = [ NURBSCurveTuple(
     order=19,
