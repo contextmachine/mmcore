@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from numpy.typing import NDArray
 
-from mmcore.numeric.intersection._bezier_common import (
+from mmcore.numeric._bezier_common import (
     eval_curve, eval_surface, eval_surface_d1,
 )
 from mmcore.numeric.intersection.ssx._ssx_substrate import SSXBranch

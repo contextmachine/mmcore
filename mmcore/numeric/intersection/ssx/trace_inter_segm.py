@@ -6,7 +6,7 @@ from typing import Protocol, TypedDict
 import numpy as np
 from numpy._typing import NDArray
 
-from mmcore.construction import nurbs_curve
+from mmcore.geom._nurbs_construct import nurbs_curve
 from mmcore.geom._nurbs_eval import EvaluateSurfaceData, evaluate_nurbs_surface, NURBSCurveTuple,NURBSSurfaceTuple
 
 # Reuse your existing homogeneous helpers and derivative net extractors

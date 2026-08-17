@@ -183,7 +183,7 @@ from mmcore.numeric._bern_homog import (
     project_curve_homog_to_cartesian,
     project_surface_homog_to_cartesian,
 )
-from mmcore.numeric.intersection._bezier_common import (
+from mmcore.numeric._bezier_common import (
     _to_homog_curve, _to_homog_surface, eval_curve, eval_curve_d1,
     eval_surface, eval_surface_d1,
 )

@@ -16,7 +16,7 @@ from mmcore.geom._nurbs_knots import decompose_curve
 from mmcore.geom._nurbs_param_tol import nurbs_curve_param_tolerance
 from mmcore.geom.bvh.lbvh import build_bvh, AABB, bvh_intersect
 from mmcore.numeric.intersection.ccx._bez_ccx4 import bez_ccx as bez_ccx_v4
-from mmcore.numeric.intersection._bezier_common import eval_curve
+from mmcore.numeric._bezier_common import eval_curve
 
 # ---------------------------------------------------------------------------
 # Dtypes (self-contained, no dependency on _nccx.py)

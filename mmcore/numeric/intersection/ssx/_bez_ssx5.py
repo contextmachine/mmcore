@@ -25,7 +25,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from mmcore.numeric.bern_sq_dist import surface_surface_distance_squared_net_homog
-from mmcore.numeric.intersection._bezier_common import (
+from mmcore.numeric._bezier_common import (
     extract_weights, eval_surface, eval_surface_d1, eval_curve,
     geometry_collapsed,
 )

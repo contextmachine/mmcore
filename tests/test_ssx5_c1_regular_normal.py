@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from mmcore.geom._nurbs_param_tol import bez_surface_param_tolerance
-from mmcore.numeric.intersection._bezier_common import eval_surface_d1
+from mmcore.numeric._bezier_common import eval_surface_d1
 from mmcore.numeric.intersection.ssx._ssx5_singular import c1_pass
 
 

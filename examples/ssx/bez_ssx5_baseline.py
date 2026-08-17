@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from mmcore.numeric.intersection._bezier_common import eval_surface
+from mmcore.numeric._bezier_common import eval_surface
 from mmcore.numeric.intersection.ssx._bez_ssx5 import bez_ssx
 
 warnings.filterwarnings("ignore")

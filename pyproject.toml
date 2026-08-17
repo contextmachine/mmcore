@@ -64,7 +64,7 @@ script = 'build.py'
 [tool.poetry.plugins."mmcore.extras.renderer"]
 renderer = "mmcore.extras.renderer"
 [tool.poetry.plugins."mmcore.extras.rhino"]
-rhino = "mmcore.rhino"
+rhino = "mmcore.extras.rhino"
 [tool.poetry.plugins."mmcore.extras.torch"]
 torch = "mmcore.extras.torch"
 [tool.poetry.plugins."mmcore.extras.occ"]

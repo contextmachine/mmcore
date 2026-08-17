@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from . import sbern
-from .intersection._bern_zero_1d import _newton_bernstein_root_1d
+from ._bern_zero_1d import _newton_bernstein_root_1d
 from mmcore.numeric.vectors import vector_projection, scalar_dot
 
 
@@ -560,7 +560,7 @@ def _nurbs_surface_closest_point_divide_and_conquer(
     return (dist_best, eval_best, tol_best), (u_cur, v_cur)
 from mmcore.numeric.newton.cnewton import newton
 from mmcore.numeric import bern_sq_dist
-from mmcore.numeric.intersection._bezier_common import newton_ccx, eval_curve, _clamp01, eval_curve_d1
+from mmcore.numeric._bezier_common import newton_ccx, eval_curve, _clamp01, eval_curve_d1
 from mmcore.geom._nurbs_param_tol import bez_curve_param_tolerance,bez_surface_param_tolerance
 from mmcore.numeric.ndinterval import interval
 

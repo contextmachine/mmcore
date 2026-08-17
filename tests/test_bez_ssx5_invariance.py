@@ -97,7 +97,7 @@ def test_normalize_surface_net_round_trip():
 
 
 def test_normalize_surface_net_rational_preserves_cartesian_points():
-    from mmcore.numeric.intersection._bezier_common import eval_surface
+    from mmcore.numeric._bezier_common import eval_surface
 
     rng = np.random.default_rng(5)
     s = rng.uniform(900.0, 1100.0, (3, 3, 3))

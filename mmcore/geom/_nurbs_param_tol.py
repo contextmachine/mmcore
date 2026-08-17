@@ -676,7 +676,7 @@ if __name__=="__main__":
         for interv in pb:
             fun(interv[0], interv[1])
     
-    from mmcore.construction import circle
+    from mmcore.geom._nurbs_construct import circle
     curve3 = circle(10, normal=np.array((1.,1.,0.5))/np.linalg.norm((1.,1.,0.5)))
     curve4 = np.array([[-45.36434109, -7.12015504, 0.],
                        [-25.49612403, 13.94186047, 0.],

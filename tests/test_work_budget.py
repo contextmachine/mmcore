@@ -382,7 +382,7 @@ def test_reconcile_reported_clamps_overruns_instead_of_denying():
 def test_bern_zero_1d_reexports_are_the_same_objects():
     # ccx/csx and the tests import these via _bern_zero_1d; the move must
     # preserve identity (the solver reads the SAME ContextVar object).
-    from mmcore.numeric.intersection import _bern_zero_1d as bz
+    from mmcore.numeric import _bern_zero_1d as bz
     from mmcore.numeric import _work_budget as wb
 
     assert bz.BernsteinZeroBudget is wb.BernsteinZeroBudget

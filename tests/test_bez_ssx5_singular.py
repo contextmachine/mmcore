@@ -46,7 +46,7 @@ def test_case11_default_nested_csx_budget_preserves_closed_loop():
 from mmcore.numeric.intersection.ssx._ssx5_singular import (
     BoxNet, psi_vector_net, linear_net_4d, sigma_normal_net, solve_zero_dim,
 )
-from mmcore.numeric.intersection._bezier_common import eval_surface, eval_surface_d1
+from mmcore.numeric._bezier_common import eval_surface, eval_surface_d1
 
 
 def _homog(S):
@@ -3237,7 +3237,7 @@ def test_interior_pinch_cut_face_fibers_are_surfaced():
     the fiber image): the geometry must ship whole AND the positive-
     dimensional preimage must be named in the reasons."""
     from examples.ssx.bez_ssx5_coverage_check import point_to_polyline_dist
-    from mmcore.numeric.intersection._bezier_common import eval_surface
+    from mmcore.numeric._bezier_common import eval_surface
 
     P = np.array([0.5, 0.5, 0.0])
     a, b = 0.6, 0.15

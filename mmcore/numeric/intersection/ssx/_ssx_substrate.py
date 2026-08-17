@@ -16,7 +16,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from inspect import currentframe
 
-from mmcore.construction import nurbs_curve
+from mmcore.geom._nurbs_construct import nurbs_curve
 from mmcore.geom._nurbs_eval import evaluate_nurbs_curve, evaluate_nurbs_surface, NURBSSurfaceTuple
 from mmcore.geom._nurbs_interp import interpolate_curve, interpolate_nurbs_curve
 
