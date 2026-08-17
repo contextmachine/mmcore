@@ -327,14 +327,27 @@ derived-envelope ledger item for the engine, not a restructure step), and the
 
 Open follow-ups recorded, not executed:
 
-1. **CCX 3D near-miss contract (owner decision, measured 2026-08-16):** all 25
-   ground-truth grid intersections in `tests/expected_nurbs_ccx_01.json` are
-   geometrically real, but 20 are near-misses (curve-curve distance 4e-6..5e-4) and
-   `nurbs_ccx` reports only the 5 exact crossings — `tol` is not an acceptance
-   distance (0 found even at `tol=1e-2`); `nurbs_ccx_multiple` is consistent with
-   pairwise. The old engine accepted within-tol closest approaches. Decide the v4
-   3D contract (typed near-miss tier? derived envelope?) — derived-envelope program
-   territory. Pinned at `tests/test_nccx4.py` (2 strict xfails).
+1. **CCX 3D near-miss contract (owner decision; measured 2026-08-16, origin
+   bisected 2026-08-18):** all 25 ground-truth grid intersections in
+   `tests/expected_nurbs_ccx_01.json` are geometrically real, but 20 are
+   near-misses (curve-curve distance 4e-6..5e-4) and `nurbs_ccx` reports only the
+   5 exact crossings — `tol` is not an acceptance distance (0 found even at
+   `tol=1e-2`); `nurbs_ccx_multiple` is consistent with pairwise.
+   **Origin: commit `5d05ddc`, 2026-07-10** ("fix(ssx5): harden singular and
+   rational intersections") — a DELIBERATE change: `_strict_residual_ok` retyped
+   `atol` from geometric acceptance into a search tolerance ("`atol` is a
+   search/resolution tolerance, not membership"), deleting the
+   `norm(G) < atol` / `dist < atol` acceptances to kill atol-sized false roots at
+   large coordinate scales. Bisected by overlaying all 20 historical
+   `_bez_ccx4.py` versions in a built tiny worktree: near-miss accepted
+   2026-03-28→2026-05-26 (`1d9a511`: 38 grid hits), rejected from `5d05ddc`
+   onward (5 hits). **`tiny` measures identically** (5/25) — the restructure only
+   unmasked it; the test fixture had been error-masked since `c14fd3e`
+   (2026-06-09), a month BEFORE the change, so no red ever showed.
+   Fix direction: not a revert (the false-root protection is wanted — reinforced
+   later by `e0ab4a0` translation-invariance) but a typed `exact|tolerance`
+   certification tier for isolated contacts, mirroring L47 overlaps.
+   Pinned at `tests/test_nccx4.py` (2 strict xfails carrying this provenance).
 2. cnewton keep-or-delete measurement — post-Phase-2 its call sites lost their
    consumers; `tests/test_newton.py` is the instrument.
 3. Two-BVH consolidation — port `tess.py` + `_detect_intersections.py` to `lbvh`,

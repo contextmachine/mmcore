@@ -136,8 +136,14 @@ class TestNurbsCCXMultiple3D:
         "was repaired (error-masked since c14fd3e): 20 of the 25 ground-truth "
         "grid intersections are near-misses (curve-curve distance 4e-6..5e-4) "
         "and nurbs_ccx reports only exact crossings — tol does not act as an "
-        "acceptance distance (0 found even at tol=1e-2). Owner decision needed "
-        "on the CCX 3D contract; see restructure follow-ups.")
+        "acceptance distance (0 found even at tol=1e-2). Origin bisected to "
+        "5d05ddc (2026-07-10, ssx5 singular hardening): _strict_residual_ok "
+        "deliberately retyped atol from geometric acceptance into a search "
+        "tolerance to kill atol-sized false roots at large coordinate scales; "
+        "the pre-change engine (1d9a511) finds 38 grid hits, current finds 5. "
+        "Owner decision needed on the CCX 3D contract (typed exact|tolerance "
+        "tier for isolated contacts, mirroring L47 overlaps); see restructure "
+        "follow-ups.")
     def test_ground_truth(self, result, expected):
         """All 25 known intersections (excl curve 0) must be found."""
         iso, ovl, _status = result
