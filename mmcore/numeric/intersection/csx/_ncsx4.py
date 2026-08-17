@@ -18,7 +18,7 @@ from mmcore.geom._nurbs_knots import decompose_curve, decompose_surface
 from mmcore.geom._nurbs_param_tol import (
     nurbs_curve_param_tolerance, nurbs_surface_param_tolerance,
 )
-from mmcore.geom.bvh.lbvh import AABB, build_bvh, bvh_intersect
+from mmcore.numeric.bvh.lbvh import AABB, build_bvh, bvh_intersect
 
 from mmcore.numeric.intersection.csx._bez_csx4 import bez_csx as bez_csx_v4
 from mmcore.numeric._bezier_common import eval_curve, eval_surface

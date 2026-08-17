@@ -107,7 +107,7 @@ def collapse2d(shape: Shape, tree: Tree) -> Tree:
 
     >>> import matplotlib.pyplot as plt
     >>> import matplotlib.patches as patches
-    >>> from mmcore.geom.implicit.dc import *
+    >>> from mmcore.implicit.dc import *
 
     >>> def drawLeaf(color, cell):
     ...     (xmin, ymin), (xmax, ymax) = cell

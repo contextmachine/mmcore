@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from mmcore.geom.bvh.lbvh import AABB
+from mmcore.numeric.bvh.lbvh import AABB
 
 from mmcore.geom._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple, _nurbs_to_tuple
 try:

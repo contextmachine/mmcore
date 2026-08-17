@@ -18,7 +18,7 @@ from mmcore.geom._nurbs_eval import (
     to_homogeneous_1d,
 )
 from mmcore.geom._nurbs_knots import decompose_curve
-from mmcore.geom.bvh.lbvh import AABB
+from mmcore.numeric.bvh.lbvh import AABB
 from mmcore.geom.nurbs_iso import extract_isocurve, extract_surface_boundaries
 from mmcore.topo.mesh.tess import surface_to_mesh, tessellate_brep_face
 

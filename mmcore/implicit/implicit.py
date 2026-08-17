@@ -7,7 +7,7 @@ import numpy as np
 from mmcore.geom._nurbs_eval import NURBSCurveTuple,BSplineCurveTuple
 
 from mmcore.numeric.marching import marching_implicit_curve_points
-from mmcore.geom.implicit.tree import ImplicitTree3D, ImplicitTree2D
+from mmcore.implicit.tree import ImplicitTree3D, ImplicitTree2D
 from mmcore.numeric.vectors import scalar_norm
 
 from mmcore.numeric.fdm import fdm

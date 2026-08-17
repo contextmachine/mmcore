@@ -9,7 +9,7 @@ from mmcore.numeric.divide_and_conquer import (
     divide_and_conquer_min_2d,
     divide_and_conquer_min_2d_vectorized,
 )
-from mmcore.geom.bvh import contains_point, aabb
+from mmcore.numeric.bvh import contains_point, aabb
 from mmcore.numeric.vectors import dot, norm
 
 

@@ -6,7 +6,7 @@ import numpy as np
 
 import sys
 
-from mmcore.geom.implicit.tree.collapse2d import Point, Shape, Min, Max, Tree, Root, Empty, Full, Leaf, Cell, Side
+from mmcore.implicit.tree.collapse2d import Point, Shape, Min, Max, Tree, Root, Empty, Full, Leaf, Cell, Side
 
 sys.setrecursionlimit(100000)
 

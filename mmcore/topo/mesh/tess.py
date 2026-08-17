@@ -317,7 +317,7 @@ def as_polygons(triangulate_result):
     :return:
     """
     return triangulate_result['position'][triangulate_result['triangles']]
-from mmcore.geom.bvh import Object3D,BoundingBox,build_bvh,PTriangle
+from mmcore.numeric.bvh import Object3D,BoundingBox,build_bvh,PTriangle
 def as_bvh(triangulate_result):
     uvs=triangulate_result['vertices'][triangulate_result['triangles']]
     pos=triangulate_result['position'][triangulate_result['triangles']]

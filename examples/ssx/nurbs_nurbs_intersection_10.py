@@ -7,7 +7,7 @@ import time
 from mmcore.construction import cylinder_surface_2pt
 from mmcore.geom._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple
 from mmcore.geom._nurbs_transform import transform_nurbs
-from mmcore.geom.bvh.lbvh import AABB
+from mmcore.numeric.bvh.lbvh import AABB
 from mmcore.geom.nurbs import NURBSSurface
 from mmcore.construction import nurbs_surface
 

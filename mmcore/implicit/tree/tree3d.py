@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mmcore.geom.implicit.tree.collapse3d import Empty, Full, Leaf, build_tree3d, collapse3d
+from mmcore.implicit.tree.collapse3d import Empty, Full, Leaf, build_tree3d, collapse3d
 
 
 

@@ -57,7 +57,7 @@ from mmcore.numeric.algorithms.cygjk import gjk
 from mmcore.numeric.vectors import unit
 from mmcore.numeric.gauss_map import compute_gauss_map_rational
 from mmcore.numeric.intersection.ssx.refine import refine_intersection_point
-from mmcore.geom.bvh.lbvh import AABB, build_bvh, bvh_intersect
+from mmcore.numeric.bvh.lbvh import AABB, build_bvh, bvh_intersect
 TIME_PROF_PRINT=False
 def time_prof(func) :
     @functools.wraps(func)

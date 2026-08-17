@@ -1,4 +1,4 @@
-# mmcore/geom/implicit/dc.py
+# mmcore/implicit/dc.py
 import sys
 from typing import Callable
 

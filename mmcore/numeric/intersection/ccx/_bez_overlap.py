@@ -10,7 +10,7 @@ from mmcore.geom._nurbs_eval import (
 )
 import numpy as np
 
-from mmcore.geom.bvh.lbvh import BVHNode, AABB
+from mmcore.numeric.bvh.lbvh import BVHNode, AABB
 from mmcore.numeric import evaluate_curvature, evaluate_sectional_curvature
 from mmcore.numeric._aabb import aabb
 from mmcore.numeric.aabb import point_in_aabb

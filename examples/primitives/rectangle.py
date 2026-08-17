@@ -1,7 +1,7 @@
 import numpy as np
 
 from mmcore.geom.curves import NURBSpline
-from mmcore.geom.implicit import Implicit2D
+from mmcore.implicit import Implicit2D
 from mmcore.numeric.vectors import scalar_norm
 
 

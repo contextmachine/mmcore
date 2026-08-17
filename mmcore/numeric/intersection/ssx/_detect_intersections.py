@@ -5,13 +5,13 @@ from mmcore.geom.nurbs import NURBSSurface, decompose_surface
 from mmcore.numeric._aabb import aabb, aabb_intersect, aabb_intersection, aabb_intersect_fast_3d
 from mmcore.numeric.algorithms.cygjk import gjk
 
-from mmcore.geom.bvh import build_bvh, intersect_bvh_objects
+from mmcore.numeric.bvh import build_bvh, intersect_bvh_objects
 from mmcore.numeric import scalar_norm
 
 from scipy.optimize import linprog
 
 from mmcore.numeric.gauss_map import GaussMap
-from mmcore.geom.bvh import BoundingBox, Object3D
+from mmcore.numeric.bvh import BoundingBox, Object3D
 
 from mmcore.geom.nurbs_iso import extract_isocurve
 from mmcore.numeric.vectors import unit

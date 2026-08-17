@@ -6,7 +6,7 @@ import numpy as np
 
 from typing import Callable
 
-from mmcore.geom.bvh.lbvh import BVH, AABB, build_bvh
+from mmcore.numeric.bvh.lbvh import BVH, AABB, build_bvh
 
 
 class HalfEdgeSegm:

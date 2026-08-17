@@ -6,7 +6,7 @@ import multiprocessing as mp
 from pathlib import Path
 
 import numpy as np
-from mmcore.geom.bvh import (
+from mmcore.numeric.bvh import (
     Object3D,
     build_bvh,
     intersect_bvh_objects,
@@ -198,7 +198,7 @@ def cut(curves_set1, curves_set2, print_progress=True):
     curves_set2_objects = [Set2Curve(i) for i in curves_set2]
     return cut_intersections_mp(panels_objects,curves_set2_objects, print_progress=print_progress)
 
-from mmcore.geom.bvh.lbvh import BVH,BVHNode,AABB,bvh_intersect,build_bvh
+from mmcore.numeric.bvh.lbvh import BVH,BVHNode,AABB,bvh_intersect,build_bvh
 
 def nurbs_pipeline():
 

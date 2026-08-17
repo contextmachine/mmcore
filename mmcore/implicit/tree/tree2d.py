@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.optimize import minimize
 
-from mmcore.geom.implicit.tree.collapse2d import Empty, Full, Leaf, build_tree2d, collapse2d
+from mmcore.implicit.tree.collapse2d import Empty, Full, Leaf, build_tree2d, collapse2d
 
 
 class ImplicitTree2D:

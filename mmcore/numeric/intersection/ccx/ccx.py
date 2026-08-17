@@ -7,7 +7,7 @@ from typing import Callable
 import numpy as np
 from numpy.typing import ArrayLike
 
-from mmcore.geom.implicit.tree import ImplicitTree2D, implicit_find_features
+from mmcore.implicit.tree import ImplicitTree2D, implicit_find_features
 
 from mmcore.numeric.aabb import curve_aabb, aabb_overlap, curve_aabb_eager
 from mmcore.numeric.divide_and_conquer import test_all_roots
@@ -367,7 +367,7 @@ def curve_iix(curve1, curve2, tree: ImplicitTree2D = None, rtol=None, atol=None)
 
     **Usage Example**::
 
-        >>> from mmcore.geom.implicit import Implicit2D
+        >>> from mmcore.implicit import Implicit2D
 
         # Define two implicit circles
         >>> class Circle2D(Implicit2D):

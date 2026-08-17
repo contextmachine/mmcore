@@ -50,7 +50,7 @@ from mmcore.geom._nurbs_eval import (
 )
 from mmcore.geom._nurbs_knots import decompose_surface
 from mmcore.geom._nurbs_param_tol import nurbs_surface_param_tolerance
-from mmcore.geom.bvh.lbvh import AABB, build_bvh, bvh_intersect
+from mmcore.numeric.bvh.lbvh import AABB, build_bvh, bvh_intersect
 from mmcore.numeric._work_budget import (
     SoftWorkBudget,
     REASON_WORK_BUDGET,

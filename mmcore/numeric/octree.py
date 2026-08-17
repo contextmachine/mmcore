@@ -5,8 +5,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from mmcore.geom.bvh.lbvh import AABB
-from mmcore.geom.implicit import Implicit3D
+from mmcore.numeric.bvh.lbvh import AABB
+from mmcore.implicit import Implicit3D
 import itertools
 import time
 from collections import defaultdict
