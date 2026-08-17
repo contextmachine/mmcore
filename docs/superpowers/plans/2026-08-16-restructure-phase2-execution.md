@@ -323,8 +323,23 @@ derived-envelope ledger item for the engine, not a restructure step), and the
 | `4396829` | Step 14: `geom/`→`nurbs/`, `nurbs.pyx`→`_core.pyx`, 131 files, rebuild, 13 pickles migrated losslessly (all IDENTICAL) | imports/layering green; fixture tests 7/7 |
 | `cd2e052` | Docs: ARCHITECTURE.md, thin tracked CLAUDE.md, README refresh, RESTRUCTURE.md closed | — |
 
-Open follow-ups recorded, not executed: cnewton keep-or-delete measurement (post-Phase-2
-its call sites lost their consumers; `tests/test_newton.py` is the instrument); the
-two-BVH consolidation (port `tess.py` + `_detect_intersections.py` to `lbvh`, then
-delete `numeric/bvh/__init__.py`'s object-BVH); `numeric/octree.py` zero-importer
-decision; Q13/Q14/Q15 remain with the derived-envelope program.
+| `b41a0e5` | Fixup: test_nccx4 3D fixtures repaired (the 3 baseline errors' true cause was a dead import inside the exec'd example); the unmasked CCX 3D near-miss gap pinned as 2 strict xfails; 4 ghost examples deleted | test_nccx4 12 passed / 2 xfailed; **final full-suite tally: 751 passed / 1 deselected / 3 xfailed / 0 errors** |
+
+Open follow-ups recorded, not executed:
+
+1. **CCX 3D near-miss contract (owner decision, measured 2026-08-16):** all 25
+   ground-truth grid intersections in `tests/expected_nurbs_ccx_01.json` are
+   geometrically real, but 20 are near-misses (curve-curve distance 4e-6..5e-4) and
+   `nurbs_ccx` reports only the 5 exact crossings — `tol` is not an acceptance
+   distance (0 found even at `tol=1e-2`); `nurbs_ccx_multiple` is consistent with
+   pairwise. The old engine accepted within-tol closest approaches. Decide the v4
+   3D contract (typed near-miss tier? derived envelope?) — derived-envelope program
+   territory. Pinned at `tests/test_nccx4.py` (2 strict xfails).
+2. cnewton keep-or-delete measurement — post-Phase-2 its call sites lost their
+   consumers; `tests/test_newton.py` is the instrument.
+3. Two-BVH consolidation — port `tess.py` + `_detect_intersections.py` to `lbvh`,
+   then delete `numeric/bvh/__init__.py`'s object-BVH.
+4. `numeric/octree.py` is zero-importer — decide keep/delete.
+5. Q13/Q14/Q15 remain with the derived-envelope program; `claude/elegant-bardeen`
+   parked (its DeflatedSystem hunks are a Q13-class change).
+6. Merge `restructure-phase2` → `tiny` after owner review.
