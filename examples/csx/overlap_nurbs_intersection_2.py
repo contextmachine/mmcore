@@ -9,7 +9,7 @@ import rich
 
 from mmcore.geom._nurbs_eval import _tuple_to_nurbs, _curve_interval, evaluate_nurbs_curve
 from mmcore.geom._nurbs_knots import trim_curve
-from mmcore.numeric.intersection.csx import nurbs_csx_v2
+from mmcore.numeric.intersection.csx import nurbs_csx
 import logging
 from mmcore.geom.nurbs_iso import extract_surface_boundaries_tuple
 # Creating intersection objects
@@ -17,7 +17,7 @@ import numpy as np
 from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
 def parse_args():
     parser = argparse.ArgumentParser()
-    ssx_params = parser.add_argument_group(title="SSX Parameters")
+    ssx_params = parser.add_argument_group(title="CSX Parameters")
     ssx_params.add_argument("--atol", type=float, default=1e-3)
     
 
@@ -72,11 +72,11 @@ for b in bnds:
     #b.control_points[0] -= d
 
  
-
-    result.append(nurbs_csx_v2(b, st2, tol=args.atol))
-    print("CSX v2 performed at: ",time.time()-s," secs.")
+ 
+    result.append(nurbs_csx(b, st2, tol=args.atol))
+    print("CSX v4 performed at: ", time.time() - s, " secs.")
 isolated,overlaps=[],[]
-for i,o in  result:
+for i,o,_status in  result:
     if i is not None:
         isolated.extend(i)
     if o is not None:
@@ -101,23 +101,25 @@ if args.viewer:
                 srf = viewer.add_nurbs_surface(surface, color=(0.7, 0.7, 0.7, 1), v_count=4)
 
             crv=  viewer.add(curve, color=(0.9, 0.9, 0.9, 1.0))
-            isolated, overlaps = result
+            isolated, overlaps ,_= result
             if isolated is not None:
                 uvs=[]
-                for pt in isolated['point']:
+                for pt in isolated:
 
-                    viewer.add(pt, color=(0.0, 1.0, 0.5,1.0),size_px=6)
+                    viewer.add(pt['point'], color=(0.0, 1.0, 0.5,1.0),size_px=6)
 
             if overlaps is not None:
 
-                for start,end in overlaps['point']:
-                    viewer.add(start, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
-                    viewer.add(end, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
+                for overlap in overlaps:
+                    t0,t1=overlap['t_range']
 
-                for o in overlaps["t"]:
+                    viewer.add(evaluate_nurbs_curve(curve, t0,d_order=0)['C'], color=(0.0, 1.0, 0.5, 1.0), size_px=6)
+                    viewer.add(evaluate_nurbs_curve(curve, t1,d_order=0)['C'], color=(0.0, 1.0, 0.5, 1.0), size_px=6)
 
-                    t0 = o[0]
-                    t1 = o[-1]
+                for o in overlaps:
+
+                    t0 = o["t_range"][0]
+                    t1 = o["t_range"][-1]
 
                     pts=np.linspace(t0,t1,800)
                     for t in pts:

@@ -9,7 +9,6 @@ import rich
 from mmcore.geom._nurbs_knots import trim_curve
 from mmcore.numeric import evaluate_curvature_vec
 from mmcore.numeric.approx import adaptive_curve_sampler
-from mmcore.numeric.intersection.csx import nurbs_csx_v2, nurbs_csx
 
 import numpy as np
 from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, _tuple_to_nurbs
@@ -20,7 +19,7 @@ import time
 import rich
 
 from mmcore.geom._nurbs_knots import trim_curve
-from mmcore.numeric.intersection.csx import nurbs_csx_v2, nurbs_csx
+from mmcore.numeric.intersection.csx import nurbs_csx
 
 
 import numpy as np
@@ -159,15 +158,15 @@ import time
 s=time.time()
 for curve in curves1:
 
-    isolated, overlaps = result = nurbs_csx_v2(curve, s2, tol=args.atol, angle_tol=args.angle_tol)
+    isolated, overlaps, _status = result = nurbs_csx(curve, s2, tol=args.atol)
 
     results_all.append((curve,isolated,overlaps))
 
 for curve in curves2:
-    isolated, overlaps = result = nurbs_csx_v2(curve, s1, tol=args.atol, angle_tol=args.angle_tol)
+    isolated, overlaps, _status = result = nurbs_csx(curve, s1, tol=args.atol)
 
     results_all.append((curve,isolated,overlaps))
-print(f"CSX v2 performed at: {time.time()-s} secs.")
+print(f"CSX v4 performed at: {time.time()-s} secs.")
 isolated,overlaps=[],[]
 for c,i,o in  results_all:
     if i is not None:
@@ -179,55 +178,44 @@ rich.print(isolated)
 rich.print('\noverlaps:')
 rich.print(overlaps)
 
-
 if args.viewer:
     try:
         from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera
+        viewer=Viewer(camera=OrbitCamera(near=1,far=1e+9))
+        primary_color=(*(np.array([250, 102, 166])/255).tolist(),1)
 
-        viewer=Viewer(camera=OrbitCamera(distance=np.linalg.norm(s1.control_points.reshape(-1,3).mean(axis=0))**2,target=  s1.control_points.reshape(-1,3).mean(axis=0)))
-        srf1 = viewer.add_nurbs_surface(s1, color=(0.7, 0.7, 0.7, 1),surface_color=(0.5, 0.5, 0.9, 0.1),u_count=1, v_count=1)
-        srf2 = viewer.add_nurbs_surface(s2, color=(0.7, 0.7, 0.7, 1), surface_color=(0.5, 0.5, 0.5, 0.01), u_count=1,v_count=1)
 
-        def render_result(result,curve,surface=None):
-            if surface is not None:
-                srf = viewer.add_nurbs_surface(surface, color=(0.7, 0.7, 0.7, 1), v_count=4)
+        if isolated is not None:
+            uvs = []
+            for pt in isolated:
+                viewer.add_point3d(pt['point'], color=(0.0, 1.0, 0.5, 1.0), size_px=6)
 
-            crv=  viewer.add(curve, color=(0.9, 0.9, 0.9, 1.0))
-            isolated, overlaps = result
-            if isolated is not None:
-                uvs=[]
-                for pt in isolated['point']:
+        if overlaps is not None:
 
-                    viewer.add(pt, color=(0.0, 1.0, 0.5,1.0),size_px=6)
+            for overlap in overlaps:
+                t0,t1=overlap['t_range']
 
-            if overlaps is not None:
+                viewer.add_point3d(evaluate_nurbs_curve(curve, t0,d_order=0)['C'], color=(0.0, 1.0, 0.5, 1.0), size_px=4)
+                viewer.add_point3d(evaluate_nurbs_curve(curve, t1,d_order=0)['C'], color=(0.0, 1.0, 0.5, 1.0), size_px=4)
 
-                for start,end in overlaps['point']:
-                    viewer.add(start, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
-                    viewer.add(end, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
+            for o in overlaps:
 
-                for o in overlaps["t"]:
+                t0 = o["t_range"][0]
+                t1 = o["t_range"][-1]
 
-                    t0 = o[0]
-                    t1 = o[-1]
+                pts=np.linspace(t0,t1,800)
+                for t in pts:
 
-                    pts=np.linspace(t0,t1,800)
-                    for t in pts:
-
-                        evl=evaluate_nurbs_curve(curve,t,d_order=0)
-                        viewer.add_point3d(evl['C'],color=(0.0, 1.0, 0.5, 1.0), size_px=3)
-        for curve,isol,over in results_all:
-            render_result((isol,over),curve)
-
+                    evl=evaluate_nurbs_curve(curve,t,d_order=0)
+                    viewer.add_point3d(evl['C'],color=(0.0, 1.0, 0.5, 1.0), size_px=4)
+        srf = viewer.add_nurbs_surface(s1 ,color=(0.7, 0.7, 0.7, 1), surface_color=(0.5, 0.5, 0.9, 0.1), )
+        srf = viewer.add_nurbs_surface(s2, color=(0.7, 0.7, 0.7, 1), surface_color=(0.5, 0.5, 0.9, 0.1), )
         viewer.run()
 
+
     except ModuleNotFoundError as err:
-        import traceback
-        traceback.print_exc()
         print("mmcore.renderer is not installed, skip preview.")
     except ImportError as err:
-        import traceback
-        traceback.print_exc()
         print("mmcore.renderer is not installed, skip preview.")
     except Exception as err:
         raise err

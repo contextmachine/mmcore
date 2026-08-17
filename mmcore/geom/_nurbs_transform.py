@@ -2,7 +2,6 @@ from __future__ import annotations
 import numpy as np
 
 from mmcore.geom._nurbs_eval import NURBSSurfaceTuple, NURBSCurveTuple, NURBSTupleType
-from mmcore.numeric.intersection.ssx import ssx
 
 NURBSType =NURBSTupleType
 
@@ -719,54 +718,3 @@ if __name__ == "__main__":
     print(surface)
     print(surface2)
     print(surface_xy)
-    result = ssx(surface, surface2, tol=1e-6, spt=1e-3)
-    try:
-        from mmcore.extras.renderer import CADRenderer, Camera
-        
-        from mmcore.geom._nurbs_eval import _nurbs_to_tuple, _tuple_to_nurbs
-        def draw_ssx(s1, s2, result, renderer=None):
-            if isinstance(s1, NURBSSurfaceTuple):
-                s1 = _tuple_to_nurbs(s1)
-            if isinstance(s2, NURBSSurfaceTuple):
-                s2 = _tuple_to_nurbs(s2)
-            
-            renderer = renderer if renderer is not None else CADRenderer(camera=Camera(zoom=50.0, near=1.))
-            
-            renderer.add_nurbs_surface(s1, color=(1.0, 1.0, 1.0))
-            renderer.add_nurbs_surface(s2, color=(1.0, 1.0, 1.0), )
-            
-            for crv, uv1, uv2 in result[0]:
-                renderer.add_nurbs_curve(crv, color=(0.0, 1.0, 0.5))
-            return renderer
-        
-        from scipy.interpolate import interp1d
-        def interp_color(colors, params, new_params):
-          
-           
-            return interp1d(params, np.asarray(colors).T)(new_params).T
-        
-        
-        renderer:CADRenderer = draw_ssx(surface, surface2, result)
-        curves_colors = interp_color(np.array([(0.0, 1.0, 0.0), (0.0, 0.0, 1.0)]), np.linspace(0, 1, 2),
-                          np.linspace(0, 1, 4)).tolist()
-        
-        renderer.add_nurbs_curve(_tuple_to_nurbs(curve), color=tuple(curves_colors[0]))
-        renderer.add_nurbs_curve(_tuple_to_nurbs(curve2), color=tuple(curves_colors[1]))
-        renderer.add_nurbs_curve(_tuple_to_nurbs(curve_oblique), color=tuple(curves_colors[2]))
-        renderer.add_nurbs_curve(_tuple_to_nurbs(curve_persp), color=tuple(curves_colors[3]))
-        renderer.run()
-        
-    except ImportError as err:
-        print("mmcore.renderer is not installed, skip preview.")
-        for i, (spatial, uv1, uv2) in enumerate(result[0]):
-            print(f"\t{i + 1}. {spatial}, {uv1}, {uv2}")
-            cpts = (spatial.control_points).tolist()
-            cpts_repr = repr(cpts)
-            # if len(cpts)>4:
-            #    cpts_repr=f'[{cpts[1]}, {cpts[2]}, ... , {cpts[-2]}, {cpts[-1]}]'
-            print(f"\t\tcontrol points: {cpts_repr}")
-            print(f"\t\tdegree: {spatial.degree}")
-            
-   
-  
-    
