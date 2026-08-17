@@ -136,13 +136,6 @@ cython_extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-    # Extension(
-    #     "mmcore.numeric.matrix",
-    #     ["mmcore/numeric/matrix/__init__.pyx"],
-    #     extra_compile_args=compile_args,
-    #     extra_link_args=link_args,
-    #     include_dirs=include_dirs,
-    # ),
     Extension(
         "mmcore.numeric.algorithms.cygjk",
         ["mmcore/numeric/algorithms/cygjk.pyx", "mmcore/numeric/algorithms/_gjk.cpp"],
@@ -188,13 +181,6 @@ cython_extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-    # Extension(
-    #    "mmcore.geom.curves._cubic",
-    #    ["mmcore/geom/curves/_cubic.pyx"],
-    #    extra_compile_args=compile_args,
-    #    extra_link_args=link_args,
-    #    include_dirs=include_dirs,
-    # ),
     Extension(
         "mmcore.geom.implicit.tree.cbuild_tree3d",
         ["mmcore/geom/implicit/tree/cbuild_tree3d.pyx"],
@@ -216,13 +202,6 @@ cython_extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-    # Extension(
-    #    "mmcore.geom.surfaces.ellipsoid",
-    #    ["mmcore/geom/surfaces/ellipsoid.pyx"],
-    #    extra_compile_args=compile_args,
-    #    extra_link_args=link_args,
-    #    include_dirs=include_dirs,
-    # ),
     Extension(
         "mmcore.numeric.integrate.romberg",
         ["mmcore/numeric/integrate/romberg.pyx"],

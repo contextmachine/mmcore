@@ -60,7 +60,7 @@ from mmcore.numeric._work_budget import (
 from mmcore.numeric.intersection.ssx._bez_ssx5 import (
     bez_ssx, SSXSingularity, _dist_point_polyline,
 )
-from mmcore.numeric.intersection.ssx._ssx4 import SSXBranch, SSXPoint
+from mmcore.numeric.intersection.ssx._ssx_substrate import SSXBranch, SSXPoint
 from mmcore.numeric.intersection.ssx._ssx5_overlap import (
     SSXOverlapRegion, _point_in_polygon, _dist_point_polyline_2d,
 )

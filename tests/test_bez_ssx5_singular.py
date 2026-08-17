@@ -2534,7 +2534,7 @@ def test_c3_pair_search_has_a_local_soft_budget():
 
 def test_ssx_point_dedup_uses_bounded_spatial_buckets():
     """Final duplicate cleanup must scale with points, not all point pairs."""
-    from mmcore.numeric.intersection.ssx._ssx4 import SSXPoint
+    from mmcore.numeric.intersection.ssx._ssx_substrate import SSXPoint
     from mmcore.numeric.intersection.ssx._bez_ssx5 import (
         _deduplicate_ssx_points)
 
@@ -2658,7 +2658,7 @@ def test_c1_connectivity_probe_respects_shared_budget(monkeypatch):
 
 
 def test_subdivided_gauss_cone_contains_true_surface_normal():
-    from mmcore.numeric.intersection.ssx._ssx4 import (
+    from mmcore.numeric.intersection.ssx._ssx_substrate import (
         GaussMapBern, separate_gauss_maps)
 
     points = np.array([

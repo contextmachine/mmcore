@@ -36,7 +36,7 @@ from mmcore.numeric.intersection.csx._bez_csx4 import bez_csx
 from mmcore.numeric.intersection._deflate import minors_Tpsi_from_control_nets
 from mmcore.numeric._aabb import aabb, aabb_intersect
 
-from mmcore.numeric.intersection.ssx._ssx4 import (
+from mmcore.numeric.intersection.ssx._ssx_substrate import (
     SSXBranch, SSXPoint,
     _append_unique_point,
     GaussMapBern,

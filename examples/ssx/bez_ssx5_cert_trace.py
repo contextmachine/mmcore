@@ -192,7 +192,7 @@ def main() -> None:
         _check_monotonicity as chk_mono,
         _check_tangency as chk_tan,
     )
-    from mmcore.numeric.intersection.ssx._ssx4 import separate_gauss_maps
+    from mmcore.numeric.intersection.ssx._ssx_substrate import separate_gauss_maps
 
     print(f"{'depth':>5}  {'#cx':>3}  {'box':<52}  {'mono':<14} {'gauss':<5} {'tang':<6}")
     print("-" * 100)

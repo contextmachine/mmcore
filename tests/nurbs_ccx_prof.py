@@ -44,7 +44,7 @@ val2 = NURBSCurveTuple(
     weights=np.array([1., 1., 1., 1., 1., 1., 1., 1.])
 )
 
-from mmcore.numeric.intersection.ccx._nccx import nurbs_ccx
+from mmcore.numeric.intersection.ccx import nurbs_ccx
 s=time.perf_counter()
 res,over=nurbs_ccx(val,val2)
 print(f'case1: {time.perf_counter()-s}')

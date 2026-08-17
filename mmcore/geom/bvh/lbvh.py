@@ -209,7 +209,51 @@ def split_objects_v2(objects: list[tuple[int, AABB]]) -> tuple[list[tuple[int, A
     return objects[:mid_index], objects[mid_index:]
 
 from collections import defaultdict
-from mmcore.ds.union_find import group_tuples
+
+
+class _UnionFind:
+    def __init__(self, n):
+        self.parent = list(range(n))
+        self.rank = [0] * n
+
+    def find(self, x):
+        if self.parent[x] != x:
+            self.parent[x] = self.find(self.parent[x])  # Path compression
+        return self.parent[x]
+
+    def union(self, x, y):
+        rootX = self.find(x)
+        rootY = self.find(y)
+        if rootX != rootY:
+            # Union by rank
+            if self.rank[rootX] < self.rank[rootY]:
+                self.parent[rootX] = rootY
+            elif self.rank[rootX] > self.rank[rootY]:
+                self.parent[rootY] = rootX
+            else:
+                self.parent[rootY] = rootX
+                self.rank[rootX] += 1
+
+
+def group_tuples(tuples_list):
+    """Group tuples of ints into connected components joined by shared values.
+
+    (Moved here from mmcore.ds.union_find — this was its only caller.)
+    """
+    n = len(tuples_list)
+    uf = _UnionFind(n)
+    digit_to_indices = {}
+    for i, tup in enumerate(tuples_list):
+        for num in tup:
+            digit_to_indices.setdefault(num, []).append(i)
+    for num, indices in digit_to_indices.items():
+        first_idx = indices[0]
+        for other_idx in indices[1:]:
+            uf.union(first_idx, other_idx)
+    root_to_group = defaultdict(list)
+    for i, tup in enumerate(tuples_list):
+        root_to_group[uf.find(i)].append(tup)
+    return list(root_to_group.values())
 @dataclasses.dataclass
 class BVH:
     nodes: list[BVHNode] = dataclasses.field(default_factory=list)

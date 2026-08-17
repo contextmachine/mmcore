@@ -482,7 +482,7 @@ def test_point_on_neighbor_pair_branch_is_filtered():
     dropped by the global on-branch filter (4*atol)."""
     from mmcore.numeric.intersection.ssx._nssx5 import (
         _assemble_points, _domain_ctx, _make_aggregate)
-    from mmcore.numeric.intersection.ssx._ssx4 import SSXPoint, SSXBranch
+    from mmcore.numeric.intersection.ssx._ssx_substrate import SSXPoint, SSXBranch
     ctx = _domain_ctx(plane_z0(), plane_tilted(), atol=1e-3)
     agg = _make_aggregate({}, 1)
     xyz_path = np.array([[0, -1, 0], [0, 0, 0], [0, 1, 0]], dtype=float)
@@ -501,7 +501,7 @@ def test_point_on_neighbor_pair_branch_is_filtered():
 def test_duplicate_points_dedup_wrap_aware():
     from mmcore.numeric.intersection.ssx._nssx5 import (
         _assemble_points, _domain_ctx, _make_aggregate)
-    from mmcore.numeric.intersection.ssx._ssx4 import SSXPoint
+    from mmcore.numeric.intersection.ssx._ssx_substrate import SSXPoint
     ctx = _domain_ctx(cylinder(), big_plane(0.5), atol=1e-3)
     agg = _make_aggregate({}, 1)
     x = np.array([1.0, 0.0, 0.5])
@@ -515,7 +515,7 @@ def test_duplicate_points_dedup_wrap_aware():
 def test_branch_links_recomputed_against_final_branches():
     from mmcore.numeric.intersection.ssx._nssx5 import (
         _assemble_singularities, _domain_ctx, _make_aggregate)
-    from mmcore.numeric.intersection.ssx._ssx4 import SSXBranch
+    from mmcore.numeric.intersection.ssx._ssx_substrate import SSXBranch
     from mmcore.numeric.intersection.ssx._bez_ssx5 import SSXSingularity
     ctx = _domain_ctx(plane_z0(), plane_tilted(), atol=1e-3)
     agg = _make_aggregate({}, 1)
@@ -538,7 +538,7 @@ def test_branch_link_anchors_mid_segment_cusp():
     the nearest segment."""
     from mmcore.numeric.intersection.ssx._nssx5 import (
         _recompute_branch_links, _make_aggregate)
-    from mmcore.numeric.intersection.ssx._ssx4 import SSXBranch
+    from mmcore.numeric.intersection.ssx._ssx_substrate import SSXBranch
     agg = _make_aggregate({}, 1)
     xyz_path = np.array([[0, -1, 0], [0, 1, 0]], dtype=float)  # one segment
     stuv_path = np.array([[.5, 0, .5, 0], [.5, 1, .5, 1]], dtype=float)
@@ -595,7 +595,7 @@ def test_points_kept_when_postprocess_starved():
     from mmcore.numeric.intersection.ssx._nssx5 import (
         _assemble_points, _domain_ctx, _make_aggregate)
     from mmcore.numeric._work_budget import REASON_POSTPROCESS_CAP
-    from mmcore.numeric.intersection.ssx._ssx4 import SSXPoint, SSXBranch
+    from mmcore.numeric.intersection.ssx._ssx_substrate import SSXPoint, SSXBranch
     ctx = _domain_ctx(plane_z0(), plane_tilted(), atol=1e-3)
     agg = _make_aggregate({'max_postprocess_work': 0}, 1)
     xyz_path = np.array([[0, -1, 0], [0, 1, 0]], dtype=float)
@@ -756,7 +756,7 @@ def test_synthetic_interior_absorption_and_ref_shift():
     from mmcore.numeric.intersection.ssx._nssx5 import (
         _Frag, _RawResults, _assemble_regions, _domain_ctx,
         _make_aggregate)
-    from mmcore.numeric.intersection.ssx._ssx4 import SSXBranch
+    from mmcore.numeric.intersection.ssx._ssx_substrate import SSXBranch
     ctx = _domain_ctx(plane_z0(), plane_z0(), atol=1e-3)
     agg = _make_aggregate({}, 1)
     raw = _synthetic_tile_pair()

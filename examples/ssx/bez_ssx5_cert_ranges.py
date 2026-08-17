@@ -37,7 +37,7 @@ def main() -> None:
         created.append(self)
     mod._Cell.__init__ = trk
 
-    from mmcore.numeric.intersection.ssx._ssx4 import separate_gauss_maps
+    from mmcore.numeric.intersection.ssx._ssx_substrate import separate_gauss_maps
 
     mod.bez_ssx(S1, S2, atol=1e-3, rational=False)
 

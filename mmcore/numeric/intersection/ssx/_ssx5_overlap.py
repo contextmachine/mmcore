@@ -34,7 +34,7 @@ from numpy.typing import NDArray
 from mmcore.numeric.intersection._bezier_common import (
     eval_curve, eval_surface, eval_surface_d1,
 )
-from mmcore.numeric.intersection.ssx._ssx4 import SSXBranch
+from mmcore.numeric.intersection.ssx._ssx_substrate import SSXBranch
 
 __all__ = ["SSXOverlapRegion", "assemble_overlap_regions"]
 

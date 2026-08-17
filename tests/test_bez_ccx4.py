@@ -1,7 +1,6 @@
 import numpy as np
 import pytest
 from mmcore.numeric.intersection.ccx._bez_ccx4 import bez_ccx
-from mmcore.numeric.intersection.ccx._bez_ccx3 import bez_ccx as bez_ccx_old
 
 
 # ---------------------------------------------------------------------------
@@ -126,46 +125,9 @@ def test_rational_arc_line():
 
 
 # ---------------------------------------------------------------------------
-# Comparison tests: _bez_ccx4 (new) vs _bez_ccx3 (old)
 # ---------------------------------------------------------------------------
 
-def test_compare_case1_overlap():
-    """The legacy tolerance trace must not force an exact overlap claim.
 
-    These 8-decimal fixtures follow the same path to about 3e-9 but are not
-    coefficient-identical.  V4 may return strict roots/an exact certified
-    overlap, or conservatively stop partial; it must not grind indefinitely
-    trying to discretize the near-overlap valley.
-    """
-    old = bez_ccx_old(curve1, curve2)
-    new = bez_ccx(curve1, curve2, atol=1e-3, rational=False)
-    assert len(old["overlaps"]) == 1
-    # New should find overlap (or at worst, multiple isolated points along the overlap)
-    has_overlap = len(new["overlaps"]) >= 1
-    has_many_isolated = len(new["isolated"]) >= 2
-    conservative_partial = new.get("budget_exhausted", False)
-    assert has_overlap or has_many_isolated or conservative_partial, (
-        f"New found: {len(new['isolated'])} isolated, "
-        f"{len(new['overlaps'])} overlaps, partial={conservative_partial}"
-    )
-
-
-def test_compare_case2_two_crossings():
-    """Old finds 2 isolated for curve3 vs curve4. New should find same count."""
-    old = bez_ccx_old(curve3, curve4)
-    new = bez_ccx(curve3, curve4, atol=1e-3, rational=False)
-    assert len(old["isolated"]) == 2
-    assert len(new["isolated"]) == 2
-
-
-def test_compare_rational_arc_line():
-    """Rational quarter-circle vs line -- both should find 1 isolated."""
-    w = np.sqrt(0.5)
-    arc = np.array([[1.0, 0.0, 1.0], [w, w, w], [0.0, 1.0, 1.0]])
-    line = np.array([[0.0, 0.0, 1.0], [0.5, 0.5, 1.0], [1.0, 1.0, 1.0]])
-    old = bez_ccx_old(arc, line, rational=True)
-    new = bez_ccx(arc, line, atol=1e-3, rational=True)
-    assert len(old["isolated"]) == len(new["isolated"])
 
 
 def test_tangent_touching():
