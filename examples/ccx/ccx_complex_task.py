@@ -6,23 +6,66 @@ import multiprocessing as mp
 from pathlib import Path
 
 import numpy as np
-from mmcore.geom.bvh import (
+from mmcore.numeric.bvh import (
     Object3D,
     build_bvh,
     intersect_bvh_objects,
     intersect_bvh,
     BoundingBox, BVHNode,
 )
-from mmcore.geom.nurbs import NURBSCurve,split_curve,split_curve_multiple
+from mmcore.nurbs._core import NURBSCurve,split_curve,split_curve_multiple
 
-from mmcore.geom.features import points_order,PointsOrder
 from mmcore.numeric.intersection.ccx import ccx
 from mmcore.numeric.aabb import aabb
 
 
 
-from mmcore.geom.polygon import is_point_in_polygon
 from mmcore.numeric.vectors import scalar_norm
+
+
+# --- inlined from the deleted mmcore/geom/{features,polygon}.py (c14fd3e) ---
+from enum import IntEnum
+
+
+class PointsOrder(IntEnum):
+    COLLINEAR = -1
+    CW = 0
+    CCW = 1
+
+
+def points_order(points, close=True) -> PointsOrder:
+    if len(points) < 3:
+        raise ValueError(f"At least 3 points expected! \n{points}")
+    if close:
+        points = np.concatenate([points, [points[0]]])
+    determinant = sum(
+        (points[i + 1][0] - points[i][0]) * (points[i + 1][1] + points[i][1]) for i in range(len(points) - 1)
+    )
+    if determinant > 0:
+        return PointsOrder.CW
+    elif determinant < 0:
+        return PointsOrder.CCW
+    else:
+        return PointsOrder.COLLINEAR
+
+
+def is_point_in_polygon(point, polygon):
+    """Ray-casting point-in-polygon test."""
+    x, y = point
+    n = len(polygon)
+    inside = False
+    p1x, p1y = polygon[0]
+    for i in range(n + 1):
+        p2x, p2y = polygon[i % n]
+        if y > min(p1y, p2y):
+            if y <= max(p1y, p2y):
+                if x <= max(p1x, p2x):
+                    if p1y != p2y:
+                        xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+                    if p1x == p2x or x <= xinters:
+                        inside = not inside
+        p1x, p1y = p2x, p2y
+    return inside
 
 
 
@@ -198,7 +241,7 @@ def cut(curves_set1, curves_set2, print_progress=True):
     curves_set2_objects = [Set2Curve(i) for i in curves_set2]
     return cut_intersections_mp(panels_objects,curves_set2_objects, print_progress=print_progress)
 
-from mmcore.geom.bvh.lbvh import BVH,BVHNode,AABB,bvh_intersect,build_bvh
+from mmcore.numeric.bvh.lbvh import BVH,BVHNode,AABB,bvh_intersect,build_bvh
 
 def nurbs_pipeline():
 
@@ -243,10 +286,16 @@ def nurbs_pipeline():
     gc.enable()
     gc.collect()
     print('clean up')
-import tqdm
+try:
+    import tqdm
+except ImportError:  # optional progress bars
+    class tqdm:  # noqa: N801 - minimal stand-in
+        @staticmethod
+        def tqdm(iterable, **kwargs):
+            return iterable
 import json
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
-from mmcore.geom._nurbs_knots import generate_knots
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_knots import generate_knots
 def nurbs_from_pts(pts,degree=3)->NURBSCurveTuple:
 
     if len(pts)-1<degree:
@@ -300,10 +349,21 @@ if __name__ == "__main__":
     # Task :
     #  1. break the curves from the second set at the intersection points with the curves from the first set
     #  2. to select only the segments that are inside the curves from the first set.
-    import yappi
-    yappi.set_clock_type('WALL')
-    yappi.start()
-    nurbs_pipeline_new()
-    yappi.stop()
-    yappi.get_func_stats().print_all()
-    yappi.convert2pstats(yappi.get_func_stats()).dump_stats(Path(__file__).with_suffix(".pstat"))
+    _missing = [f for f in ("curves_set1.txt", "curves_set2.txt")
+                if not (Path(__file__).parent / f).exists()]
+    if _missing:
+        raise SystemExit(
+            f"input data not found next to this script: {_missing} — "
+            "this example's curve sets were never tracked; place the two "
+            "JSON curve-set files in examples/ccx/ to run it.")
+    try:
+        import yappi
+    except ImportError:
+        nurbs_pipeline_new()
+    else:
+        yappi.set_clock_type('WALL')
+        yappi.start()
+        nurbs_pipeline_new()
+        yappi.stop()
+        yappi.get_func_stats().print_all()
+        yappi.convert2pstats(yappi.get_func_stats()).dump_stats(Path(__file__).with_suffix(".pstat"))

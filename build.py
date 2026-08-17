@@ -122,8 +122,8 @@ cython_extensions = [
         include_dirs=include_dirs,
     ),
     Extension(
-        "mmcore.geom.nurbs",
-        ["mmcore/geom/nurbs.pyx"],
+        "mmcore.nurbs._core",
+        ["mmcore/nurbs/_core.pyx"],
         language="c++",
         extra_compile_args=cpp_compile_args + compile_args,
         extra_link_args=link_args,
@@ -136,21 +136,6 @@ cython_extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-    # Extension(
-    #   "mmcore.numeric.intersection.ssx.cydqr",
-    #   ["mmcore/numeric/intersection/ssx/cydqr.pyx"],
-    #
-    #    language="c++",
-    #   extra_compile_args=["-std=c++11"]+compile_args,
-    #        extra_link_args=link_args,
-    #   include_dirs=include_dirs),
-    # Extension(
-    #     "mmcore.numeric.matrix",
-    #     ["mmcore/numeric/matrix/__init__.pyx"],
-    #     extra_compile_args=compile_args,
-    #     extra_link_args=link_args,
-    #     include_dirs=include_dirs,
-    # ),
     Extension(
         "mmcore.numeric.algorithms.cygjk",
         ["mmcore/numeric/algorithms/cygjk.pyx", "mmcore/numeric/algorithms/_gjk.cpp"],
@@ -168,8 +153,8 @@ cython_extensions = [
     ),
 
     Extension(
-        "mmcore.geom.primitives",
-        ["mmcore/geom/primitives.pyx"],
+        "mmcore.nurbs.primitives",
+        ["mmcore/nurbs/primitives.pyx"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
         include_dirs=include_dirs,
@@ -182,8 +167,8 @@ cython_extensions = [
         include_dirs=include_dirs,
     ),
     Extension(
-        "mmcore.geom.parametric",
-        ["mmcore/geom/parametric.pyx"],
+        "mmcore.nurbs.parametric",
+        ["mmcore/nurbs/parametric.pyx"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
         include_dirs=include_dirs,
@@ -196,16 +181,9 @@ cython_extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-    # Extension(
-    #    "mmcore.geom.curves._cubic",
-    #    ["mmcore/geom/curves/_cubic.pyx"],
-    #    extra_compile_args=compile_args,
-    #    extra_link_args=link_args,
-    #    include_dirs=include_dirs,
-    # ),
     Extension(
-        "mmcore.geom.implicit.tree.cbuild_tree3d",
-        ["mmcore/geom/implicit/tree/cbuild_tree3d.pyx"],
+        "mmcore.implicit.tree.cbuild_tree3d",
+        ["mmcore/implicit/tree/cbuild_tree3d.pyx"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
         include_dirs=include_dirs,
@@ -224,21 +202,6 @@ cython_extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-    Extension(
-        "mmcore.numeric.intersection.ssx._ssx_utils",
-        ["mmcore/numeric/intersection/ssx/_ssx_utils.pyx"],
-        extra_compile_args=compile_args,
-        extra_link_args=link_args,
-        include_dirs=include_dirs,
-    ),
-
-    # Extension(
-    #    "mmcore.geom.surfaces.ellipsoid",
-    #    ["mmcore/geom/surfaces/ellipsoid.pyx"],
-    #    extra_compile_args=compile_args,
-    #    extra_link_args=link_args,
-    #    include_dirs=include_dirs,
-    # ),
     Extension(
         "mmcore.numeric.integrate.romberg",
         ["mmcore/numeric/integrate/romberg.pyx"],

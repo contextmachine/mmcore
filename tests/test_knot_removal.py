@@ -1,4 +1,4 @@
-"""Tests for the A5.8 knot-removal fix in mmcore.geom._nurbs_knots.
+"""Tests for the A5.8 knot-removal fix in mmcore.nurbs._nurbs_knots.
 
 The previous implementation was an incorrect transcription of Algorithm A5.8
 (wrong `while` bound, wrong alpha denominator, broken incremental bookkeeping):
@@ -10,8 +10,8 @@ and the reported count must equal the number actually removed.
 import numpy as np
 import pytest
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, evaluate_nurbs_curve
-from mmcore.geom._nurbs_knots import (
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, evaluate_nurbs_curve
+from mmcore.nurbs._nurbs_knots import (
     insert_knot_curve, remove_knot_curve_max,
     insert_knot_surface_u, remove_knot_surface_u,
 )

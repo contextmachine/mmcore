@@ -5,9 +5,9 @@ from pathlib import Path
 import numpy as np
 
 from mmcore.construction import nurbs_curve
-from mmcore.geom._nurbs_eval import _nurbs_to_tuple
-from mmcore.geom._nurbs_knots import normalize_knots_surface_inplace
-from mmcore.geom.nurbs import NURBSSurface
+from mmcore.nurbs._nurbs_eval import _nurbs_to_tuple
+from mmcore.nurbs._nurbs_knots import normalize_knots_surface_inplace
+from mmcore.nurbs._core import NURBSSurface
 from mmcore.numeric.intersection.ssx import nurbs_ssx
 pts1 = np.array(
     [
@@ -107,11 +107,11 @@ logging.basicConfig(level=getattr(logging, args.loglevel, logging.INFO))
 from mmcore.numeric.intersection.ssx import nurbs_ssx
 
 s = time.time()
-result = nurbs_ssx(s1, s2, atol=args.atol, angle_tol=args.angle_tol)
+result = nurbs_ssx(s1, s2, atol=args.atol)
 
 print(f"intersection computed at: {time.time() - s} sec.")
-print(len(result[0]), "branch(s)")
-print(len(result[1]), "pts(s)")
+print(len(result['branches']), "branch(s)")
+print(len(result['points']), "pts(s)")
 
 if args.save_pkl or args.pkl_path is not None:
     path = save_pkl(s1, s2, result, fp=args.pkl_path)

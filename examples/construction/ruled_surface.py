@@ -1,5 +1,5 @@
 import numpy as np
-from mmcore.geom.nurbs import NURBSCurve
+from mmcore.nurbs._core import NURBSCurve
 
 from mmcore.construction import ruled
 

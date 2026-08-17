@@ -15,7 +15,7 @@ from math import comb
 import math
 import numpy as np
 
-from .._bezier_common import _compute_remaining_intervals
+from mmcore.numeric._bezier_common import _compute_remaining_intervals
 from mmcore.numeric.aabb import aabb_offset
 from mmcore.numeric._aabb import aabb_intersect, aabb
 from mmcore.numeric._work_budget import DownCounter
@@ -24,7 +24,7 @@ from mmcore.numeric.bern import (
     bernstein_partial_derivative_coeffs,
 )
 from mmcore.numeric.bern_sq_dist import curve_surface_distance_squared_net_homog
-from mmcore.numeric.intersection._bezier_common import (
+from mmcore.numeric._bezier_common import (
     extract_weights, eval_curve, eval_surface, eval_curve_d1, eval_surface_d1,
     newton_csx, bernstein_product_1d, subdivide_curve, subdivide_sq_dist_net,
     restrict_net_axis, restrict_net_axis_v, geometry_collapsed,
@@ -170,7 +170,7 @@ def _compute_param_tols_csx(C, S, atol, rational):
 
     Returns (ptol_t, ptol_u, ptol_v).
     """
-    from mmcore.geom._nurbs_param_tol import bez_curve_param_tolerance, bez_surface_param_tolerance
+    from mmcore.nurbs._nurbs_param_tol import bez_curve_param_tolerance, bez_surface_param_tolerance
     ptol_t = float(bez_curve_param_tolerance(C, tol=atol, rational=rational))
     ptol_u, ptol_v = bez_surface_param_tolerance(S, tol=atol, rational=rational)
     return ptol_t, float(ptol_u), float(ptol_v)
@@ -856,7 +856,7 @@ def _find_csx_boundary_zeros(
 
         # Find precise zeros on the 2D face using the 1D solver
         # (finds zeros on edges of the face)
-        from mmcore.numeric.intersection._bern_zero_1d import bernstein_zero_budget
+        from mmcore.numeric._bern_zero_1d import bernstein_zero_budget
         with bernstein_zero_budget(
             cells.remaining, max(0, max_results - len(zeros)),
         ) as zero_budget:
@@ -889,7 +889,7 @@ def _find_csx_boundary_zeros(
         # (not just on its edges). Use Newton on the point-on-surface problem.
         pt = eval_curve(C, float(t_side), rational=rational)
         # Simple Newton: project point onto surface
-        from mmcore.numeric.intersection._bezier_common import eval_surface_d1
+        from mmcore.numeric._bezier_common import eval_surface_d1
         u_s, v_s = 0.5, 0.5  # seed from center
         for _it in range(20):
             s_pt, s_du, s_dv = eval_surface_d1(S, u_s, v_s, rational=rational)
@@ -1025,7 +1025,7 @@ def _find_csx_boundary_zeros(
 
 def _project_point_on_surface(pt, S, u_seed, v_seed, atol, rational, max_it=20):
     """Project a 3D point onto a Bezier surface. Returns (u, v, dist)."""
-    from mmcore.numeric.intersection._bezier_common import eval_surface_d1
+    from mmcore.numeric._bezier_common import eval_surface_d1
     u, v = float(u_seed), float(v_seed)
     for _ in range(max_it):
         s_pt, s_du, s_dv = eval_surface_d1(S, u, v, rational=rational)

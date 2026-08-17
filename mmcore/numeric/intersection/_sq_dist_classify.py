@@ -17,7 +17,7 @@ from mmcore.numeric.bern import (
     de_casteljau_restrict_nd,
     bernstein_eval_nd,
 )
-from mmcore.numeric.intersection._bern_zero_1d import find_bernstein_zeros_1d
+from mmcore.numeric._bern_zero_1d import find_bernstein_zeros_1d
 
 # ---------------------------------------------------------------------------
 # Classification constants

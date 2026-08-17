@@ -3,7 +3,7 @@ import numpy as np
 
 from mmcore.construction import nurbs_curve,NURBSCurveTuple
 from mmcore.numeric.intersection.ccx import nurbs_ccx
-from mmcore.geom._nurbs_knots import split_curve_multiple,trim_curve
+from mmcore.nurbs._nurbs_knots import split_curve_multiple,trim_curve
 curve1:NURBSCurveTuple = nurbs_curve(np.array(
         [
             [-19.77608536, 23.10065701, 0.0],
@@ -21,14 +21,14 @@ curve2:NURBSCurveTuple = nurbs_curve(np.array(
         ]
     ))
 
-isolated,overlaps=nurbs_ccx(curve1,curve2)
+isolated, overlaps, _status = nurbs_ccx(curve1, curve2)
 print(overlaps)
 
 overs=[]
 
 crvs=[]
 
-for i in range(overlaps.shape[0]):
+for i in range(overlaps.shape[0] if overlaps is not None else 0):
 
     t0,s0=overlaps['u'][i,0],overlaps['v'][i,0],
     t1,s1=overlaps['u'][i,-1],overlaps['v'][i,-1],
@@ -53,16 +53,19 @@ for i in range(overlaps.shape[0]):
         crvs.append(trim_curve(curve2, s1, curve1.interval()[1]))
 
 
-from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera
+print('isolated:')
+print(isolated)
 
-
-
-
-viewer=Viewer(camera=OrbitCamera(np.average(curve1.control_points,axis=0)))
-for crv in crvs:
-    viewer.add(crv,color=(0.7, 0.9, 1.0, 1.0))
-for overlap_segm,overlap in zip(overs,overlaps['point']):
-    viewer.add(overlap_segm,color=(0.0, 1.0, 0.5, 1.0))
-    viewer.add(overlap[0],color=(0.0, 1.0, 0.5, 1.0),size_px=12)
-    viewer.add(overlap[-1], color=(0.0, 1.0, 0.5, 1.0), size_px=12)
-viewer.run()
+try:
+    from mmcore.extras.renderer.renderer3d import Viewer, OrbitCamera
+except ImportError:
+    print("mmcore renderer is not installed, skip preview.")
+else:
+    viewer=Viewer(camera=OrbitCamera(np.average(curve1.control_points,axis=0)))
+    for crv in crvs:
+        viewer.add(crv,color=(0.7, 0.9, 1.0, 1.0))
+    for overlap_segm,overlap in zip(overs,overlaps['point'] if overlaps is not None else []):
+        viewer.add(overlap_segm,color=(0.0, 1.0, 0.5, 1.0))
+        viewer.add(overlap[0],color=(0.0, 1.0, 0.5, 1.0),size_px=12)
+        viewer.add(overlap[-1], color=(0.0, 1.0, 0.5, 1.0), size_px=12)
+    viewer.run()

@@ -3,7 +3,7 @@ from scipy.optimize import linprog
 
 __all__=['spherical_separability']
 
-from mmcore.geom.nurbs import subdivide_surface, split_curve, NURBSSurface, NURBSCurve
+from mmcore.nurbs._core import subdivide_surface, split_curve, NURBSSurface, NURBSCurve
 
 from mmcore.numeric.vectors import unit, dot, scalar_norm, scalar_unit
 from mmcore.numeric.interval import Interval,Comparison

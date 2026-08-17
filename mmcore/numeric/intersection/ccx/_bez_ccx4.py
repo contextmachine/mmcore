@@ -14,7 +14,7 @@ from mmcore.numeric.aabb import aabb_intersect,aabb
 from mmcore.numeric._work_budget import DownCounter
 from mmcore.numeric.bern import de_casteljau_split_nd
 from mmcore.numeric.bern_sq_dist import curve_curve_squared_net_homog
-from mmcore.numeric.intersection._bezier_common import (
+from mmcore.numeric._bezier_common import (
     extract_weights, eval_curve, eval_curve_d1, newton_ccx,
     bernstein_product_1d, subdivide_curve, subdivide_sq_dist_net,
     restrict_net_axis,
@@ -75,7 +75,7 @@ def _compute_param_tols(C1, C2, atol, rational):
     Returns (tol_u, tol_v) — the maximum parameter perturbation in each
     curve that corresponds to geometric deviation <= atol.
     """
-    from mmcore.geom._nurbs_param_tol import bez_curve_param_tolerance
+    from mmcore.nurbs._nurbs_param_tol import bez_curve_param_tolerance
     tol_u = bez_curve_param_tolerance(C1, tol=atol, rational=rational)
     tol_v = bez_curve_param_tolerance(C2, tol=atol, rational=rational)
 
@@ -1071,7 +1071,7 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
 # ---------------------------------------------------------------------------
 # Main algorithm: two-phase architecture
 # ---------------------------------------------------------------------------
-from .._bezier_common import _compute_remaining_intervals
+from mmcore.numeric._bezier_common import _compute_remaining_intervals
 
 
 def bez_ccx(
@@ -1145,7 +1145,7 @@ def bez_ccx(
     # deliberately below the point where the classifier's pairwise valley
     # check becomes a material O(B^2) operation.
     cells.spend(1)
-    from mmcore.numeric.intersection._bern_zero_1d import bernstein_zero_budget
+    from mmcore.numeric._bern_zero_1d import bernstein_zero_budget
     boundary_root_cap = min(max(0, int(max_results)), 128)
 
     # ``_check_overlap`` pairs every near-zero coefficient on opposite

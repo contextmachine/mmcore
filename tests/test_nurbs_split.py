@@ -1,9 +1,9 @@
-from mmcore.geom._nurbs_knots import split_curve, subdivide_surface
-from mmcore.geom._nurbs_eval import nurbs_curve, _nurbs_to_tuple, nurbs_interval, nurbs_curve, _nurbs_to_tuple,NURBSCurveTuple,NURBSSurfaceTuple
-from mmcore.geom._nurbs_construct import circle
+from mmcore.nurbs._nurbs_knots import split_curve, subdivide_surface
+from mmcore.nurbs._nurbs_eval import nurbs_curve, _nurbs_to_tuple, nurbs_interval, nurbs_curve, _nurbs_to_tuple,NURBSCurveTuple,NURBSSurfaceTuple
+from mmcore.nurbs._nurbs_construct import circle
 import numpy as np
 
-from mmcore.geom.nurbs import NURBSSurface
+from mmcore.nurbs._core import NURBSSurface
 
 
 def prepare_curve_case1(degree:int):
@@ -22,7 +22,7 @@ def prepare_curve_case1(degree:int):
         ]
     )
 
-    from mmcore.geom.nurbs import NURBSCurve
+    from mmcore.nurbs._core import NURBSCurve
 
     crv = NURBSCurve(cpts, degree)
 

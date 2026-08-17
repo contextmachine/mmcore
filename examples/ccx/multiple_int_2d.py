@@ -1,5 +1,5 @@
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 
 
 val = [NURBSCurveTuple(
@@ -59,19 +59,24 @@ val = [NURBSCurveTuple(
     weights=np.array([1., 1., 1., 1., 1., 1., 1., 1.])
 )
 ]
-from mmcore.numeric.intersection.ccx import nurbs_ccx,nurbs_ccx_multiple
-from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera
+from mmcore.numeric.intersection.ccx import nurbs_ccx_multiple
 
-isolated,overlaps=nurbs_ccx_multiple(val,rational=True)
+isolated, overlaps, _status = nurbs_ccx_multiple(val)
 print('isolated:')
 print(isolated)
 print('overlaps:')
 print(overlaps)
-viewer=Viewer(camera=OrbitCamera(target=(106.97827 ,  167.56537,0),up=(0,1.,0.), ortho_half_height=110,distance=300,yaw= -3*np.pi/2,pitch= -np.pi/2))
-viewer.cam.lock_orbit(True)
-for curve in val:
-    viewer.add(curve, color=(0.7, 0.9, 1.0, 1.0))
-for pt in isolated['point']:
-    viewer.add(pt, color=(0.0, 1.0, 0.5,1.0),size_px=11)
 
-viewer.run()
+try:
+    from mmcore.extras.renderer.renderer3d import Viewer, OrbitCamera
+except ImportError:
+    print("mmcore renderer is not installed, skip preview.")
+else:
+    viewer=Viewer(camera=OrbitCamera(target=(106.97827 ,  167.56537,0),up=(0,1.,0.), ortho_half_height=110,distance=300,yaw= -3*np.pi/2,pitch= -np.pi/2))
+    viewer.cam.lock_orbit(True)
+    for curve in val:
+        viewer.add(curve, color=(0.7, 0.9, 1.0, 1.0))
+    for pt in isolated['point']:
+        viewer.add(pt, color=(0.0, 1.0, 0.5,1.0),size_px=11)
+
+    viewer.run()

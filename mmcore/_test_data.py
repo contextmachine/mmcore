@@ -1,4 +1,4 @@
-from mmcore.geom.nurbs import NURBSSurface, NURBSCurve
+from mmcore.nurbs._core import NURBSSurface, NURBSCurve
 import numpy as np
 
 

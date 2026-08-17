@@ -48,7 +48,7 @@ import time
 
 def test_bernstein_zero_result_budget_stops_recursive_materialization():
     """A full result quota must stop before materializing child roots."""
-    from mmcore.numeric.intersection._bern_zero_1d import (
+    from mmcore.numeric._bern_zero_1d import (
         bernstein_zero_budget,
         find_bernstein_zeros_1d,
     )
@@ -68,7 +68,7 @@ def test_bernstein_zero_result_budget_stops_recursive_materialization():
 
 def test_bernstein_zero_unresolved_depth_limit_exhausts_scoped_budget():
     """A Newton fallback cannot certify a multi-minimum interval complete."""
-    from mmcore.numeric.intersection._bern_zero_1d import (
+    from mmcore.numeric._bern_zero_1d import (
         bernstein_zero_budget,
         find_bernstein_zeros_1d,
     )
@@ -198,7 +198,7 @@ def test_constant_rational_curve_on_surface_is_parameter_fiber():
     the number of reported samples.
     """
     from examples.ssx.bez_ssx5_case14 import S1, S2
-    from mmcore.numeric.intersection._bezier_common import eval_curve, eval_surface
+    from mmcore.numeric._bezier_common import eval_curve, eval_surface
 
     C = S1[:, 0, :]
     t0 = time.perf_counter()
@@ -303,7 +303,7 @@ def test_collapsed_curve_detection_is_translation_invariant():
 
 
 def test_rational_param_tolerance_is_translation_invariant_for_constant_geometry():
-    from mmcore.geom._nurbs_param_tol import (
+    from mmcore.nurbs._nurbs_param_tol import (
         bez_curve_param_tolerance, bez_surface_param_tolerance,
     )
 
@@ -382,7 +382,7 @@ def test_rational_arc_surface():
 
 def test_no_false_positives_csx():
     """Every reported intersection must have actual distance < atol."""
-    from mmcore.numeric.intersection._bezier_common import eval_surface
+    from mmcore.numeric._bezier_common import eval_surface
     # Line through a curved rational surface — multiple intersections
     w = np.sqrt(0.5)
     S = np.array([
@@ -393,7 +393,7 @@ def test_no_false_positives_csx():
     C = np.array([[1.0, 1.0, -0.5, 1.0], [1.0, 1.0, 0.5, 1.0]])
     result = bez_csx(C, S, atol=1e-3, rational=True)
     for iso in result["isolated"]:
-        from mmcore.numeric.intersection._bezier_common import eval_curve
+        from mmcore.numeric._bezier_common import eval_curve
         pt_c = eval_curve(C, iso["t"], rational=True)
         pt_s = eval_surface(S, iso["u"], iso["v"], rational=True)
         dist = float(np.linalg.norm(pt_c - pt_s))
@@ -451,7 +451,7 @@ def test_line_crossing_plane_one_intersection():
     assert len(result["isolated"]) == 1
     iso = result["isolated"][0]
     # Verify geometric match
-    from mmcore.numeric.intersection._bezier_common import eval_curve, eval_surface
+    from mmcore.numeric._bezier_common import eval_curve, eval_surface
     pt_c = eval_curve(C, iso["t"], rational=False)
     pt_s = eval_surface(S, iso["u"], iso["v"], rational=False)
     assert float(np.linalg.norm(pt_c - pt_s)) < 1e-3

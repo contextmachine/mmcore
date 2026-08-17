@@ -37,7 +37,7 @@ import time
 
 import numpy as np
 
-from mmcore.geom.nurbs_iso import extract_isocurve
+from mmcore.nurbs.nurbs_iso import extract_isocurve
 from mmcore.numeric.intersection.csx._ncsx4 import nurbs_csx
 from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
 from mmcore.numeric.intersection.ssx._bez_ssx5 import _dist_point_polyline

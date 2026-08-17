@@ -3,6 +3,8 @@ name: poetry-build
 on:
   push:
     branches: [ "master","dev", "tiny", "0.53.0"]
+  pull_request:
+    branches: [ "tiny" ]
 
 
 jobs:
@@ -55,6 +57,22 @@ jobs:
 
       - name: Poetry build
         run: poetry build
+
+      # Gates run once (ubuntu / one Python), after `poetry build` so the
+      # freshly compiled extensions are already copied into the source tree
+      # by build.py. `python -m pytest` from the repo root is required:
+      # there is no conftest.py and test fixtures are CWD-relative.
+      - name: Import health (subset of benign optional-dep leaves)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: poetry run python tools/check_imports.py
+
+      - name: Layering (no upward import edges)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: poetry run python tools/check_layering.py
+
+      - name: Test suite (without the single slow case)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: poetry run python -m pytest tests -q -m "not slow"
 
       - name: Artifact name
         id: artifactname

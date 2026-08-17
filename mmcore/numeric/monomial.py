@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.special import comb
 from itertools import product
-from mmcore.geom.nurbs import NURBSSurface
+from mmcore.nurbs._core import NURBSSurface
 
 from mmcore.numeric.binom import binomial_coefficient_py
 from functools import lru_cache

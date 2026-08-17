@@ -7,13 +7,13 @@ from typing import Callable
 import numpy as np
 from numpy.typing import ArrayLike
 
-from mmcore.geom.implicit.tree import ImplicitTree2D, implicit_find_features
+from mmcore.implicit.tree import ImplicitTree2D, implicit_find_features
 
 from mmcore.numeric.aabb import curve_aabb, aabb_overlap, curve_aabb_eager
 from mmcore.numeric.divide_and_conquer import test_all_roots
 from mmcore.numeric.routines import divide_interval
-from mmcore.geom.nurbs import NURBSCurve
-from mmcore.geom._nurbs_eval import NURBSCurveTuple,_nurbs_to_tuple,_tuple_to_nurbs
+from mmcore.nurbs._core import NURBSCurve
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple,_nurbs_to_tuple,_tuple_to_nurbs
 from ._nccx4 import nurbs_ccx,nurbs_ccx_multiple
 __all__ = ["ccx", "curve_curve_intersect", 'nurbs_ccx_multiple','nurbs_ccx',"curve_x_axis", "curve_x_ray", "curve_pix","curve_ppx", "curve_iix"]
 
@@ -90,7 +90,7 @@ def ccx(curve1, curve2, tol: float = 0.001):
         ...                  [1.217, 18.625, 0.0]])
         >>> pts2 = np.array([[61.974, 73.943, 0.0], [119.797, 4.443, 0.0]])
 
-        >>> from mmcore.geom.nurbs import NURBSCurve
+        >>> from mmcore.nurbs._core import NURBSCurve
         >>> nc1, nc2 = NURBSCurve(pts1, degree=1), NURBSCurve(pts2, degree=1)
         >>> ccx(nc1, nc2, spt=1e-3)
         [(0.4714, 0.1658), (0.4718, 0.1659), (1.4348, 0.3157), (1.4353, 0.3157),
@@ -172,7 +172,7 @@ def curve_pix(curve, implicit: Callable[[ArrayLike], float], step: float = 0.5, 
 
         >>> import numpy as np
         >>> from mmcore.numeric.intersection.ccx import curve_pix
-        >>> from mmcore.geom.curves import NURBSpline
+        >>> from mmcore.nurbs.curves import NURBSpline
 
         # Define an implicit curve (Cassini oval)
         >>> def cassini(x, a=1.1, c=1.0):
@@ -367,7 +367,7 @@ def curve_iix(curve1, curve2, tree: ImplicitTree2D = None, rtol=None, atol=None)
 
     **Usage Example**::
 
-        >>> from mmcore.geom.implicit import Implicit2D
+        >>> from mmcore.implicit import Implicit2D
 
         # Define two implicit circles
         >>> class Circle2D(Implicit2D):
@@ -464,37 +464,3 @@ def curve_intersect_old(curve1, curve2, tol: float = 0.01) -> list[tuple[float, 
 
 
 
-if __name__ == "__main__":
-    # print(res[0].control_points, res[1].control_points)
-    from mmcore.geom.curves import NURBSpline
-
-    aa, bb = NURBSpline(
-        np.array(
-            [
-                (-13.654958030023677, -19.907874497194975, 0.0),
-                (3.7576433265207765, -39.948793039632903, 0.0),
-                (16.324284871574083, -18.018771519834026, 0.0),
-                (44.907234268165922, -38.223959886390297, 0.0),
-                (49.260384607302036, -13.419216444520401, 0.0),
-            ]
-        )
-    ), NURBSpline(
-        np.array(
-            [
-                (40.964758489325661, -3.8915666456564679, 0.0),
-                (-9.5482124270650726, -28.039230791052990, 0.0),
-                (4.1683178868166371, -58.264878428828240, 0.0),
-                (37.268687446662931, -58.100608604709883, 0.0),
-            ]
-        )
-    )
-    import time
-
-    s = time.time()
-    res = curve_ppx(aa, bb, 0.001, tol_bbox=0.1, eager=True)
-
-    print(time.time() - s)
-
-    print(res)
-    # [(0.600738525390625, 0.371673583984375)]
-    print(aa(res[0][0]))

@@ -9,10 +9,10 @@ import numpy as np
 from mmcore import __version__
 from steputils import p21
 from itertools import count
-from mmcore.geom.nurbs import NURBSCurve, NURBSSurface
+from mmcore.nurbs._core import NURBSCurve, NURBSSurface
 
-from mmcore.geom._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple, NURBSCurveTuple
-from mmcore.geom.nurbs_iso import extract_surface_boundaries, extract_surface_boundaries_tuple
+from mmcore.nurbs._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple, NURBSCurveTuple
+from mmcore.nurbs.nurbs_iso import extract_surface_boundaries, extract_surface_boundaries_tuple
 
 import re
 
@@ -623,7 +623,7 @@ class StepWriter:
         p21.Reference
             Reference to the SHELL_BASED_SURFACE_MODEL entity.
         """
-        from mmcore.geom._nurbs_knots import trim_curve
+        from mmcore.nurbs._nurbs_knots import trim_curve
 
         # --- cache: map BRep entity IDs to STEP references ---
         # Avoids creating duplicate STEP entities for shared topology

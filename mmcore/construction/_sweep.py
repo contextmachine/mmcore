@@ -5,8 +5,8 @@ import math
 from typing import List, Sequence, Tuple, Literal, Union, Optional
 
 
-from mmcore.geom._nurbs_eval import NURBSSurfaceTuple, NURBSCurveTuple
-from mmcore.geom._nurbs_knots import (
+from mmcore.nurbs._nurbs_eval import NURBSSurfaceTuple, NURBSCurveTuple
+from mmcore.nurbs._nurbs_knots import (
     split_curve_multiple,
     link_curves,
     make_curves_compatible_multiple,
@@ -376,7 +376,7 @@ def _assign_anchors_to_params(params_u: np.ndarray, anchors_u: np.ndarray) -> Tu
     return idx_map, params_new
 
 
-from mmcore.geom._nurbs_eval import from_homogeneous_1d, to_homogeneous_1d
+from mmcore.nurbs._nurbs_eval import from_homogeneous_1d, to_homogeneous_1d
 
 
 # ------------------------------------------------------------

@@ -3,14 +3,14 @@ from typing import Collection,TypedDict
 
 import numpy as np
 from ._classes import Tessellation, Mesh, tess_to_mesh
-from mmcore.geom.nurbs import NURBSSurface, decompose_surface
+from mmcore.nurbs._core import NURBSSurface, decompose_surface
 
 from mmcore.numeric.algorithms.adaptive_polyline import adaptive_polyline
 from mmcore.numeric.routines import uvs
 from mmcore.topo.mesh.triangle import triangulate
 from mmcore.topo.mesh.triangle.tri import segments_by_loop
-from mmcore.geom.nurbs_iso import extract_surface_boundaries
-from ...geom._nurbs_eval import to_homogeneous_2d
+from mmcore.nurbs.nurbs_iso import extract_surface_boundaries
+from mmcore.nurbs._nurbs_eval import to_homogeneous_2d
 from ...numeric.approx import adaptive_bern_sampler_2d
 
 
@@ -162,7 +162,7 @@ def tessellate_brep_face(brep, face_id: int, tol: float = 1e-2) -> Mesh:
     Mesh
         dict with 'position' (N,3) float32 and 'faces' (T,3) int32.
     """
-    from mmcore.geom._nurbs_eval import (
+    from mmcore.nurbs._nurbs_eval import (
         evaluate_nurbs_surface,
         evaluate_nurbs_curve_array,
         to_homogeneous_2d,
@@ -291,7 +291,7 @@ def tessellate_brep_face(brep, face_id: int, tol: float = 1e-2) -> Mesh:
     uv_verts = np.array(tess_result['vertices'], dtype=float)
     try:
         # Fast path: convert to Cython NURBSSurface for batch evaluation
-        from mmcore.geom._nurbs_eval import _tuple_to_nurbs
+        from mmcore.nurbs._nurbs_eval import _tuple_to_nurbs
         surf_cy = _tuple_to_nurbs(srf)
         positions = np.ascontiguousarray(
             surf_cy.evaluate_multi(uv_verts), dtype=np.float32
@@ -317,7 +317,7 @@ def as_polygons(triangulate_result):
     :return:
     """
     return triangulate_result['position'][triangulate_result['triangles']]
-from mmcore.geom.bvh import Object3D,BoundingBox,build_bvh,PTriangle
+from mmcore.numeric.bvh import Object3D,BoundingBox,build_bvh,PTriangle
 def as_bvh(triangulate_result):
     uvs=triangulate_result['vertices'][triangulate_result['triangles']]
     pos=triangulate_result['position'][triangulate_result['triangles']]

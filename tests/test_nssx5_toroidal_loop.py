@@ -30,8 +30,8 @@ CLOSURE, ARC LENGTH, and the absence of a self-retrace.
 import numpy as np
 import pytest
 
-from mmcore.geom._nurbs_eval import NURBSSurfaceTuple, evaluate_nurbs_surface
-from mmcore.numeric.intersection.ssx import nurbs_ssx_v5
+from mmcore.nurbs._nurbs_eval import NURBSSurfaceTuple, evaluate_nurbs_surface
+from mmcore.numeric.intersection.ssx import nurbs_ssx
 
 # Converged reference (atol=1e-5, both orderings agree to 1e-8).
 LOOP_ARCLEN = 18.61455
@@ -138,7 +138,7 @@ def _toroid_2():
 
 
 def _sole_branch(a, b, atol):
-    res = nurbs_ssx_v5(a, b, atol=atol)
+    res = nurbs_ssx(a, b, atol=atol)
     branches = res['branches']
     assert len(branches) == 1, (
         f"expected the single closed loop, got {len(branches)} branches")

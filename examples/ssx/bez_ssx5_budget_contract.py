@@ -22,7 +22,7 @@ import sys
 
 import numpy as np
 
-from mmcore.numeric.intersection._bezier_common import eval_surface
+from mmcore.numeric._bezier_common import eval_surface
 from mmcore.numeric.intersection.ssx import _bez_ssx5 as engine
 from bez_ssx5_coverage_check import ALL_CASES, load_case_surfaces
 

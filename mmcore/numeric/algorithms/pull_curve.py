@@ -3,13 +3,13 @@
 from scipy.integrate import solve_ivp
 import numpy as np
 
-from mmcore.geom.nurbs import NURBSSurface
+from mmcore.nurbs._core import NURBSSurface
 
 from mmcore.numeric import compute_parametric_sectional_curvature_tolerance_surface, \
     compute_parametric_curvature_tolerance_curve, compute_parametric_tolerance_curve, \
     compute_parametric_tolerance_surface
 from mmcore.numeric.closest_point import nurbs_surface_closest_point
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, evaluate_nurbs_curve,evaluate_nurbs_surface
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, evaluate_nurbs_curve,evaluate_nurbs_surface
 
 
 from mmcore.numeric.newton.cnewton import newtons_method

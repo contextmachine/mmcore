@@ -5,9 +5,9 @@ from pathlib import Path
 
 import numpy as np
 
-from mmcore.geom.bvh.lbvh import AABB
+from mmcore.numeric.bvh.lbvh import AABB
 
-from mmcore.geom._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple, _nurbs_to_tuple
+from mmcore.nurbs._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple, _nurbs_to_tuple
 try:
     from mmcore.extras.renderer.renderer3d import Viewer, OrbitCamera
     VIEWER_INSTALLED = True
@@ -99,7 +99,7 @@ def save_pkl(s1,s2,result,fp=None)->Path:
         fp=inspect.getfile(_find_root_frame(inspect.currentframe()))
     pth=Path(fp).with_suffix('.pkl')
     with open(pth, 'wb') as f:
-        pickle.dump(((s1, s2), [r.curve_xyz for r in result[0]], [r.curve_st for r in result[0]], [r.curve_uv for r in result[0]], [p.xyz for p in result[1]]), f)
+        pickle.dump(((s1, s2), [r.curve_xyz for r in result['branches']], [r.curve_st for r in result['branches']], [r.curve_uv for r in result['branches']], [p.xyz for p in result['points']]), f)
     return pth
 
 
@@ -133,7 +133,7 @@ def draw_ssx(
 
     )
 
-    for branch in result[0]:
+    for branch in result['branches']:
 
         viewer.add_nurbs_curve(branch.curve_xyz, color=intersection_curves_material.color)
         if intersection_curves_material.show_control_net:
@@ -141,7 +141,7 @@ def draw_ssx(
                 viewer.add_point3d(p, color=intersection_curves_material.control_net_material.control_point_material.color, size_px=intersection_curves_material.control_net_material.control_point_material.size)
             viewer.add_nurbs_curve(nurbs_curve(branch.curve_xyz.control_points, 1), color=intersection_curves_material.control_net_material.color)
         # renderer.add_point3d(branch.curve_xyz.end(), color=(0.0, 1.0, 0.5, 1.0), size_px=6)
-    for p in result[1]:
+    for p in result['points']:
         viewer.add_point3d(p.xyz, color=intersection_points_material.color, size_px=intersection_points_material.size)
     if recompute_camera:
         viewer.cam.target=viewer.scene_info.bbox.centroid()

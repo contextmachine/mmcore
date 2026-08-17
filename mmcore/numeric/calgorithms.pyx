@@ -6,7 +6,7 @@ from libc.math cimport fabs,sqrt
 cimport numpy as cnp
 cnp.import_array()
 
-from mmcore.geom.primitives cimport Implicit3D
+from mmcore.nurbs.primitives cimport Implicit3D
 cimport mmcore.numeric.calgorithms
 cimport cython
 import numpy as np

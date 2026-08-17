@@ -1,7 +1,7 @@
 """This example demonstrates how to use the `NURBSSurface` class from the `mmcore` package to create NURBS (Non-Uniform
 Rational B-Splines) surfaces and how to write them to a STEP file using `StepWriter`."""
 import numpy as np
-from mmcore.geom.nurbs import NURBSSurface
+from mmcore.nurbs._core import NURBSSurface
 from mmcore.compat.step.step_writer import StepWriter
 
 # 1. **Defining NURBS Surfaces**:

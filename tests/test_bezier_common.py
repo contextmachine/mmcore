@@ -1,9 +1,9 @@
-"""Tests for mmcore.numeric.intersection._bezier_common shared utilities."""
+"""Tests for mmcore.numeric._bezier_common shared utilities."""
 
 import numpy as np
 import pytest
 
-from mmcore.numeric.intersection._bezier_common import (
+from mmcore.numeric._bezier_common import (
     extract_weights,
     dehomogenize_ctrl,
     is_homogeneous,
@@ -221,7 +221,7 @@ def _reference_product(a, b):
 
 
 def test_bernstein_product_1d_scalar_operands_bit_identical_to_reference():
-    from mmcore.numeric.intersection._bezier_common import bernstein_product_1d
+    from mmcore.numeric._bezier_common import bernstein_product_1d
 
     rng = np.random.default_rng(7)
     for p, q in ((1, 1), (2, 3), (3, 5), (7, 2)):
@@ -237,7 +237,7 @@ def test_bernstein_product_1d_scalar_operands_bit_identical_to_reference():
 
 
 def test_bernstein_product_1d_broadcasts_trailing_value_axes():
-    from mmcore.numeric.intersection._bezier_common import bernstein_product_1d
+    from mmcore.numeric._bezier_common import bernstein_product_1d
 
     rng = np.random.default_rng(11)
     A = rng.standard_normal((4, 3))     # degree-3 curve, 3 components
@@ -248,7 +248,7 @@ def test_bernstein_product_1d_broadcasts_trailing_value_axes():
 
 
 def test_bernstein_product_1d_delegations_are_the_same_object():
-    from mmcore.numeric.intersection._bezier_common import bernstein_product_1d
+    from mmcore.numeric._bezier_common import bernstein_product_1d
     from mmcore.numeric.intersection.ccx import _bez_ccx4
     from mmcore.numeric.intersection.csx import _bez_csx4
 

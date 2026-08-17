@@ -23,3 +23,20 @@ dist
 .claude-memory
 poetry.lock
 .claude
+
+# --- workspace scratch (restructure Step 0, 2026-08-16) ---
+.DS_Store
+__pycache__/
+*.pyc
+.codex/
+# root-level session outputs; NOTE: *.so/*.c stay UNIGNORED on purpose —
+# poetry-core packages untracked unignored files, which is how the wheel
+# ships its binaries (build.py copies fresh .so into the source tree)
+/*.pkl
+/*.stp
+/*.step
+/*.png
+/*.pdf
+/*.pstat
+/claude-*.txt
+tests/*.pkl

@@ -43,14 +43,14 @@ from dataclasses import dataclass, field
 import numpy as np
 from numpy.typing import NDArray
 
-from mmcore.geom import nurbs
-from mmcore.geom._nurbs_eval import (
+from mmcore.nurbs import _core as nurbs
+from mmcore.nurbs._nurbs_eval import (
     NURBSSurfaceTuple, _nurbs_to_tuple, to_homogeneous_2d,
     evaluate_nurbs_surface,
 )
-from mmcore.geom._nurbs_knots import decompose_surface
-from mmcore.geom._nurbs_param_tol import nurbs_surface_param_tolerance
-from mmcore.geom.bvh.lbvh import AABB, build_bvh, bvh_intersect
+from mmcore.nurbs._nurbs_knots import decompose_surface
+from mmcore.nurbs._nurbs_param_tol import nurbs_surface_param_tolerance
+from mmcore.numeric.bvh.lbvh import AABB, build_bvh, bvh_intersect
 from mmcore.numeric._work_budget import (
     SoftWorkBudget,
     REASON_WORK_BUDGET,
@@ -60,7 +60,7 @@ from mmcore.numeric._work_budget import (
 from mmcore.numeric.intersection.ssx._bez_ssx5 import (
     bez_ssx, SSXSingularity, _dist_point_polyline,
 )
-from mmcore.numeric.intersection.ssx._ssx4 import SSXBranch, SSXPoint
+from mmcore.numeric.intersection.ssx._ssx_substrate import SSXBranch, SSXPoint
 from mmcore.numeric.intersection.ssx._ssx5_overlap import (
     SSXOverlapRegion, _point_in_polygon, _dist_point_polyline_2d,
 )
@@ -104,7 +104,7 @@ def _as_surface_tuple(surf) -> NURBSSurfaceTuple:
         return _nurbs_to_tuple(surf)
     raise TypeError(
         "nurbs_ssx: arguments must be NURBSSurfaceTuple or "
-        f"mmcore.geom.nurbs.NURBSSurface, not {type(surf).__name__}")
+        f"mmcore.nurbs._core.NURBSSurface, not {type(surf).__name__}")
 
 
 def _is_rational(surf: NURBSSurfaceTuple) -> bool:

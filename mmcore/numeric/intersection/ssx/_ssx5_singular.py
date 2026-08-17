@@ -614,7 +614,7 @@ def phi_loop_seeds(S1_h, S2_h, T_nets, psi_rows, t_idx, atol, ptol,
     that need to surface truncation may pass `stats` and inspect
     `budget_exhausted` / `external_budget_exhausted`.
     """
-    from mmcore.numeric.intersection._bezier_common import eval_surface_d1
+    from mmcore.numeric._bezier_common import eval_surface_d1
 
     S1_h = np.asarray(S1_h, dtype=np.float64)
     S2_h = np.asarray(S2_h, dtype=np.float64)
@@ -652,7 +652,7 @@ def phi_loop_seeds(S1_h, S2_h, T_nets, psi_rows, t_idx, atol, ptol,
             return None
         return newton
 
-    from mmcore.numeric.intersection._bezier_common import eval_surface
+    from mmcore.numeric._bezier_common import eval_surface
 
     ptol = np.asarray(ptol, dtype=np.float64)
     seeds: list = []
@@ -785,7 +785,7 @@ def c1_pass(S1_h, S2_h, atol, ptol4, max_cells=20000,
     skip it for the cost of three min/max scans. Regular surfaces
     (all 7 coverage cases, all legacy minis) exit here.
     """
-    from mmcore.numeric.intersection._bezier_common import (
+    from mmcore.numeric._bezier_common import (
         eval_surface, eval_surface_d1,
     )
 
@@ -1124,7 +1124,7 @@ def c3_pass(S1_h, S2_h, branches, atol, ptol4, *,
     polyline — the vertex nearest the refined crossing (ledger L11), not
     the broadphase segment index.
     """
-    from mmcore.numeric.intersection._bezier_common import (
+    from mmcore.numeric._bezier_common import (
         eval_surface, eval_surface_d1,
     )
     ptol4 = np.asarray(ptol4, dtype=np.float64)

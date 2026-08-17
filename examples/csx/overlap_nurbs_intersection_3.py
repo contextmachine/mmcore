@@ -6,12 +6,12 @@ import rich
 
 from mmcore._test_data import csx as csx_cases
 
-from mmcore.numeric.intersection.csx import nurbs_csx, nurbs_csx_v2
+from mmcore.numeric.intersection.csx import nurbs_csx
 
-from mmcore.geom._nurbs_eval import _tuple_to_nurbs, _nurbs_to_tuple, evaluate_nurbs_curve
-from mmcore.geom._nurbs_knots import split_curve_multiple
+from mmcore.nurbs._nurbs_eval import _tuple_to_nurbs, _nurbs_to_tuple, evaluate_nurbs_curve
+from mmcore.nurbs._nurbs_knots import split_curve_multiple
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 import argparse
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -23,7 +23,10 @@ def parse_args():
     general_params.add_argument('--viewer', action='store_true')
 
     return parser.parse_args()
+
+
 args = parse_args()
+
 
 curve1 = NURBSCurveTuple(
     order=2,
@@ -80,38 +83,38 @@ inters = []
 overs = []
 pts = []
 s = time.time()
-result1 = nurbs_csx_v2(curve1, surface,tol=args.atol,angle_tol=args.angle_tol)
+result1 = nurbs_csx(curve1, surface, tol=args.atol, )
 pth=Path(__file__).parent/'result1.pkl'
 with open(pth, 'wb') as f:
     pickle.dump([curve1,surface], f)
-print(f"CSX v2 X 1 performed at: {time.time()-s} secs.")
+print(f"CSX v4 X 1 performed at: {time.time()-s} secs.")
 print('isolated:')
 if result1[0] is not None:
-    rich.print(result1[0]['point'])
+    rich.print(result1[0])
 print('overlaps:')
 if result1[1] is not None:
-    rich.print(result1[1]['point'])
+    rich.print(result1[1])
 
 s = time.time()
-result2 = nurbs_csx_v2(curve2, surface,tol=1e-3)
-print(f"CSX v2 X 2 performed at: {time.time()-s} secs.")
+result2 = nurbs_csx(curve2, surface, tol=args.atol)
+print(f"CSX v4 X 2 performed at: {time.time()-s} secs.")
 print('isolated:')
 if result2[0] is not None:
-    rich.print(result2[0]['point'])
+    rich.print(result2[0])
 print('overlaps:')
 if result2[1] is not None:
-    rich.print(result2[1]['point'])
+    rich.print(result2[1])
 
 s = time.time()
-result3 = nurbs_csx_v2(curve3, surface,tol=1e-3)
+result3 = nurbs_csx(curve3, surface, tol=args.atol)
 
-print(f"CSX v2 X 3 performed at: {time.time()-s} secs.")
+print(f"CSX v4 X 3 performed at: {time.time()-s} secs.")
 print('isolated:')
 if result3[0] is not None:
-    rich.print(result3[0]['point'])
+    rich.print(result3[0])
 print('overlaps:')
 if result3[1] is not None:
-    rich.print(result3[1]['point'])
+    rich.print(result3[1])
 
 try:
     if args.viewer:
@@ -125,25 +128,27 @@ try:
                 srf = viewer.add_nurbs_surface(surface, color=(0.3, 0.3, 0.3, 0.05), v_count=4)
 
             crv=  viewer.add(curve, color=(0.9, 0.9, 0.9, 1.0))
-            isolated, overlaps = result
+            isolated, overlaps,_ = result
             if isolated is not None:
                 uvs=[]
-                for pt in isolated['point']:
+                for pt in isolated:
 
-                    viewer.add(pt, color=(0.0, 1.0, 0.5,1.0),size_px=6)
+                    viewer.add(pt['point'], color=(0.0, 1.0, 0.5,1.0),size_px=6)
 
             if overlaps is not None:
 
-                for start,end in overlaps['point']:
-                    viewer.add(start, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
-                    viewer.add(end, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
+                for overlap in overlaps:
+                    t0,t1=overlap['t_range']
 
-                for o in overlaps["t"]:
+                    viewer.add(evaluate_nurbs_curve(curve, t0,d_order=0)['C'], color=(0.0, 1.0, 0.5, 1.0), size_px=6)
+                    viewer.add(evaluate_nurbs_curve(curve, t1,d_order=0)['C'], color=(0.0, 1.0, 0.5, 1.0), size_px=6)
 
-                    t0 = o[0]
-                    t1 = o[-1]
+                for o in overlaps:
 
-                    pts=np.linspace(t0,t1,50)
+                    t0 = o["t_range"][0]
+                    t1 = o["t_range"][-1]
+
+                    pts=np.linspace(t0,t1,800)
                     for t in pts:
 
                         evl=evaluate_nurbs_curve(curve,t,d_order=0)

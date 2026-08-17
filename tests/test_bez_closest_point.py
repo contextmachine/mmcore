@@ -47,7 +47,7 @@ from mmcore.numeric._bez_closest_point import (
     point_surface_stationarity_nets,
 )
 from mmcore.numeric import bern_sq_dist
-from mmcore.numeric.intersection._bezier_common import eval_curve
+from mmcore.numeric._bezier_common import eval_curve
 
 
 def _g_curve(F, Qw, t):
@@ -111,7 +111,7 @@ def test_surface_stationarity_nets_nonrational_are_partials():
 
 # tests/test_bez_closest_point.py  (append)
 from mmcore.numeric._bez_closest_point import eval_curve_d2, eval_surface_d2
-from mmcore.numeric.intersection._bezier_common import eval_curve, eval_surface
+from mmcore.numeric._bezier_common import eval_curve, eval_surface
 
 
 def test_eval_curve_d2_matches_finite_difference():
@@ -475,7 +475,7 @@ def test_surface_closest_on_corner():
 from mmcore.numeric._bez_closest_point import (
     nurbs_curve_closest_points, nurbs_surface_closest_points,
 )
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple
 
 
 def _bezier_curve_tuple(ctrl_xyz, weights):
@@ -496,7 +496,7 @@ def test_nurbs_curve_closest_global_matches_dense():
     P = np.array([1.5, 1.0, 0.0])
     res = nurbs_curve_closest_points(crv, P, atol=1e-6)
     # Dense ground truth over the global domain [0,1]
-    from mmcore.geom._nurbs_eval import evaluate_nurbs_curve
+    from mmcore.nurbs._nurbs_eval import evaluate_nurbs_curve
     ts = np.linspace(0, 1, 4000)
     d = np.array([np.linalg.norm(evaluate_nurbs_curve(crv, t, d_order=0)["C"] - P) for t in ts])
     assert abs(res[0]["distance"] - d.min()) < 1e-4
@@ -1015,7 +1015,7 @@ def test_rhino_paraboloid_single_closed_ring():
 # ---------------------------------------------------------------------------
 
 def _flat_square_surface():
-    from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
+    from mmcore.nurbs._nurbs_eval import NURBSSurfaceTuple
     axis = np.array([0.0, 0.0, 1.0, 1.0])
     pts = np.zeros((2, 2, 3))
     pts[..., 0] = [[0.0, 0.0], [1.0, 1.0]]
@@ -1068,7 +1068,7 @@ def test_interior_search_not_starved_by_boundary(monkeypatch):
         # burns the whole allowance AND reports one far boundary corner —
         # so the post-loop paranoia fallback (which only fires on an empty
         # entity set) cannot mask the starved interior.
-        from mmcore.numeric.intersection._bezier_common import eval_surface
+        from mmcore.numeric._bezier_common import eval_surface
         S_h = np.concatenate([S, np.ones(S.shape[:-1] + (1,))], axis=-1)
         pt = eval_surface(S_h, 0.0, 0.0, rational=True)
         out_points.append({"u": 0.0, "v": 0.0, "point": np.asarray(pt),

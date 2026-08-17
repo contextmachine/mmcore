@@ -46,7 +46,7 @@ def test_case11_default_nested_csx_budget_preserves_closed_loop():
 from mmcore.numeric.intersection.ssx._ssx5_singular import (
     BoxNet, psi_vector_net, linear_net_4d, sigma_normal_net, solve_zero_dim,
 )
-from mmcore.numeric.intersection._bezier_common import eval_surface, eval_surface_d1
+from mmcore.numeric._bezier_common import eval_surface, eval_surface_d1
 
 
 def _homog(S):
@@ -1569,7 +1569,7 @@ def test_short_cusp_curve_typed_as_curve_not_isolated():
     # The connectivity probe (midpoint Newton between consecutive
     # solutions along the cloud's principal axis) types it 'cusp_curve'.
     from mmcore.numeric.intersection.ssx._ssx5_singular import c1_pass
-    from mmcore.geom._nurbs_param_tol import bez_surface_param_tolerance
+    from mmcore.nurbs._nurbs_param_tol import bez_surface_param_tolerance
     x3 = [1.0, -1.0 / 3.0, -1.0 / 3.0, 1.0]
     y3 = [-1.0, 1.0, -1.0, 1.0]
     S1 = np.array([[[x3[i], y3[i], float(j)] for j in range(2)] for i in range(4)])
@@ -1594,7 +1594,7 @@ def test_two_isolated_cusps_stay_isolated():
     # (their midpoint Newton falls back onto an endpoint or diverges).
     from math import comb
     from mmcore.numeric.intersection.ssx._ssx5_singular import c1_pass
-    from mmcore.geom._nurbs_param_tol import bez_surface_param_tolerance
+    from mmcore.nurbs._nurbs_param_tol import bez_surface_param_tolerance
 
     def mono_to_bern(a, n):
         return np.array([sum(a[j] * comb(i, j) / comb(n, j)
@@ -2534,7 +2534,7 @@ def test_c3_pair_search_has_a_local_soft_budget():
 
 def test_ssx_point_dedup_uses_bounded_spatial_buckets():
     """Final duplicate cleanup must scale with points, not all point pairs."""
-    from mmcore.numeric.intersection.ssx._ssx4 import SSXPoint
+    from mmcore.numeric.intersection.ssx._ssx_substrate import SSXPoint
     from mmcore.numeric.intersection.ssx._bez_ssx5 import (
         _deduplicate_ssx_points)
 
@@ -2658,7 +2658,7 @@ def test_c1_connectivity_probe_respects_shared_budget(monkeypatch):
 
 
 def test_subdivided_gauss_cone_contains_true_surface_normal():
-    from mmcore.numeric.intersection.ssx._ssx4 import (
+    from mmcore.numeric.intersection.ssx._ssx_substrate import (
         GaussMapBern, separate_gauss_maps)
 
     points = np.array([
@@ -3237,7 +3237,7 @@ def test_interior_pinch_cut_face_fibers_are_surfaced():
     the fiber image): the geometry must ship whole AND the positive-
     dimensional preimage must be named in the reasons."""
     from examples.ssx.bez_ssx5_coverage_check import point_to_polyline_dist
-    from mmcore.numeric.intersection._bezier_common import eval_surface
+    from mmcore.numeric._bezier_common import eval_surface
 
     P = np.array([0.5, 0.5, 0.0])
     a, b = 0.6, 0.15

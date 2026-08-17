@@ -9,7 +9,7 @@ scaling made ptol spuriously TINY at large world coordinates (review finding
 (1000, 2000) versus 2.7e-4 at the origin — a ~350x acceptance/dedup radius
 jump for consumers). The conservative bound is translation-INVARIANT: that is
 the new semantics these tests pin, at the function level and at the two
-previously zero-coverage legacy consumers (`_bez_csx3`'s tol adapters on the
+previously zero-coverage legacy consumers (the
 `nurbs_ssx` path, and the Bez-tree closest point), at the origin AND far from
 it — so the next tolerance-ladder change trips loudly here instead of
 silently shifting legacy acceptance/dedup radii.
@@ -17,7 +17,7 @@ silently shifting legacy acceptance/dedup radii.
 import numpy as np
 import pytest
 
-from mmcore.geom._nurbs_param_tol import (
+from mmcore.nurbs._nurbs_param_tol import (
     bez_curve_param_tolerance,
     bez_surface_param_tolerance,
 )
@@ -72,31 +72,6 @@ def test_nonuniform_rational_surface_bound_is_translation_invariant():
     assert p_far[0] == pytest.approx(p_origin[0], rel=1e-9)
     assert p_far[1] == pytest.approx(p_origin[1], rel=1e-9)
 
-
-def test_legacy_csx3_rational_root_is_translation_stable():
-    """`_bez_csx3.bez_csx` (the `nurbs_ssx` public path) sizes its acceptance
-    and dedup radii from the shifted tol adapters — the same rational arc
-    against the same plane must yield the same single transversal root at the
-    origin and at (1000, 2000)."""
-    from mmcore.numeric.intersection.csx._bez_csx3 import bez_csx as bez_csx3
-
-    results = []
-    for off in (np.zeros(3), FAR):
-        arc = _quarter_circle_homog(off)
-        # bilinear plane y = off_y + 0.5 spanning the arc's footprint
-        x0, y0 = off[0], off[1]
-        plane = np.array([
-            [[x0 - 1.0, y0 + 0.5, -1.0], [x0 - 1.0, y0 + 0.5, 1.0]],
-            [[x0 + 2.0, y0 + 0.5, -1.0], [x0 + 2.0, y0 + 0.5, 1.0]],
-        ])
-        plane_h = np.concatenate(
-            [plane, np.ones(plane.shape[:-1] + (1,))], axis=-1)
-        r = bez_csx3(arc, plane_h, atol=1e-3, rational=True)
-        assert len(r["isolated"]) == 1, (off, r["isolated"])
-        assert len(r["overlaps"]) == 0
-        results.append(float(r["isolated"][0]["t"]))
-    # the arc's y = 0.5 crossing: same parameter at both world positions
-    assert results[0] == pytest.approx(results[1], abs=1e-6)
 
 
 def test_legacy_beztree_closest_point_is_translation_stable():

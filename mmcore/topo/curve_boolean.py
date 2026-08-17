@@ -6,7 +6,7 @@ import numpy as np
 
 from typing import Callable
 
-from mmcore.geom.bvh.lbvh import BVH, AABB, build_bvh
+from mmcore.numeric.bvh.lbvh import BVH, AABB, build_bvh
 
 
 class HalfEdgeSegm:
@@ -173,8 +173,8 @@ from mmcore.numeric.aabb import aabb_intersect_fast_3d,aabb,aabb_segm3d
 import math
 from collections import defaultdict
 from mmcore.numeric.intersection.ccx.segment import segment_intersection
-from mmcore.geom._nurbs_eval import NURBSCurveTuple,evaluate_nurbs_curve,_curve_interval
-from mmcore.geom._nurbs_knots import split_curve,trim_curve,reverse_curve
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple,evaluate_nurbs_curve,_curve_interval
+from mmcore.nurbs._nurbs_knots import split_curve,trim_curve,reverse_curve
 import math
 from collections import defaultdict
 from typing import List, Tuple

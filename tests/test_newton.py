@@ -4,7 +4,7 @@ from mmcore.numeric.fdm import newtons_method
 from mmcore._test_data import ssx as ssx_cases
 import time
 def test_newthon():
-    surf=ssx_cases[2][0]
+    surf=ssx_cases[1][0]
     pt=np.array([-2.,0,10.])
     tolerance=1e-6
     def fun(x):
@@ -31,7 +31,7 @@ def test_newthon():
     else :
         print(f"Py Newthon is faster at: {e2/e1}")
 
-    dist2 = np.linalg.norm(surf.evaluate(res1) - pt)
+    dist2 = np.linalg.norm(surf.evaluate(res2) - pt)
     print(res2, dist2)
     assert np.abs(dist1-dist2)<tolerance
     assert np.all(np.abs(np.array(res1)-np.array(res2))<tolerance)

@@ -192,7 +192,7 @@ def intersection_curve_point(surf1, surf2, q0, grad1, grad2, tol=1e-6, max_iter=
         Example
     ---
 
-    >>> from mmcore.geom.primitives import Sphere
+    >>> from mmcore.nurbs.primitives import Sphere
     >>> c1= Sphere(np.array([0.,0.,0.]),1.)
     >>> c2= Sphere(np.array([1.,1.,1.]),1)
     >>> q0 =np.array((0.579597, 0.045057, 0.878821))

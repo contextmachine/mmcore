@@ -163,20 +163,20 @@ docker pull ghcr.io/contextmachine/mmcore.git:tiny
 
 ### Core Modules
 
-- **mmcore.geom**: Geometric primitives and operations
-  - `nurbs.pyx/pxd`: NURBS curves and surfaces implementation
-  - `implicit`: Implicit geometry with boolean operations
-  - `bvh`: Spatial acceleration structures
-
-- **mmcore.numeric**: Algorithms and computations
-  - `algorithms`: Optimization and fundamental CAD algorithms
-  - `integrate`: Numerical integration (RK45 and others)
-  - `interval`: Interval arithmetic implementation
-  - `intersections`: Comprehensive intersection algorithms (curve x curve, curve x surface, surface x surface)
-  - `vectors`: High-performance vector operations
-- **mmcore.construction**: Construction operations
-
-  - `ruled`: Implements a fabric function to construct Ruled NURBSSurface from a two NURBSCurve.
+- **mmcore.nurbs**: the NURBS core
+  - `_nurbs_eval`: `NURBSCurveTuple` / `NURBSSurfaceTuple` — the primary, named-tuple representation, readable and debuggable
+  - `_nurbs_knots`, `_nurbs_ders`, `_nurbs_interp`, `_nurbs_join`, `_nurbs_construct`, `_nurbs_transform`, `nurbs_iso`: knot algebra, derivatives, interpolation, joining, construction, transforms, iso-curves
+  - `_core.pyx`: the C++ `NURBSCurve` / `NURBSSurface` classes (Cython accelerator)
+- **mmcore.implicit**: implicit geometry with boolean operations and dual contouring
+- **mmcore.numeric**: algorithms and computations
+  - `intersection`: the solver families — `ccx` (curve x curve), `csx` (curve x surface), `ssx` (surface x surface) — one entry point each
+  - `bvh`: spatial acceleration structures
+  - `closest_point` / `_bez_closest_point`: closest-point solvers (squared-distance Bernstein nets)
+  - `algorithms`, `interval`, `integrate`, `vectors`: fundamental CAD algorithms, interval arithmetic, integration, high-performance vector ops
+- **mmcore.construction**: high-level builders — `ruled`, `revolved`, `sweep`, `torus`, `cylinder`, `circle`, `loft`
+- **mmcore.topo**: BRep topology (Euler operators, STEP-ready), meshing
+- **mmcore.compat**: STEP I/O
+- **mmcore.extras**: optional leaf integrations (renderer, rhino, occ, torch)
   
 ### Additional Components
 
@@ -202,21 +202,24 @@ docker pull ghcr.io/contextmachine/mmcore.git:tiny
 
 We recommend using NURBS as parametric representations, Although procedural parametric representations are also supported for many operations, due to their properties NURBS representations can be used in algorithms requiring strict robustness.
 ```python
-from mmcore.geom.nurbs import NURBSCurve,NURBSSurface
+# The named-tuple ABI is the primary representation:
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple
+# The Cython classes remain available for performance-critical paths:
+from mmcore.nurbs._core import NURBSCurve, NURBSSurface
 ```
 
 ### 2.Geometry Construction
 This creates a simple NURBS curve of degree 3 on 10 control points:
 ```python
 import numpy as np
-from mmcore.geom.nurbs import NURBSCurve
-curve = NURBSCurve(np.random.random((10,3))) # This 
+from mmcore.nurbs._core import NURBSCurve
+curve = NURBSCurve(np.random.random((10,3)))
 ```
 
 ```python
 
-from mmcore.geom.nurbs import NURBSCurve
-from mmcore.construction.ruled import ruled
+from mmcore.nurbs._core import NURBSCurve
+from mmcore.construction import ruled
 # Create forming curves
 curve1=NURBSCurve(...)
 curve2=NURBSCurve(...)
@@ -230,15 +233,16 @@ surface = ruled(curve1,curve2)
 This example demonstrates such a base operation as closest point on surface
 ```python
 import numpy as np
-from mmcore.numeric.closest_point import closest_point_on_surface_batched
+from mmcore.numeric._bez_closest_point import nurbs_surface_closest_points
 # Surface construction
-surface=...
+surface = ...
 
-# Create a random 3d points
-points = np.random.random((100,3))
+# A query point
+point = np.array([0.5, 0.5, 1.0])
 
-# Find closest points on surface:
-closest_points = closest_point_on_surface_batched(surface, points)
+# The SET of globally closest entities within d_min + atol
+# (points, degenerate curves, or whole patches - never far local minima):
+result = nurbs_surface_closest_points(surface, point, atol=1e-6)
 
 ```
 You can find a detailed algorithm explanation here [surface_closest_point.md](./notes/surface_closest_point.md)
@@ -253,13 +257,16 @@ Also in experimental mode there are implementations for implicit and procedural 
 #### SSX Example
 
 ```python
-from mmcore.numeric.intersection.ssx import ssx
-# Surfaces construction
-surface1=...
-surface2=...
+from mmcore.numeric.intersection.ssx import nurbs_ssx
+# Surfaces construction (NURBSSurfaceTuple or NURBSSurface)
+surface1 = ...
+surface2 = ...
 
-# Perform Surface and Surface Intersection
-result = ssx(surface1,surface2,tol=0.001)
+# Perform Surface x Surface Intersection
+result = nurbs_ssx(surface1, surface2, atol=0.001)
+result['branches']   # intersection curves (SSXBranch: curve_xyz / curve_st / curve_uv)
+result['points']     # isolated intersection points
+result['complete']   # read this before trusting the output as the whole truth
 ```
 
 You can find full examples at [examples/ssx/nurbs_nurbs_intersection_1.py](examples/ssx/nurbs_nurbs_intersection_1.py) and [examples/ssx/nurbs_nurbs_intersection_2.py](examples/ssx/nurbs_nurbs_intersection_2.py).
@@ -286,7 +293,7 @@ Implicit representations are less common in commercial frame systems, but like p
 
 To create your own implicit object class, all you need to do is inherit from one of the base classes and override the `implicit(self,point)` and `bounds(self)` methods:
 ```python
-from mmcore.geom.implicit import Implicit2D
+from mmcore.implicit import Implicit2D
 
 class Circle(Implicit2D):
     def __init__(self, center, radius):
@@ -351,10 +358,12 @@ You can find the full code for this example here [examples/ssx/implicit_intersec
 
 ## Known Deprecations
 
-1. Use `mmcore.numeric.vectors` instead of `mmcore.geom.vec` for vector operations
-2. Prefer `NURBSCurve` over `NURBSSpline` for better algorithms and serialization
-3. For curve-surface intersection, use `mmcore/numeric/intersections/csx/_ncsx.py`
-4. Surface-surface intersection (SSX) implementation is currently reliable only for NURBS surfaces
+1. Prefer the named-tuple ABI (`NURBSCurveTuple` / `NURBSSurfaceTuple` from
+   `mmcore.nurbs._nurbs_eval`) over the Cython classes for new code
+2. The solver entry points are unversioned: `nurbs_ccx`, `nurbs_csx`, `nurbs_ssx`
+   from `mmcore.numeric.intersection.{ccx,csx,ssx}` always bind the maintained engine
+3. Surface-surface intersection (SSX) is reliable for NURBS surfaces; implicit and
+   procedural support is experimental
 
 ## Contributing
 

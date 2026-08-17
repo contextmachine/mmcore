@@ -1,4 +1,4 @@
-from mmcore.geom.nurbs import NURBSCurve
+from mmcore.nurbs._core import NURBSCurve
 import numpy as np
 
 # Create a simple NURBS curve for testing

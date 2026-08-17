@@ -6,8 +6,8 @@ from typing import Protocol, TypedDict
 import numpy as np
 from numpy._typing import NDArray
 
-from mmcore.construction import nurbs_curve
-from mmcore.geom._nurbs_eval import EvaluateSurfaceData, evaluate_nurbs_surface, NURBSCurveTuple,NURBSSurfaceTuple
+from mmcore.nurbs._nurbs_construct import nurbs_curve
+from mmcore.nurbs._nurbs_eval import EvaluateSurfaceData, evaluate_nurbs_surface, NURBSCurveTuple,NURBSSurfaceTuple
 
 # Reuse your existing homogeneous helpers and derivative net extractors
 # ... (Keep your imports and _eval_tensor_bezier, etc.)
@@ -19,9 +19,9 @@ from mmcore.geom._nurbs_eval import EvaluateSurfaceData, evaluate_nurbs_surface,
 import numpy as np
 from numpy.typing import NDArray
 
-from mmcore.geom._nurbs_interp import interpolate_curve
-from mmcore.geom._nurbs_knots import link_curves,remove_knot,remove_knot_curve_max
-from mmcore.geom._nurbs_interp import interpolate_nurbs_curve
+from mmcore.nurbs._nurbs_interp import interpolate_curve
+from mmcore.nurbs._nurbs_knots import link_curves,remove_knot,remove_knot_curve_max
+from mmcore.nurbs._nurbs_interp import interpolate_nurbs_curve
 from mmcore.numeric.intersection.ssx.refine import refine_intersection_point
 from mmcore.numeric.sbern import bern_to_nurbs_bezier
 

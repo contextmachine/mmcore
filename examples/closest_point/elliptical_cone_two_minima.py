@@ -8,7 +8,7 @@ single-answer engine would return one of them by implementation chance.
 """
 import numpy as np
 
-from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
+from mmcore.nurbs._nurbs_eval import NURBSSurfaceTuple
 from mmcore.numeric._bez_closest_point import nurbs_surface_closest_points
 
 

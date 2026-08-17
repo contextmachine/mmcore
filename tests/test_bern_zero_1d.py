@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from mmcore.numeric.intersection._bern_zero_1d import (
+from mmcore.numeric._bern_zero_1d import (
     find_bernstein_zeros_1d,
     _count_sign_changes,
     _bernstein_deriv_coeffs_1d,

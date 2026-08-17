@@ -93,7 +93,7 @@ def test_planar_quad_L_junction_ships_both_full_branches():
     integration certified the boundary overlap but the straight-chord
     conversion dropped it, leaving the truncation FALSELY complete."""
     from mmcore.numeric.intersection.ssx._bez_ssx5 import bez_ssx
-    from mmcore.numeric.intersection._bezier_common import eval_surface
+    from mmcore.numeric._bezier_common import eval_surface
 
     val1, val2 = _fixture_A()
     r = bez_ssx(val1, val2, 1e-3, rational=False)

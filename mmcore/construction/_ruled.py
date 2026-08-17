@@ -1,9 +1,9 @@
 from __future__ import annotations
 import numpy as np
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple,_nurbs_to_tuple,_tuple_to_nurbs,NURBSSurfaceTuple
-from mmcore.geom._nurbs_knots import degree_elevate_curve,refine_curve
-from mmcore.geom.nurbs import NURBSSurface,NURBSCurve
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple,_nurbs_to_tuple,_tuple_to_nurbs,NURBSSurfaceTuple
+from mmcore.nurbs._nurbs_knots import degree_elevate_curve,refine_curve
+from mmcore.nurbs._core import NURBSSurface,NURBSCurve
 __all__=['ruled','Ruled']
 
 def merge_knot_vectors(knots1, knots2):

@@ -7,7 +7,7 @@ the honest answer instead of an arbitrary parameter on the circle.
 """
 import numpy as np
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 from mmcore.numeric._bez_closest_point import nurbs_curve_closest_points
 
 

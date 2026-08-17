@@ -1,7 +1,7 @@
 import time
 
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 
 
 val = NURBSCurveTuple(
@@ -24,7 +24,7 @@ val = NURBSCurveTuple(
 )
 
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 
 
 val2 = NURBSCurveTuple(
@@ -44,7 +44,7 @@ val2 = NURBSCurveTuple(
     weights=np.array([1., 1., 1., 1., 1., 1., 1., 1.])
 )
 
-from mmcore.numeric.intersection.ccx._nccx import nurbs_ccx
+from mmcore.numeric.intersection.ccx import nurbs_ccx
 s=time.perf_counter()
 res,over=nurbs_ccx(val,val2)
 print(f'case1: {time.perf_counter()-s}')
@@ -54,7 +54,7 @@ print('overlaps:', over)
 
 
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 
 
 val = NURBSCurveTuple(
@@ -76,7 +76,7 @@ val = NURBSCurveTuple(
     weights=np.array([1., 1., 1., 1., 1., 1., 1., 1., 1.])
 )
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 
 
 val2 = NURBSCurveTuple(
@@ -108,7 +108,7 @@ print('overlaps:', over)
     
     
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 
 
 val = NURBSCurveTuple(
@@ -128,7 +128,7 @@ val = NURBSCurveTuple(
     weights=np.array([1., 1., 1., 1., 1., 1., 1., 1., 1.])
 )
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 
 
 val2 = NURBSCurveTuple(

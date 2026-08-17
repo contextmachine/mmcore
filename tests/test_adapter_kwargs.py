@@ -7,7 +7,7 @@ the DEFAULT tolerance without a word (review §10 kwarg-hygiene finding).
 import numpy as np
 import pytest
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple
 from mmcore.numeric.intersection.ccx._nccx4 import nurbs_ccx
 from mmcore.numeric.intersection.csx._ncsx4 import nurbs_csx
 

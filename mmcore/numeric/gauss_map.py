@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.optimize import linprog
 
-from mmcore.geom.nurbs import NURBSSurface, subdivide_surface, decompose_surface
+from mmcore.nurbs._core import NURBSSurface, subdivide_surface, decompose_surface
 
 from mmcore.numeric.algorithms.quicksort import unique
 

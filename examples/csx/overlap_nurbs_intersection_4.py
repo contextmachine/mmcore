@@ -1,15 +1,15 @@
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, _tuple_to_nurbs, evaluate_nurbs_curve
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, _tuple_to_nurbs, evaluate_nurbs_curve
 
 import time
 
 
 import rich
 
-from mmcore.geom._nurbs_knots import trim_curve
+from mmcore.nurbs._nurbs_knots import trim_curve
 from mmcore.numeric import evaluate_curvature_vec
 from mmcore.numeric.approx import adaptive_curve_sampler
-from mmcore.numeric.intersection.csx import nurbs_csx_v2, nurbs_csx
+from mmcore.numeric.intersection.csx import nurbs_csx
 import argparse
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -21,7 +21,10 @@ def parse_args():
     general_params.add_argument('--viewer', action='store_true')
 
     return parser.parse_args()
+
+
 args = parse_args()
+
 curve = NURBSCurveTuple(
     order=3,
     knot=np.array([  0.        ,   0.        ,   0.        ,  91.83300275,
@@ -83,67 +86,51 @@ surface = NURBSSurfaceTuple(
 #rich.print(isol)
 #print('overlaps:')
 #rich.print(over)
+
 s = time.time()
-isolated,overlaps = nurbs_csx_v2(curve, surface,atol=args.atol, angle_tol=args.angle_tol)
-print(f"CSX v2 performed at: {time.time()-s} secs.")
+isolated, overlaps, _status = nurbs_csx(curve, surface, tol=args.atol)
+print(f"CSX v4 performed at: {time.time()-s} secs.")
 
 
 print('isolated:')
 
 if isolated is not None:
-    rich.print(isolated['point'].tolist())
+    rich.print(isolated)
 print('overlaps:')
 if overlaps is not None:
-    rich.print(overlaps['point'].tolist())
-
+    rich.print(overlaps)
+RENDERER=False
 if args.viewer:
     try:
         from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera
         viewer=Viewer(camera=OrbitCamera(near=1,far=1e+9))
         primary_color=(*(np.array([250, 102, 166])/255).tolist(),1)
-        srf = viewer.add_nurbs_surface(surface, color=(0.7,0.7,0.7,1),surface_color=(0.5, 0.5, 0.9, 0.1),)
-        if isolated is not None:
-            for pt in isolated['point']:
 
-                viewer.add(pt, color=(0.0, 1.0, 0.5,1.0),size_px=6)
+
+        if isolated is not None:
+            uvs = []
+            for pt in isolated:
+                viewer.add_point3d(pt['point'], color=(0.0, 1.0, 0.5, 1.0), size_px=6)
+
         if overlaps is not None:
 
-            for start,end in overlaps['point']:
-                viewer.add(start, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
-                viewer.add(end, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
-            for o in overlaps['t']:
-                #print(o)
-                t0 = o[0]
-                t1 = o[-1]
-                viewer.add(trim_curve(curve,curve.interval()[0],t0),color=(0.9, 0.9, 0.9, 1.0))
+            for overlap in overlaps:
+                t0,t1=overlap['t_range']
 
-                viewer.add(trim_curve(curve,t1, curve.interval()[1]), color=(0.9, 0.9, 0.9, 1.0))
-                _c=trim_curve(curve, t0, t1)
+                viewer.add_point3d(evaluate_nurbs_curve(curve, t0,d_order=0)['C'], color=(0.0, 1.0, 0.5, 1.0), size_px=4)
+                viewer.add_point3d(evaluate_nurbs_curve(curve, t1,d_order=0)['C'], color=(0.0, 1.0, 0.5, 1.0), size_px=4)
 
-                from mmcore.geom._nurbs_eval import evaluate_nurbs_curve_curvature
-                points=[]
-                ders=[]
-                offset=1
-                params,du_list,evals,s_list=adaptive_curve_sampler(_c)
-                from mmcore.geom._nurbs_interp import hermite_interpolate_nurbs
-                pts=np.linspace(*_c.interval(),500)
+            for o in overlaps:
+
+                t0 = o["t_range"][0]
+                t1 = o["t_range"][-1]
+
+                pts=np.linspace(t0,t1,800)
                 for t in pts:
 
-                    # uK=data["K"]/np.linalg.norm(data["K"])
                     evl=evaluate_nurbs_curve(curve,t,d_order=0)
-                    viewer.add_point3d(evl['C'],color=(0.0, 1.0, 0.5, 1.0), size_px=3)
-                    #evl["C1"]/=np.linalg.norm(evl['C1'])
-                    #N=np.cross([0.,0.,1.],evl["C1"])
-                    ##tnb=frenet_serret_frame_from_ders(   evl['C1'],
-                    ##evl["C2"])
-                    ##print(tnb)
-                    #points.append(evl["C"] -      N/np.linalg.norm(N) * offset)
-                    #ders.append(evl['C1'])
-                #print(np.array(ders).tolist())
-                #new_curve=hermite_interpolate_nurbs(np.array(points),np.array(ders),params,degree=3)
-
-                #viewer.add(new_curve, color=(0.0, 1.0, 0.5, 1.0))
-
+                    viewer.add_point3d(evl['C'],color=(0.0, 1.0, 0.5, 1.0), size_px=4)
+        srf = viewer.add_nurbs_surface(surface, color=(0.7, 0.7, 0.7, 1), surface_color=(0.5, 0.5, 0.9, 0.1), )
         viewer.run()
 
 

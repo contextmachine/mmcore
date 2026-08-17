@@ -3,7 +3,7 @@ import numpy as np
 cimport numpy as cnp
 cnp.import_array()
 from libc.math cimport sqrt,fabs
-from mmcore.geom.primitives cimport Implicit3D
+from mmcore.nurbs.primitives cimport Implicit3D
 
 
 

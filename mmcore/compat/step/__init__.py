@@ -4,8 +4,8 @@ from os import PathLike
 
 from pathlib import Path
 from .step_writer import StepWriter
-from mmcore.geom.nurbs import NURBSSurface
-from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
+from mmcore.nurbs._core import NURBSSurface
+from mmcore.nurbs._nurbs_eval import NURBSSurfaceTuple
 
 __all__=["to_step", "StepWriter"]
 

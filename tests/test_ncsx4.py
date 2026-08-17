@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple
 from mmcore.numeric.intersection.csx._ncsx4 import nurbs_csx
 import mmcore.numeric.intersection.csx._ncsx4 as ncsx4
 

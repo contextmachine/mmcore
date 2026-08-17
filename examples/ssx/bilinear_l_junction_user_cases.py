@@ -22,7 +22,7 @@ tangent_point, complete=True.
 """
 import numpy as np
 
-from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
+from mmcore.nurbs._nurbs_eval import NURBSSurfaceTuple
 
 # --- Case 1 (user: "the second branch is not completely found") ---------
 case1_val1 = NURBSSurfaceTuple(

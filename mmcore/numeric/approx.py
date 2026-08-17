@@ -3,7 +3,7 @@ import math
 
 import numpy as np
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple,evaluate_nurbs_curve
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple,evaluate_nurbs_curve
 from mmcore.numeric.numeric import compute_parametric_curvature_tolerance_curve
 
 
@@ -68,8 +68,8 @@ def adaptive_curve_sampler_unsafe(crv: NURBSCurveTuple, tol: float = 1e-3):
     evals.append(c_eval)
 
     return params,duu,evals,ll
-from mmcore.geom._nurbs_param_tol import nurbs_curve_param_tolerance
-from mmcore.geom._nurbs_knots import find_multiplicity,split_curve_multiple
+from mmcore.nurbs._nurbs_param_tol import nurbs_curve_param_tolerance
+from mmcore.nurbs._nurbs_knots import find_multiplicity,split_curve_multiple
 from mmcore.numeric.bern import bern_greville_abscissae
 from mmcore.numeric.sbern import bern_to_nurbs_bezier
 def adaptive_bez_sampler(crv, tol):
@@ -128,7 +128,7 @@ def adaptive_bez_sampler(crv, tol):
     
     return params, du_list, evals, s_list
 
-from mmcore.geom._nurbs_ders import _greville_abscissae as nurbs_ders_greville_abscissae
+from mmcore.nurbs._nurbs_ders import _greville_abscissae as nurbs_ders_greville_abscissae
 def adaptive_curve_sampler(crv, tol=1e-3, max_param_step_fraction=12, max_points=int(1e+6)):
     """
     March once so each chord deviates by ~tol (sagitta) using your curvature-based
@@ -247,7 +247,7 @@ import numpy as np
 from mmcore.numeric.bern import *
 from scipy.spatial import ConvexHull
 
-from mmcore.geom._nurbs_param_tol import _nurbs_curve_param_tol_conservative
+from mmcore.nurbs._nurbs_param_tol import _nurbs_curve_param_tol_conservative
 from mmcore.numeric.sbern import bern_to_nurbs_bezier
 
 
@@ -363,7 +363,7 @@ def _split_interv(interval=((0.,1.),(0.,1.)),):
     ((u0, u1), (v0, v1))=interval
     umid,vmid= (u1 - u0) / 2 + u0, (v1 - v0) / 2 + v0
     return ((u0,umid),(v0,vmid)), ((umid,u1),(vmid,v1))
-from mmcore.geom._nurbs_knots import subdivide_surface
+from mmcore.nurbs._nurbs_knots import subdivide_surface
 def adaptive_bern_sampler_2d(nu: NDArray[float],tol:float=1e-2, interval=((0.,1.),(0.,1.)),rational=False):
 
     quads = []
@@ -489,4 +489,4 @@ def _adaptive_bern_sampler_2d_tri(
 from mmcore.numeric.aabb import aabb
 
 
-from mmcore.geom._nurbs_param_tol import nurbs_curve_param_tolerance
+from mmcore.nurbs._nurbs_param_tol import nurbs_curve_param_tolerance

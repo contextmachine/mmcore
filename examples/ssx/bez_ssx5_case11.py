@@ -12,7 +12,7 @@ which together break the loop's topology.
 import numpy as np
 
 from mmcore.numeric.intersection.ssx._bez_ssx5 import bez_ssx
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple
 
 
 S1 = np.array([

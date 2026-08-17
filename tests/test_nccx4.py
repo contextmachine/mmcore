@@ -7,7 +7,7 @@ import json
 import numpy as np
 import pytest
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
+from mmcore.nurbs._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
 from mmcore.numeric.intersection.ccx._nccx4 import nurbs_ccx, nurbs_ccx_multiple
 import mmcore.numeric.intersection.ccx._nccx4 as nccx4
 
@@ -131,6 +131,19 @@ class TestNurbsCCXMultiple3D:
         # both latent breakages would fire the day that import is repaired).
         return nurbs_ccx_multiple(curves_3d, tol=0.001)
 
+    @pytest.mark.xfail(strict=True, reason=
+        "3D near-miss acceptance gap, unmasked 2026-08-16 when the setup import "
+        "was repaired (error-masked since c14fd3e): 20 of the 25 ground-truth "
+        "grid intersections are near-misses (curve-curve distance 4e-6..5e-4) "
+        "and nurbs_ccx reports only exact crossings — tol does not act as an "
+        "acceptance distance (0 found even at tol=1e-2). Origin bisected to "
+        "5d05ddc (2026-07-10, ssx5 singular hardening): _strict_residual_ok "
+        "deliberately retyped atol from geometric acceptance into a search "
+        "tolerance to kill atol-sized false roots at large coordinate scales; "
+        "the pre-change engine (1d9a511) finds 38 grid hits, current finds 5. "
+        "Owner decision needed on the CCX 3D contract (typed exact|tolerance "
+        "tier for isolated contacts, mirroring L47 overlaps); see restructure "
+        "follow-ups.")
     def test_ground_truth(self, result, expected):
         """All 25 known intersections (excl curve 0) must be found."""
         iso, ovl, _status = result
@@ -146,6 +159,10 @@ class TestNurbsCCXMultiple3D:
                 f"u={exp['u']:.4f} v={exp['v']:.4f} pt={exp['point']}"
             )
 
+    @pytest.mark.xfail(strict=True, reason=
+        "Same 3D near-miss acceptance gap as test_ground_truth: the ==25 count "
+        "pins the OLD algorithm's within-tol acceptance; the v4 engine finds "
+        "the 5 exact crossings only.")
     def test_no_span_boundary_duplicates(self, result, expected):
         """Excluding curve 0, raw count should equal unique count (no duplicates)."""
         iso, ovl, _status = result

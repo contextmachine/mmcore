@@ -7,9 +7,8 @@
 """
 import time
 import numpy as np
-from mmcore.geom._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple
+from mmcore.nurbs._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple
 from mmcore.construction import cylinder_surface_2pt
-from mmcore.numeric.intersection.ssx import ssx
 
 # Creating intersection objects
 s1 = cylinder_surface_2pt(np.array([0.0, 0.0, -3.0]), np.array([0.0, 0.0, 3.0]), radius=1.0)
@@ -31,11 +30,11 @@ logging.basicConfig(level=getattr(logging, args.loglevel, logging.INFO))
 from mmcore.numeric.intersection.ssx import nurbs_ssx
 
 s = time.time()
-result = nurbs_ssx(s1, s2, atol=args.atol, angle_tol=args.angle_tol)
+result = nurbs_ssx(s1, s2, atol=args.atol)
 
 print(f"intersection computed at: {time.time() - s} sec.")
-print(len(result[0]), "branch(s)")
-print(len(result[1]), "pts(s)")
+print(len(result['branches']), "branch(s)")
+print(len(result['points']), "pts(s)")
 
 if args.save_pkl or args.pkl_path is not None:
     path = save_pkl(s1, s2, result, fp=args.pkl_path)
