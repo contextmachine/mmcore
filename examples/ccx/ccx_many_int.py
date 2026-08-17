@@ -8,7 +8,6 @@ import sys
 
 from mmcore.nurbs._core import NURBSCurve
 from mmcore.nurbs._nurbs_eval import _nurbs_to_tuple,_tuple_to_nurbs
-from mmcore.extras.renderer.renderer2d import Renderer2D
 
 from mmcore.numeric.intersection.ccx import nurbs_ccx
 def parse_control_points(cp_str):
@@ -186,7 +185,7 @@ def main():
 
     # Compute intersections
     s=time.perf_counter()
-    intersections,overlaps = nurbs_ccx(_nurbs_to_tuple(curve1), _nurbs_to_tuple(curve2), args.tolerance)
+    intersections, overlaps, _status = nurbs_ccx(_nurbs_to_tuple(curve1), _nurbs_to_tuple(curve2), args.tolerance)
     print(f"intersections computed in {time.perf_counter()-s} sec.")
     print(f"Intersections count: {len(intersections)}")
     print("Intersection parameter pairs (curve1_s, curve2_t):")
@@ -198,6 +197,11 @@ def main():
     intersection_points = np.array([inter['point'] for inter in intersections])
     #exit(0)
     # Initialize Renderer
+    try:
+        from mmcore.extras.renderer.renderer2d import Renderer2D
+    except ImportError:
+        print("mmcore renderer (plotly) is not installed, skip preview.")
+        return
     renderer = Renderer2D()
 
     # Add intersection markers
