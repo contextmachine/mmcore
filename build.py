@@ -137,14 +137,6 @@ cython_extensions = [
         include_dirs=include_dirs,
     ),
     # Extension(
-    #   "mmcore.numeric.intersection.ssx.cydqr",
-    #   ["mmcore/numeric/intersection/ssx/cydqr.pyx"],
-    #
-    #    language="c++",
-    #   extra_compile_args=["-std=c++11"]+compile_args,
-    #        extra_link_args=link_args,
-    #   include_dirs=include_dirs),
-    # Extension(
     #     "mmcore.numeric.matrix",
     #     ["mmcore/numeric/matrix/__init__.pyx"],
     #     extra_compile_args=compile_args,
@@ -224,14 +216,6 @@ cython_extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-    Extension(
-        "mmcore.numeric.intersection.ssx._ssx_utils",
-        ["mmcore/numeric/intersection/ssx/_ssx_utils.pyx"],
-        extra_compile_args=compile_args,
-        extra_link_args=link_args,
-        include_dirs=include_dirs,
-    ),
-
     # Extension(
     #    "mmcore.geom.surfaces.ellipsoid",
     #    ["mmcore/geom/surfaces/ellipsoid.pyx"],
