@@ -1,6 +1,14 @@
 # Restructure — Phase 2 execution proposal (next steps)
 
-**Status:** PROPOSAL — for owner approval. Nothing below has been executed.
+**Status: EXECUTED 2026-08-16** — owner approved all recommendations; everything below
+ran the same day on branch `restructure-phase2` (commit series `b816ede..`,
+`restructure(*)` subjects). Execution log at the bottom (§10). Deviations from this
+proposal, found during execution: `_ssx4.py` was live substrate, stripped and renamed
+`_ssx_substrate.py` rather than deleted; `bvh/__init__.py` is load-bearing
+(tess + _detect_intersections) so Q6's second deletion did not run; the CSX examples
+had already been hand-ported as tracked `*_new` twins — collapsed onto base names; the
+11 SSX examples were already broken at HEAD (`args.angle_tol` never existed) and were
+repaired onto the v5 contract.
 **Measured at:** branch `tiny` @ `aa818c2` (2026-08-16), verified this session by a 7-agent
 read-only preflight (import health, collection, call-site inventories, native claims,
 branch audit, CI/packaging audit, pickle-migration proof). Repo untouched: tracked-file
@@ -291,10 +299,32 @@ derived-envelope ledger item for the engine, not a restructure step), and the
 `elegant-bardeen` perf work (parked behind Q13). The restructure must not touch
 `_bez_ssx5.py` or `_deflate.py` beyond the mechanical import-path edits of Phase 3.
 
-## 9. Session work products — preserved in-repo (untracked, review before committing)
+## 9. Session work products
 
-- `tools/pickle_module_migrate.py` — the proven migration tool (NEW-Q2).
-- `tools/test_full_rewrite.py` — the 12/12-green compose rewrite; starting point for
-  NEW-Q3 (becomes the new `tests/test_nurbs_compose.py` body after review).
-- `tools/test_newton_fixed.py` — the repaired newton test (NEW-Q4); a 2-line diff
-  against `tests/test_newton.py`.
+- `tools/pickle_module_migrate.py` — the proven migration tool (NEW-Q2), committed;
+  comparator later extended to recurse object `__dict__` for BRep pickles.
+- The compose rewrite and newton fix were applied directly to
+  `tests/test_nurbs_compose.py` and `tests/test_newton.py` in batch 2a.
+
+## 10. Execution log (2026-08-16, branch `restructure-phase2`)
+
+| Commit | Content | Gate result |
+|---|---|---|
+| `b816ede` | Step 0.1: spec tracked + preflight corrections folded, NEW-Qs resolved | — |
+| `2dd3ecc` | Step 0: gitignore, tracked .pyc removed, unguarded PyPI publisher deleted | — |
+| `e7c8f27` | tools: check_imports gate + pickle migrator | gate reproduces baseline exactly |
+| — | branches deleted: dev-sfd `e1504fc`, master `1c7d25c`, tiny-nurbs-periodic `a541a32`, dependabot `460011b`; `claude/elegant-bardeen` parked untouched | — |
+| `1530ecb` | 2a: Step 5 deletions + newton/compose repairs | failures 11→5; 783 collected; 13/13 green |
+| `6d47103` | 2b: Step 6 deletions | failures 5→1 |
+| `76973cd` | 2c: CSX→`_ncsx4`, SSX→`_nssx5`, surface_surface + `_bez_ssx6` retired, examples collapsed/repaired | adapter suites 95 passed/1 xfail; 7+11 examples run green |
+| `0470f03` | 2d: Step 10 sweep, `_ssx4`→`_ssx_substrate` (2327→759 L), ds/ dissolved | **import surface GREEN** (6 benign only); singular suite 117 passed |
+| `67d7fb9` | 2e: substrate moves, construction couplings inverted, layering 15→**0**, CI gates, rhino entry point | layering GREEN; 89 passed |
+| `9cb752b` | Step 13: implicit→`mmcore/implicit`, bvh+octree→`numeric/` | all gates green; octree now zero-importer (flagged) |
+| `4396829` | Step 14: `geom/`→`nurbs/`, `nurbs.pyx`→`_core.pyx`, 131 files, rebuild, 13 pickles migrated losslessly (all IDENTICAL) | imports/layering green; fixture tests 7/7 |
+| `cd2e052` | Docs: ARCHITECTURE.md, thin tracked CLAUDE.md, README refresh, RESTRUCTURE.md closed | — |
+
+Open follow-ups recorded, not executed: cnewton keep-or-delete measurement (post-Phase-2
+its call sites lost their consumers; `tests/test_newton.py` is the instrument); the
+two-BVH consolidation (port `tess.py` + `_detect_intersections.py` to `lbvh`, then
+delete `numeric/bvh/__init__.py`'s object-BVH); `numeric/octree.py` zero-importer
+decision; Q13/Q14/Q15 remain with the derived-envelope program.
