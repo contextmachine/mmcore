@@ -11,6 +11,9 @@ extern "C" {
 #ifndef M_PI
     #define M_PI 3.14159265358979323846
 #endif
+#ifndef M_PI_2
+    #define M_PI_2 1.57079632679489661923
+#endif
 
 typedef struct {
     double l;
@@ -185,7 +188,8 @@ static inline interval interval_square (interval i){
 }
 static inline interval interval_power_scalar(interval i, double s){
     if (s < 0) {
-        return (interval) interval_inverse(interval_power_scalar(i,-s));
+        /* no cast: MSVC C rejects casting a struct rvalue to its own type (C2440) */
+        return interval_inverse(interval_power_scalar(i,-s));
     }
     if (i.l > 0 && i.u > 0) {
         return (interval) { pow(i.l,s), pow(i.u,s) };

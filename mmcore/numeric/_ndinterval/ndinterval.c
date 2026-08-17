@@ -362,9 +362,9 @@ II_IS_SI_BINARY_INTERVAL_INPLACE(divide)
     interval i = {0.0, 0.0};                                            \
     double s = 0;                                                       \
     PyInterval_AsInterval(i, a);                                        \
-    if(PyFloat_Check((PyArrayObject*) b)) {                           \
+    if(PyFloat_Check(b)) {                           \
       return PyInterval_FromInterval(interval_##name##_scalar(i, PyFloat_AsDouble(b))); \
-    } else if (PyInt_Check((PyArrayObject*) b)) {                 \
+    } else if (PyInt_Check(b)) {                 \
       return PyInterval_FromInterval(interval_##name##_scalar(i, PyInt_AsLong(b)));\
     }                                                                   \
     Py_RETURN_NOTIMPLEMENTED;                                           \
@@ -667,11 +667,11 @@ _newpy_HashDouble(PyObject *NPY_UNUSED(ignored), double val)
 #endif
 
 
-static long
+static Py_hash_t
 pyinterval_hash(PyObject *o)
 {
   interval q = ((PyInterval *)o)->obval;
-  long value = 0x456789;
+  Py_hash_t value = 0x456789;
   value = (10000004 * value) ^ _newpy_HashDouble(o, q.l);
   value = (10000004 * value) ^ _newpy_HashDouble(o, q.u);
   if (value == -1)
