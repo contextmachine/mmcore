@@ -12,23 +12,31 @@ follow-up #1).
 
 ---
 
-## 1. The contract question
+## 1. The contract (normative — owner formulation, 2026-08-18)
 
-In 3D, two generic curves do not intersect — they pass near each other. A
-CAD-grade CCX must define what "intersection at tolerance `tol`" means:
+Intersection existence is tolerance-determined, the standard CAD semantics:
 
-- **(A) exact-zero contract** — report only certified zeros of the distance
-  function. This is what `bez_ccx4` does today. Nearly vacuous on real 3D data:
-  fitted curves that "should" cross sit a sub-tolerance distance apart.
-- **(B) tolerance contract** — additionally report local minima of distance with
-  `d_min <= tol`. This is what the pre-2026-07-10 engine did, what the ground
-  truth pins, and what commercial kernels do.
+> For a curve pair whose true minimum distance is `d_min`: at any `tol >= d_min`
+> the pair has exactly one isolated intersection there; at any `tol < d_min` it
+> has none. Topology — the count and structure of the result — must be correct
+> at every `tol`. Concretely: curves 5e-4 apart → `tol` of 5e-4 / 1e-3 / 1e-2 →
+> a single isolated intersection; `tol` of 1e-4 / 1e-5 → not an intersection.
+> It cannot be any other way.
 
-The decision (owner, 2026-08-18 discussion): **not a revert** — keep (A)'s strict
-certificate (it exists for a good reason, §3) and add (B) as a **typed tier**,
-mirroring the overlap contract: `bez_ccx` overlaps already carry
-`certification: 'exact' | 'tolerance'` (L47, `a867707`). Isolated contacts get the
-same vocabulary.
+The exact-zero behavior shipped by `5d05ddc` is therefore a **defect of the
+public contract**, not an alternative contract. What `5d05ddc` got right — and
+what must survive the fix — is orthogonal to membership: raw Newton residuals
+and `atol`-sized numerical artifacts at large coordinates must never masquerade
+as geometry. Its strict certificate is **re-scoped**, not kept as a membership
+rule: it certifies the *measurement* of `d_min` (scale-robust,
+translation-invariant per `e0ab4a0`); `tol` alone then decides membership via
+`d_min <= tol` (closed inequality). False-root protection and tolerance
+acceptance are both mandatory and neither trades against the other.
+
+One consequence the formulation forces: when the certified error envelope of the
+`d_min` measurement straddles the `tol` boundary — the engine genuinely cannot
+decide membership — the outcome must be **typed** (the `uncertified_overlap_span`
+pattern from L47), never a silent accept or silent reject.
 
 ## 2. Measurements (all reproducible; commands in §6)
 
@@ -91,9 +99,13 @@ Mirror L47's overlap contract at the isolated-point level:
    certified minimum satisfies `min(D²) <= atol²`, descend/polish to the
    **minimizer** (not a root — Newton on the gradient of D², or reuse the
    closest-point machinery: `bern_sq_dist` bounds + the band logic of
-   `_bez_closest_point`) and emit a typed contact
-   `{u, v, point, certification: 'tolerance', d_min}`. Exact zeros keep
-   `certification: 'exact'` via the untouched strict residual certificate.
+   `_bez_closest_point`) and emit the contact
+   `{u, v, point, certification: 'tolerance', d_min}`. Certified zeros carry
+   `certification: 'exact'`. **The tag is metadata only** (useful diagnostics,
+   L47 symmetry) — membership is `d_min <= tol` and nothing else; dropping the
+   tag entirely is a one-line owner call, the contract does not depend on it.
+   A cell whose certified envelope straddles `tol` yields the typed
+   cannot-decide outcome of §1, not a guess.
 2. **Envelope discipline (the design law):** the acceptance predicate is
    `d_min <= atol` with `atol` the caller's geometric tolerance — an operand
    envelope, not a bare threshold. The *certification* of `d_min` itself must be
@@ -137,6 +149,9 @@ tier afterwards (same classifier family; separate ledger item if yes)?
 - The minimal line-pair probe (§6) as a unit test: gaps {0, 1e-9, 5e-4, 9e-4}
   all report exactly one contact at `tol=1e-3` (typed exact for gap 0,
   tolerance otherwise); gap 2e-3 reports none.
+- The owner's tol-scaling example verbatim: the SAME 5e-4-gap pair reports one
+  intersection at `tol` in {5e-4, 1e-3, 1e-2} and none at `tol` in {1e-4, 1e-5}
+  — membership tracks `tol`, count never exceeds one.
 - Full suite `-m "not slow"` non-increasing.
 
 ## 6. Repro commands
