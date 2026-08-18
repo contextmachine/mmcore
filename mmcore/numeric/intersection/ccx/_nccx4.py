@@ -180,6 +180,57 @@ def _isolated_entry_beats(cert, d_min, prev_cert, prev_d_min):
     return d_min < prev_d_min
 
 
+def _absorb_uncertified_contacts(result, status, context, return_status,
+                                 mapper):
+    """L62 typed cannot-decide is a PER-CANDIDATE outcome, never a span-pair
+    failure.  Record the payload on the status ledger, mark the aggregate
+    incomplete, and let the candidate scan CONTINUE — escalating it into the
+    stop-after-span signal discarded certified intersections in span pairs
+    the loop never reached, under a 'budget exhausted' diagnosis that was
+    false (review 2026-08-19).  ``mapper`` lifts each entry's span-local
+    parameters to the global NURBS parameterization.  With
+    ``return_status=False`` the fail-fast contract still raises, naming the
+    typed cause.
+    """
+    uncert = result.get('uncertified_contacts')
+    if not uncert:
+        return result
+    status.setdefault('uncertified_contacts', []).append({
+        'context': context,
+        'entries': [mapper(dict(e)) for e in uncert],
+    })
+    status['complete'] = False
+    status['partial_results'] += 1
+    if not return_status:
+        raise RuntimeError(
+            f"{context}: typed uncertified contacts (the measurement cannot "
+            "decide membership at this tolerance); pass return_status=True "
+            "to receive the typed payload")
+    if not result.get('budget_exhausted', False):
+        # Topology-incomplete ONLY through the typed entries: the honest
+        # aggregate marker is status['complete']=False plus the payload —
+        # not a scan stop.
+        result = dict(result)
+        result['boundary_topology_complete'] = True
+    return result
+
+
+def _seam_check_slack(curve1, curve2):
+    """Operand envelope for the adapter's NURBS-level re-verification.
+
+    The engine accepts membership at the closed boundary within its
+    certified measurement envelope; re-measuring with an UNSLACKED
+    ``> tol`` at the NURBS level silently reversed those decisions (a
+    ``gap == tol`` contact evaluates to ``tol ± evaluation roundoff``).
+    Two de Casteljau chains and a norm, priced on the curves' own
+    coordinate scale.
+    """
+    scale = max(float(np.max(np.abs(curve1.control_points))),
+                float(np.max(np.abs(curve2.control_points))))
+    return (8.0 * (int(curve1.order) + int(curve2.order))
+            * float(np.finfo(np.float64).eps) * scale)
+
+
 def _dedup_isolated_pair(entries, curve1, curve2, tol):
     """Deduplicate isolated intersections for a single curve pair (nurbs_ccx).
 
@@ -303,11 +354,18 @@ def nurbs_ccx(
         result = bez_ccx_v4(
             pts1, pts2, atol=tol, rational=rational, **call_kwargs,
         )
+        _u_int, _v_int = _c1.interval(), _c2.interval()
+        result = _absorb_uncertified_contacts(
+            result, status, context, return_status,
+            lambda e, _ui=_u_int, _vi=_v_int: dict(
+                e, u=_ui[0] + (_ui[1] - _ui[0]) * e['u'],
+                v=_vi[0] + (_vi[1] - _vi[0]) * e['v']))
         result, stop_after_span = _consume_bezier_status(
             result, status, context, return_status,
             remaining_cells, remaining_results,
         )
 
+        seam_slack = _seam_check_slack(curve1, curve2)
         for inter in result['isolated']:
             u_glob, v_glob = _map_local_to_global(
                 inter['u'], inter['v'], *_c1.interval(), *_c2.interval(),
@@ -317,8 +375,9 @@ def nurbs_ccx(
 
             pt1 = evaluate_nurbs_curve(curve1, u_glob, 0)['C']
             pt2 = evaluate_nurbs_curve(curve2, v_glob, 0)['C']
-            # L62: closed membership — dist == tol is a member.
-            if float(np.linalg.norm(pt1 - pt2)) > tol:
+            # L62: closed membership — dist == tol is a member, up to the
+            # re-evaluation's own operand envelope.
+            if float(np.linalg.norm(pt1 - pt2)) > tol + seam_slack:
                 continue
             raw_isolated.append({
                 'u': u_glob, 'v': v_glob, 'point': inter['point'],
@@ -485,11 +544,19 @@ def nurbs_ccx_multiple(
         result = bez_ccx_v4(
             pts1, pts2, atol=tol, rational=rational, **call_kwargs,
         )
+        _u_int, _v_int = segm1.interval(), segm2.interval()
+        result = _absorb_uncertified_contacts(
+            result, status, context, return_status,
+            lambda e, _ui=_u_int, _vi=_v_int, _a=curve1_i, _b=curve2_i: dict(
+                e, u=_ui[0] + (_ui[1] - _ui[0]) * e['u'],
+                v=_vi[0] + (_vi[1] - _vi[0]) * e['v'],
+                curve1_i=_a, curve2_i=_b))
         result, stop_after_span = _consume_bezier_status(
             result, status, context, return_status,
             remaining_cells, remaining_results,
         )
 
+        seam_slack = _seam_check_slack(curves[curve1_i], curves[curve2_i])
         for inter in result['isolated']:
             u_glob, v_glob = _map_local_to_global(
                 inter['u'], inter['v'], *segm1.interval(), *segm2.interval(),
@@ -498,8 +565,9 @@ def nurbs_ccx_multiple(
             from mmcore.nurbs._nurbs_eval import evaluate_nurbs_curve
             pt1 = evaluate_nurbs_curve(curves[curve1_i], u_glob, 0)['C']
             pt2 = evaluate_nurbs_curve(curves[curve2_i], v_glob, 0)['C']
-            # L62: closed membership — dist == tol is a member.
-            if float(np.linalg.norm(pt1 - pt2)) > tol:
+            # L62: closed membership — dist == tol is a member, up to the
+            # re-evaluation's own operand envelope.
+            if float(np.linalg.norm(pt1 - pt2)) > tol + seam_slack:
                 continue
             raw_isolated.append({
                 'u': u_glob, 'v': v_glob,
