@@ -141,9 +141,8 @@ class TestNurbsCCXMultiple3D:
         "deliberately retyped atol from geometric acceptance into a search "
         "tolerance to kill atol-sized false roots at large coordinate scales; "
         "the pre-change engine (1d9a511) finds 38 grid hits, current finds 5. "
-        "Owner decision needed on the CCX 3D contract (typed exact|tolerance "
-        "tier for isolated contacts, mirroring L47 overlaps); see restructure "
-        "follow-ups.")
+        "Issue + fix plan: "
+        "docs/superpowers/issues/2026-08-18-ccx-3d-near-miss-tolerance-tier.md")
     def test_ground_truth(self, result, expected):
         """All 25 known intersections (excl curve 0) must be found."""
         iso, ovl, _status = result

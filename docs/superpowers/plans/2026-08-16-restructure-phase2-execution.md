@@ -348,6 +348,7 @@ Open follow-ups recorded, not executed:
    later by `e0ab4a0` translation-invariance) but a typed `exact|tolerance`
    certification tier for isolated contacts, mirroring L47 overlaps.
    Pinned at `tests/test_nccx4.py` (2 strict xfails carrying this provenance).
+   **Issue + fix plan: `docs/superpowers/issues/2026-08-18-ccx-3d-near-miss-tolerance-tier.md`.**
 2. cnewton keep-or-delete measurement — post-Phase-2 its call sites lost their
    consumers; `tests/test_newton.py` is the instrument.
 3. Two-BVH consolidation — port `tess.py` + `_detect_intersections.py` to `lbvh`,
