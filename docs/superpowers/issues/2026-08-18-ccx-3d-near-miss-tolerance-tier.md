@@ -125,12 +125,35 @@ Mirror L47's overlap contract at the isolated-point level:
    a parallel field) for `nurbs_ccx` and `nurbs_ccx_multiple`; default output
    includes both tiers (that is the contract the ground truth pins). Decide
    whether an opt-out (`exact_only=True`) is wanted.
-6. **Interaction with the overlap tier:** an extended near-parallel approach
-   inside `atol` is L47's residual-overlap territory, not a point contact — the
-   classifier must hand extended sub-`atol` valleys to the overlap path and only
-   emit point contacts for locally-isolated minima. (The grid data is all
+6. **Structural discriminator vs the overlap tier (owner, 2026-08-18):** classify
+   by the connected components of the sub-tolerance region `{D² <= tol²}` of the
+   sq-dist patch — the boundary rule lifted from the zero level-set to `tol²`:
+   - *Exact overlaps can only terminate at a curve-domain end* (theorem at level
+     zero: analytic continuation), so an overlap valley enters and exits through
+     the patch **boundary**. At tolerance level this stops being a theorem
+     (interior-ended near-coincident bands exist) and survives as L47's
+     admissibility **gate**: only boundary-anchored components are promoted to
+     overlaps; interior-ended bands stay typed-partial.
+   - A component **compactly contained in the interior** is the isolated-contact
+     signature — the dual of the overlap rule. Rules per component:
+     (a) contains certified zeros → resolved by the exact machinery (k crossings
+     = k exact roots), no tolerance contact emitted — the tiers cannot
+     double-count by construction; (b) zero-free and compact → **exactly one**
+     tolerance contact at the certified argmin ("one component = one
+     intersection" is the general form of the count guarantee; dedup becomes
+     structural, with only decomposition-seam stitching left as in
+     `test_no_span_boundary_duplicates`); (c) zero-free but elongated against
+     the param-tol mapping → a tangential grazing band, a typed outcome carrying
+     its (u,v) extent — lands on the L47 band-bar decision still pending for the
+     woven twins.
+   - A component touching the boundary at a single point/edge is an **endpoint
+     contact** (curve terminus within `tol` of the other curve): Phase 1's
+     boundary analysis extended from level 0 to level `tol²`.
+   The architecture keeps its shape: Phase-1 boundary doctrine, cell
+   classification and component logic run unchanged one level up; the classifier
+   answers at two levels (0 and `tol²`) instead of one. (The grid data is all
    transversal; the L-junction/twin fixtures in `test_bez_ccx4.py` guard the
-   other side.)
+   overlap side.)
 
 **Open sub-questions for the session** (decide, don't inherit): does the tier
 apply in 2D as well (a 2D near-miss inside `atol` is currently also invisible —
