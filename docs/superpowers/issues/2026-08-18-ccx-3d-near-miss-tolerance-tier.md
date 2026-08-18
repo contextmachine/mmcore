@@ -113,6 +113,19 @@ Mirror L47's overlap contract at the isolated-point level:
    sq-dist net's certified bounds, never against a raw Newton residual, so a
    tolerance contact at x≈1e4 does not reappear as a false positive. This is the
    heart of the fix — the tier must not reopen the hole `5d05ddc` closed.
+
+   **Post-L62 jurisdiction of the strict roundoff envelope (owner, 2026-08-18):**
+   `5d05ddc` made `_strict_residual_ok` "the sole membership" gate (its own
+   docstring) — that conflation is the defect. After L62 the strict envelope has
+   exactly three jobs and NO role in membership: (a) grading the metadata tag
+   (`'exact'` = agreement inside the roundoff envelope); (b) sub-`atol`
+   TOPOLOGY — the never-merge invariants (distinct crossings inside a band,
+   valley chains) need resolution finer than `atol` and this is where strict
+   precision is legitimately load-bearing; (c) the straddle guard — note the
+   scale: `d_min` measurement noise ~ `eps*|coords|` threatens an
+   `atol`-membership decision only for `|coords| >~ atol/eps` (≈1e12 for
+   atol=1e-3), so the typed cannot-decide outcome is an exotic-tail guard, not
+   a common path. Membership is `atol` + the topological criteria, period.
 3. **Reporting midpoint vs pair:** a tolerance contact has two witness points
    (one per curve); report the parameter pair of the minimizer and `point` as the
    chord midpoint (consistent with how the old engine populated the ground
@@ -159,6 +172,21 @@ Mirror L47's overlap contract at the isolated-point level:
 apply in 2D as well (a 2D near-miss inside `atol` is currently also invisible —
 probably yes, same predicate, cheap)? And does CSX want the same isolated-contact
 tier afterwards (same classifier family; separate ledger item if yes)?
+
+**Related empirical item (owner-flagged 2026-08-18, own ledger entry when picked
+up): is CENTERING needed at all?** The cluster-4 record says scale-only reframing
+is covariant and centering is the operation that breaks predicates; the
+2026-07-26 review's shipped defects clustered in the centering-compensation
+machinery; and agent traces reportedly showed byte-identical results with and
+without centering in at least some cases. The physical argument FOR it —
+evaluation noise drops from `eps*|world|` to `eps*|local extent|`, enabling
+sub-envelope resolution far from the origin (the parallel-planes-at-X0=1e6
+merge bug) — applies only to the strict envelope's post-L62 jobs (grading,
+sub-atol topology), never to membership. Settle by measurement: A/B the
+certificate with centering removed across the exactness/invariance suites and
+the far-origin fixtures (the |T|=1e6 float-built-subcurve case at
+`_strict_residual_ok`'s comment). If byte-identity holds, delete the centering
+apparatus as defect-prone complexity.
 
 ## 5. Gates
 
