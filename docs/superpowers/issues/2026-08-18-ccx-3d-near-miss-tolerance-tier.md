@@ -52,6 +52,37 @@ superseding the corresponding parts of §4 below:**
   anisotropic refinement for curve pieces collapsed under half the dedup
   radius.  A shallow rational ellipse–spline crossing went 545k → 587
   cells; the 11-curve 3D grid went 46 s → 2.4 s while keeping 25/25.
+
+**Adversarial review (2026-08-19, 35-agent workflow, 5 lenses × 2-skeptic
+verification): 15/15 findings sustained, all reproduced, all fixed** in the
+follow-up commits on the branch.  The load-bearing corrections:
+
+- The net measurement envelope is GLOBAL (extent²-scaled) and reached an
+  accept path: at |ctrl| ≈ 3e3 with atol=1e-3 it certified gaps up to
+  1.68·atol as members and armed the cannot-decide tail ~6 orders early.
+  Membership now uses the sharper of the net and a direct-evaluation
+  measurement (`_measure_contact`), whose envelopes fail in complementary
+  regimes (extent² vs world position).
+- The tolerance minimizer is basin-clamped to its cell (unbounded GN
+  jumped super-tol ridges and lost the abandoned basin's contact) —
+  deliberately unlike the exact tier's unbounded Newton doctrine.
+- The tier never stands down call-wide on overlap-class/band evidence
+  (that deleted members with topology claimed complete); jurisdiction is
+  enforced in the drain: certified overlap spans, plus band-anchor
+  connectivity armed only under crossing evidence (= the never-merge
+  boundary, no wider).
+- Component identity is decided by CONNECTIVITY only, and the walk follows
+  the inversion pairing with an arrival check (straight (u,v) chords
+  split curved components; a 3D-radius shortcut merged disconnected
+  ones).  Grid-verified: exactly one contact per component at the argmin.
+- The endpoint pre-filter bar gained the same envelope slack as every
+  other level-atol bar (a rotated gap==atol terminus contact was lost
+  134/300 times to 1-ulp coefficient rounding).
+- Adapter: a per-candidate typed cannot-decide is recorded on
+  `status['uncertified_contacts']` (global params + curve indices) and the
+  scan CONTINUES — it no longer aborts unrelated span pairs; the
+  NURBS-level seam re-verification carries an operand slack so it cannot
+  reverse closed-boundary decisions.
 **Pinned at:** `tests/test_nccx4.py` — two `xfail(strict=True)` on
 `TestNurbsCCXMultiple3D::{test_ground_truth,test_no_span_boundary_duplicates}`.
 Because they are strict, implementing the fix makes them FIRE — remove the pins as
