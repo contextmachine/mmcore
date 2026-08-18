@@ -1791,28 +1791,16 @@ def bez_ccx(
             lo, hi = overlaps[-1]["u_range"]
             ovl_span = (min(lo, hi), max(lo, hi))
         for d_hat, eps_d, u_c, v_c in sorted(tol_pool):
-            # A candidate on a certified overlap span belongs to structure
-            # the overlap tier already owns — suppressed regardless of its
-            # own verdict (an undecided measurement there is not a typed
-            # outcome; the overlap IS the answer for that component).
+            # A candidate on structure another tier already resolved is
+            # suppressed REGARDLESS of its own verdict: on a certified
+            # overlap span the overlap IS the answer, and in the dedup
+            # ball of an accepted root/contact that entry is the answer —
+            # an unresolvable measurement of an already-resolved component
+            # is not a typed outcome (measured: the exact seam touch of a
+            # ray at tol=1e-6, where the net's sqrt roundoff floor exceeds
+            # atol, spuriously flagged its own root's neighborhood).
             if ovl_span is not None and (
                     ovl_span[0] - ptol_u <= u_c <= ovl_span[1] + ptol_u):
-                continue
-            verdict = _tolerance_membership(d_hat, eps_d, atol)
-            if verdict == "reject":
-                continue
-            if verdict == "undecided":
-                # Typed cannot-decide entries dedup by parameter proximity
-                # only — the connectivity test is a membership predicate
-                # and has no meaning at a scale the measurement cannot
-                # resolve.
-                if not any(abs(e["u"] - u_c) <= 4.0 * ptol_u
-                           and abs(e["v"] - v_c) <= 4.0 * ptol_v
-                           for e in undecided):
-                    undecided.append({
-                        "u": float(u_c), "v": float(v_c),
-                        "d_min": float(d_hat), "envelope": float(eps_d),
-                    })
                 continue
             p1 = np.asarray(
                 eval_curve(C1_orig, float(u_c), rational=rational),
@@ -1832,13 +1820,33 @@ def bez_ccx(
                         - midpoint) < atol:
                     suppressed = True
                     break
+            if suppressed:
+                continue
+            verdict = _tolerance_membership(d_hat, eps_d, atol)
+            if verdict == "reject":
+                continue
+            if verdict == "undecided":
+                # Typed cannot-decide entries dedup by parameter proximity
+                # only — the connectivity test is a membership predicate
+                # and has no meaning at a scale the measurement cannot
+                # resolve.
+                if not any(abs(e["u"] - u_c) <= 4.0 * ptol_u
+                           and abs(e["v"] - v_c) <= 4.0 * ptol_v
+                           for e in undecided):
+                    undecided.append({
+                        "u": float(u_c), "v": float(v_c),
+                        "d_min": float(d_hat), "envelope": float(eps_d),
+                    })
+                continue
+            connected = False
+            for entry in isolated + accepted:
                 if _sublevel_connected(
                         F, Pw, Qw, env_F, u_c, v_c,
                         float(entry["u"]), float(entry["v"]),
                         atol, ptol_u, ptol_v):
-                    suppressed = True
+                    connected = True
                     break
-            if suppressed:
+            if connected:
                 continue
             if len(isolated) + len(accepted) >= max_results:
                 budget_exhausted = True
