@@ -962,10 +962,15 @@ def _find_csx_boundary_zeros(
         if cells.remaining <= 0:
             exhausted = True
             break
+        # L62: exact-only. This nested call consumes level-0 boundary zeros
+        # for the CSX boundary analysis; CCX's isolated tolerance tier
+        # (membership at atol) is a different contract, and whether CSX
+        # wants its own isolated-contact tier is a separate ledger item.
         ccx_result = bez_ccx_v4(
             C, iso_curve, atol=atol, rational=rational,
             max_cells=cells.remaining,
             max_results=max(0, max_results - len(zeros)),
+            tolerance_tier=False,
         )
         ccx_cells = int(ccx_result.get("cells_processed", 0))
         ccx_cells = min(ccx_cells, cells.remaining)

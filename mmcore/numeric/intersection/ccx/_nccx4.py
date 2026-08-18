@@ -22,8 +22,13 @@ from mmcore.numeric._bezier_common import eval_curve
 # Dtypes (self-contained, no dependency on _nccx.py)
 # ---------------------------------------------------------------------------
 
+# L62: isolated entries surface the engine's typed tier — 'certification'
+# ('exact' | 'tolerance') is metadata grading the measurement, 'd_min' is
+# the net-certified curve-curve distance (0.0 for exact roots).  Membership
+# is d_min <= tol (closed) and never depends on the tag.
 _ccx_isolated_dtype = lambda dim: [
     ('u', np.float64), ('v', np.float64), ('point', np.float64, (dim,)),
+    ('d_min', np.float64), ('certification', 'U9'),
 ]
 _ccx_overlap_dtype = lambda dim: [
     ('u', np.float64, (2,)), ('v', np.float64, (2,)), ('point', np.float64, (2, dim)),
@@ -125,10 +130,12 @@ def _dedup_isolated(entries, curves, tol):
         c1, c2 = int(e['curve1_i']), int(e['curve2_i'])
         u, v = float(e['u']), float(e['v'])
         pt = e['point']
+        cert = str(e.get('certification', 'exact'))
+        d_min = float(e.get('d_min', 0.0))
         if c1 <= c2:
-            canonical.append((c1, c2, u, v, pt))
+            canonical.append((c1, c2, u, v, pt, cert, d_min))
         else:
-            canonical.append((c2, c1, v, u, pt))
+            canonical.append((c2, c1, v, u, pt, cert, d_min))
 
     # Sort by (curve pair, u parameter)
     canonical.sort(key=lambda x: (x[0], x[1], x[2]))
@@ -136,14 +143,18 @@ def _dedup_isolated(entries, curves, tol):
     # Walk and merge within each curve pair
     kept = [canonical[0]]
     for entry in canonical[1:]:
-        c1, c2, u, v, pt = entry
-        prev_c1, prev_c2, prev_u, prev_v, prev_pt = kept[-1]
+        c1, c2, u, v, pt, cert, d_min = entry
+        prev = kept[-1]
 
-        if c1 == prev_c1 and c2 == prev_c2:
+        if c1 == prev[0] and c2 == prev[1]:
             ptol_a = ptols[c1]
             ptol_b = ptols[c2]
-            if abs(u - prev_u) < ptol_a and abs(v - prev_v) < ptol_b:
-                # Duplicate — skip (keep the earlier one, which was sorted first)
+            if abs(u - prev[2]) < ptol_a and abs(v - prev[3]) < ptol_b:
+                # Duplicate (span-seam) — keep the better-certified side:
+                # an exact root over a tolerance contact, else the smaller
+                # measured distance (L62: the contact IS the argmin).
+                if _isolated_entry_beats(cert, d_min, prev[5], prev[6]):
+                    kept[-1] = entry
                 continue
 
         kept.append(entry)
@@ -151,12 +162,22 @@ def _dedup_isolated(entries, curves, tol):
     # Convert back to dict format (un-canonicalize is not needed —
     # the canonical order is fine for the output)
     result = []
-    for c1, c2, u, v, pt in kept:
+    for c1, c2, u, v, pt, cert, d_min in kept:
         result.append({
             'u': u, 'v': v, 'point': pt,
             'curve1_i': c1, 'curve2_i': c2,
+            'certification': cert, 'd_min': d_min,
         })
     return result
+
+
+def _isolated_entry_beats(cert, d_min, prev_cert, prev_d_min):
+    """Span-seam merge preference: exact beats tolerance, then lower d_min."""
+    if cert == 'exact' and prev_cert != 'exact':
+        return True
+    if cert != 'exact' and prev_cert == 'exact':
+        return False
+    return d_min < prev_d_min
 
 
 def _dedup_isolated_pair(entries, curve1, curve2, tol):
@@ -178,6 +199,12 @@ def _dedup_isolated_pair(entries, curve1, curve2, tol):
     for entry in sorted_entries[1:]:
         prev = kept[-1]
         if abs(entry['u'] - prev['u']) < ptol_u and abs(entry['v'] - prev['v']) < ptol_v:
+            if _isolated_entry_beats(
+                    entry.get('certification', 'exact'),
+                    float(entry.get('d_min', 0.0)),
+                    prev.get('certification', 'exact'),
+                    float(prev.get('d_min', 0.0))):
+                kept[-1] = entry
             continue
         kept.append(entry)
 
@@ -290,9 +317,14 @@ def nurbs_ccx(
 
             pt1 = evaluate_nurbs_curve(curve1, u_glob, 0)['C']
             pt2 = evaluate_nurbs_curve(curve2, v_glob, 0)['C']
-            if float(np.linalg.norm(pt1 - pt2)) >= tol:
+            # L62: closed membership — dist == tol is a member.
+            if float(np.linalg.norm(pt1 - pt2)) > tol:
                 continue
-            raw_isolated.append({'u': u_glob, 'v': v_glob, 'point': inter['point']})
+            raw_isolated.append({
+                'u': u_glob, 'v': v_glob, 'point': inter['point'],
+                'certification': str(inter.get('certification', 'exact')),
+                'd_min': float(inter.get('d_min', 0.0)),
+            })
 
         for overlap in result['overlaps']:
             ur = overlap.get('u_range', (0.0, 1.0))
@@ -318,6 +350,9 @@ def nurbs_ccx(
         isolated['u'] = [e['u'] for e in deduped]
         isolated['v'] = [e['v'] for e in deduped]
         isolated['point'] = [e['point'] for e in deduped]
+        isolated['d_min'] = [e.get('d_min', 0.0) for e in deduped]
+        isolated['certification'] = [
+            e.get('certification', 'exact') for e in deduped]
 
     if not raw_overlaps_u:
         overlaps = None
@@ -463,12 +498,15 @@ def nurbs_ccx_multiple(
             from mmcore.nurbs._nurbs_eval import evaluate_nurbs_curve
             pt1 = evaluate_nurbs_curve(curves[curve1_i], u_glob, 0)['C']
             pt2 = evaluate_nurbs_curve(curves[curve2_i], v_glob, 0)['C']
-            if float(np.linalg.norm(pt1 - pt2)) >= tol:
+            # L62: closed membership — dist == tol is a member.
+            if float(np.linalg.norm(pt1 - pt2)) > tol:
                 continue
             raw_isolated.append({
                 'u': u_glob, 'v': v_glob,
                 'point': inter['point'],
                 'curve1_i': curve1_i, 'curve2_i': curve2_i,
+                'certification': str(inter.get('certification', 'exact')),
+                'd_min': float(inter.get('d_min', 0.0)),
             })
 
         for overlap in result['overlaps']:
@@ -499,6 +537,9 @@ def nurbs_ccx_multiple(
         isolated['point'] = [e['point'] for e in deduped]
         isolated['curve1_i'] = [e['curve1_i'] for e in deduped]
         isolated['curve2_i'] = [e['curve2_i'] for e in deduped]
+        isolated['d_min'] = [e.get('d_min', 0.0) for e in deduped]
+        isolated['certification'] = [
+            e.get('certification', 'exact') for e in deduped]
 
     if not raw_overlaps:
         overlaps = None

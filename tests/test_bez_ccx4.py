@@ -495,56 +495,76 @@ def test_centering_envelope_does_not_swallow_small_real_offsets(offset):
 
 
 # ---------------------------------------------------------------------------
-# Cluster-4 follow-up (adversarial review, 2026-07-26): the ACCEPT path needs
-# anti-loosening guards too, not just the prune.
+# Cluster-4 follow-up (adversarial review, 2026-07-26), re-pinned for L62
+# (owner decision 2026-08-19): the ACCEPT path needs anti-loosening guards
+# too, not just the prune.
 #
-# The absent-axis rule must never mean "skip this coordinate".  Two segments
-# lying in PARALLEL planes x = X0 and x = X0 + d never meet, at any world
-# position.  If the x axis is declared absent because d sits under the
-# centering envelope, and the membership gate then omits x, the engine
-# reports a confident phantom root -- the same class of wrong topology the
-# prune defect caused, in the opposite direction.
+# The original pins asserted `len(isolated) == 0` for every resolvable gap —
+# correct while an accepted root and an exactness claim were the same thing,
+# and in direct conflict with the L62 membership contract (d_min <= atol,
+# CLOSED: a 1e-8 gap at atol=1e-3 IS one tolerance contact).  What the
+# 2026-07-26 guard bought is kept, aimed at the claims that still exist:
+# the phantom-root defect class (an axis silently dropped from a
+# certificate) now lives in the TAG, where
+# test_absent_axis_is_checked_not_skipped pins it at unit level, and here
+# end-to-end as "a resolvable nonzero gap never carries
+# certification='exact'".  Membership itself gains the anti-loosening
+# direction the old form never tested: gap > atol must REJECT at every
+# world position.
 # ---------------------------------------------------------------------------
 
-def _parallel_planes_certify(X0, gap):
+def _parallel_planes_case(X0, gap):
     C1 = np.array([[X0, -1.0, -1.0], [X0, 1.0, 1.0]])
     C2 = np.array([[X0 + gap, -1.0, 1.0], [X0 + gap, 1.0, -1.0]])
-    return len(bez_ccx(C1, C2, atol=1e-3, rational=False)["isolated"]) > 0
+    # X0 + gap rounds: the engine is judged against the geometry it was
+    # actually given, not against the nominal parameter.
+    realized = float(C2[0, 0] - C1[0, 0])
+    return bez_ccx(C1, C2, atol=1e-3, rational=False), realized
 
 
-# The common-origin centering computes each coordinate as
-# fl(x/scale) - fl(origin*fl(w/scale)); its error is ~4 eps per operand, so
-# separations of a few ulps of the WORLD coordinate are genuinely below what
-# the centered representation can resolve.  Measured acceptance ceiling
-# after the 2026-07-26 review fix: 7-16 ulps, i.e. ~1.6e-15 RELATIVE, and
-# constant from magnitude 1 to 1e9 (it was 256-1464 ulps and growing with
-# degree before).  So the contract is stated relatively, and the property
-# that matters is that the verdict does not depend on world position.
 @pytest.mark.parametrize("rel", [1e-12, 1e-10, 1e-8])
 @pytest.mark.parametrize("X0", [0.0, 1.0, 1e3, 1e6, 1e9])
-def test_parallel_planes_never_certify_a_resolvable_gap(X0, rel):
-    gap = rel * max(1.0, abs(X0))
-    assert not _parallel_planes_certify(X0, gap), (X0, rel, gap)
+def test_parallel_planes_membership_tracks_atol_never_exact(X0, rel):
+    """L62 §1 on the old accept-path grid, both directions, tag guarded.
 
-
-@pytest.mark.parametrize("rel", [1e-14, 1e-12, 1e-8])
-def test_parallel_plane_verdict_is_translation_invariant(rel):
-    """Whatever the engine decides, it must decide it everywhere.
-
-    This is the real invariance contract: a fixed RELATIVE separation is the
-    same geometry at every world position, so the accept/reject verdict must
-    not move.  Before the review fix the ceiling grew with |X0| in absolute
-    terms while shrinking in relative terms, so this property failed.
-
-    Floor: `rel` must stay above float64 representability, which is ~1.1e-16
-    relative.  At rel=1e-16 the verdict legitimately differs — an origin-
-    centred pair has no cancellation at all and resolves the gap, while at
-    |X0|=1e9 the same relative gap is 0.84 ulp and no method can see it.
-    That asymmetry is information-theoretic, not an envelope defect.
+    realized <= atol → exactly ONE isolated contact, tagged 'tolerance'
+    (never 'exact' — the re-scoped 2026-07-26 guard); realized > atol →
+    none.  At these world positions the polynomial net construction is
+    translation-invariant, so no typed cannot-decide outcome may appear.
     """
-    verdicts = {X0: _parallel_planes_certify(X0, rel * max(1.0, abs(X0)))
-                for X0 in (0.0, 1.0, 1e3, 1e6, 1e9)}
-    assert len(set(verdicts.values())) == 1, verdicts
+    gap = rel * max(1.0, abs(X0))
+    r, realized = _parallel_planes_case(X0, gap)
+    assert "uncertified_contacts" not in r, (X0, rel, r)
+    iso = r["isolated"]
+    if realized <= 1e-3:
+        assert len(iso) == 1, (X0, rel, realized, len(iso))
+        assert iso[0]["certification"] == "tolerance", (X0, rel, iso)
+        assert float(iso[0]["d_min"]) <= 1e-3
+    else:
+        assert len(iso) == 0, (X0, rel, realized, len(iso))
+
+
+@pytest.mark.parametrize("gap", [1e-8, 5e-4, 2e-3])
+@pytest.mark.parametrize("X0", [0.0, 1.0, 1e3, 1e6, 1e9])
+def test_parallel_plane_verdict_tracks_realized_gap_at_every_position(X0, gap):
+    """The invariance object post-L62 is the verdict on a fixed ABSOLUTE
+    gap: the same realized geometry must get the same membership verdict
+    at every world position.  (The old form held the RELATIVE gap fixed —
+    the right invariant for an exactness certificate, structurally wrong
+    for absolute-tolerance membership: rel=1e-8 is 1e-8 at the origin and
+    10.0 at X0=1e9 — different geometry, different verdict, correctly.)
+    Where float construction changes the realized geometry (at X0=1e9 a
+    nominal 1e-8 gap rounds to exactly 0 — a transversal exact crossing),
+    the expectation follows the realized gap, and the tag follows the
+    strict envelope: 'exact' only when the realized gap is exactly zero.
+    """
+    r, realized = _parallel_planes_case(X0, gap)
+    iso = r["isolated"]
+    expected = 1 if realized <= 1e-3 else 0
+    assert len(iso) == expected, (X0, gap, realized, len(iso))
+    if expected:
+        want_cert = "exact" if realized == 0.0 else "tolerance"
+        assert iso[0]["certification"] == want_cert, (X0, gap, realized, iso)
 
 
 def test_absent_axis_is_checked_not_skipped():
