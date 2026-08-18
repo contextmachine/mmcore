@@ -1,7 +1,57 @@
 # CCX 3D near-miss contact: `tol` is not an acceptance distance — typed `exact|tolerance` tier for isolated intersections
 
-**Status:** OPEN — measured, bisected, pinned; fix designed below, not started.
-**Proposed ledger ID:** L62 *(confirm against the ledger before first use — last known used is L61).*
+**Status:** IMPLEMENTED 2026-08-19 on branch `l62-ccx-tolerance-tier`
+(engine commit `85a8a06`); the two strict xfails fired and are unpinned
+(grid 25/25, dedup == 25); all §5 gates green at the branch head.
+**Ledger ID:** L62 (confirmed free before first use).
+
+**Owner decisions made during the implementation session (2026-08-19),
+superseding the corresponding parts of §4 below:**
+
+1. **No band outcome exists** *(supersedes §4.6(c))*: only an overlap is a
+   long touch, and an overlap must begin and end at a curve-domain
+   endpoint (L47 gate, unchanged).  Every other case is either ONE
+   isolated tangent contact — the minimum-distance pair of the compact
+   sub-`tol` region — or, when the curves cross in and immediately back
+   out, the k exact crossings, distinguished at high precision.  The
+   pending L47 band-bar / K×median question therefore does not apply to
+   the isolated tier at all.
+2. **The tier applies in 2D**, same predicate (no dimension gate; in 2D
+   the transversal near-miss configuration does not exist, so the
+   canonical 2D near-miss is the tangent graze — pinned in
+   `tests/test_ccx4_tolerance_tier.py`).
+3. **The parallel-planes accept-path pins re-scoped** *(owner approved the
+   analysis)*: their membership form contradicted §1 on 11/15 and 1/3
+   parameter combos.  Re-pinned in `tests/test_bez_ccx4.py` to (a)
+   membership tracking the REALIZED gap against `atol` in both directions
+   at every world position, and (b) a resolvable nonzero gap never
+   carrying `certification='exact'` — the phantom-root guard now lives on
+   the tag, where `test_absent_axis_is_checked_not_skipped` pins it at
+   unit level.
+4. **CSX opt-out** *(resolves the §4.5 open question)*: `bez_ccx` gained
+   `tolerance_tier=True`; the nested CSX boundary-zero call passes
+   `False` (exact-only, byte-identical legacy) — whether CSX wants its own
+   isolated-contact tier stays a separate ledger item.
+
+**Implementation notes beyond the §4 design (measured during the session):**
+
+- The closed inequality is enforced at measurement resolution: `gap == tol`
+  measures `atol ± roundoff` off the net, so membership accepts within the
+  certified envelope `eps_d` of the boundary, and the min-of-net/Lipschitz
+  prune bars carry the same envelope slack (`gap == tol` was otherwise
+  lost to a 1-ulp coefficient rounding).
+- The measurement envelope's SOURCE term is rational-only: polynomial
+  `D_ij = P_i − Q_j` is one correctly rounded subtraction of exact inputs
+  (Sterbenz), so a world translation cannot inflate it; rational
+  cross-products round at world scale, which is where the typed
+  cannot-decide tail is genuinely reachable (pinned end-to-end with a
+  |T|=1e12 unequal-weights fixture).
+- Descent cost needed three structural rules, all measured: coarse
+  terminal stops for zero-free cells (wholly-in-band hull bound;
+  Hessian-PD unique-minimizer via `_check_uniqueness_2d` one level up) and
+  anisotropic refinement for curve pieces collapsed under half the dedup
+  radius.  A shallow rational ellipse–spline crossing went 545k → 587
+  cells; the 11-curve 3D grid went 46 s → 2.4 s while keeping 25/25.
 **Pinned at:** `tests/test_nccx4.py` — two `xfail(strict=True)` on
 `TestNurbsCCXMultiple3D::{test_ground_truth,test_no_span_boundary_duplicates}`.
 Because they are strict, implementing the fix makes them FIRE — remove the pins as
