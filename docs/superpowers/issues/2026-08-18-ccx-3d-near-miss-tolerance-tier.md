@@ -12,6 +12,72 @@ follow-up #1).
 
 ---
 
+## 0. Session-start prompt (copy-paste)
+
+```
+Implement L62: the CCX tolerance tier for isolated intersections.
+
+READ FIRST, in order — then say what you're going to do before touching code:
+1. docs/superpowers/issues/2026-08-18-ccx-3d-near-miss-tolerance-tier.md — the
+   whole spec. §1 (membership contract), §4.2 (strict-envelope jurisdiction) and
+   §4.6 (sub-level-set component discriminator) are OWNER-DECIDED: do not
+   relitigate them, implement them.
+2. git show 5d05ddc -- mmcore/numeric/intersection/ccx/_bez_ccx4.py — the
+   doctrine being re-scoped (not reverted).
+3. mmcore/numeric/intersection/ccx/_bez_ccx4.py — bez_ccx docstring (two-phase
+   architecture), _strict_residual_ok (~:253), the L47 tolerance-overlap
+   certificate (~:553), the typed-outcome plumbing (~:1266-1330).
+4. mmcore/numeric/bern_sq_dist.py + mmcore/numeric/_bez_closest_point.py — the
+   minimum-bounding machinery the tier should reuse, not reinvent.
+5. docs/superpowers/specs/2026-07-12-theorem-first-overlap-methodology.md §2.
+
+DECIDED — inherit, don't re-derive:
+- Membership is d_min <= tol (closed inequality) at every tol; topology correct
+  at every tol. The strict roundoff envelope has NO membership role: it grades
+  the metadata tag, powers the sub-atol topology guards, and covers the
+  |coords| >~ atol/eps straddle tail (typed cannot-decide, never a guess).
+- Classify by connected components of {D^2 <= tol^2}: boundary-anchored both
+  ends -> L47 overlap path; compact interior -> isolated tier (certified zeros
+  inside -> exact roots only; zero-free -> exactly ONE contact at the certified
+  argmin; elongated vs the param-tol mapping -> typed grazing band); single
+  boundary touch -> endpoint contact (Phase 1 lifted from level 0 to tol^2).
+- certification: 'exact'|'tolerance' is metadata only.
+
+ASK THE OWNER when you reach them (do not decide alone):
+- the band-bar: the relative rule (flip flanks <= K x median in-band residual
+  => coincidence noise) — acceptance + the value of K;
+- the elongation bar separating point contact from typed band;
+- whether the tier applies in 2D (expected: yes, same predicate).
+
+GATES — all must hold before calling it done:
+- tests/test_nccx4.py: the two strict xfails FIRE when the fix works — remove
+  the pins; test_ground_truth 25/25, dedup count == 25.
+- A parameterized tol-scaling test over (gap, tol): exactly one intersection
+  iff tol >= gap, count never exceeds one (values are instances, not constants).
+- A translated large-offset tolerance-contact case (acceptance must be
+  translation-invariant; do not reopen the hole 5d05ddc closed).
+- tests/test_bez_ccx4.py stays green unchanged — the overlap/point boundary and
+  the never-merge invariants must not move.
+- Full suite: python -m pytest tests -q -m "not slow" from the REPO ROOT,
+  non-increasing; tools/check_imports.py and tools/check_layering.py exit 0.
+
+DISCIPLINE:
+- Dedicated branch off tiny; L62 in commit subjects; confirm L62 is the next
+  free ledger ID first (last known used: L61).
+- OUT OF SCOPE, do not touch: _bez_ssx5.py / _deflate.py (Q13/Q14); the
+  linux-scoped FP-sensitivity xfails in test_csx4_exactness_contract.py /
+  test_csx_overlap_tier.py; centering removal (separate empirical A/B item —
+  the tier must work WITH the current certificate).
+- tests/test_nccx4.py builds fixtures by exec'ing the head of
+  examples/ccx/multiple_int_3d.py, split at the line
+  "from mmcore.numeric.intersection.ccx import" — keep that file's data section
+  and marker stable.
+- Env: .venv/bin/python (3.14); pytest from the repo root; example viewers run
+  from the poetry venv. CI on push: 15-leg build + gates (~50 min).
+```
+
+---
+
 ## 1. The contract (normative — owner formulation, 2026-08-18)
 
 Intersection existence is tolerance-determined, the standard CAD semantics:
