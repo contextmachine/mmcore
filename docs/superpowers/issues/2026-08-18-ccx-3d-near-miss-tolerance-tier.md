@@ -149,9 +149,11 @@ tier afterwards (same classifier family; separate ledger item if yes)?
 - The minimal line-pair probe (§6) as a unit test: gaps {0, 1e-9, 5e-4, 9e-4}
   all report exactly one contact at `tol=1e-3` (typed exact for gap 0,
   tolerance otherwise); gap 2e-3 reports none.
-- The owner's tol-scaling example verbatim: the SAME 5e-4-gap pair reports one
-  intersection at `tol` in {5e-4, 1e-3, 1e-2} and none at `tol` in {1e-4, 1e-5}
-  — membership tracks `tol`, count never exceeds one.
+- Tol-scaling: for the same pair, membership must track `tol` exactly —
+  one intersection whenever `tol >= gap`, none whenever `tol < gap`, count
+  never exceeding one. (The values in the owner's example — gap 5e-4 with
+  `tol` in {5e-4, 1e-3, 1e-2} vs {1e-4, 1e-5} — are arbitrary instances of
+  the law, not special constants: parameterize the test over (gap, tol).)
 - Full suite `-m "not slow"` non-increasing.
 
 ## 6. Repro commands
