@@ -22,8 +22,13 @@ from mmcore.numeric._bezier_common import eval_curve
 # Dtypes (self-contained, no dependency on _nccx.py)
 # ---------------------------------------------------------------------------
 
+# L62: isolated entries surface the engine's typed tier — 'certification'
+# ('exact' | 'tolerance') is metadata grading the measurement, 'd_min' is
+# the net-certified curve-curve distance (0.0 for exact roots).  Membership
+# is d_min <= tol (closed) and never depends on the tag.
 _ccx_isolated_dtype = lambda dim: [
     ('u', np.float64), ('v', np.float64), ('point', np.float64, (dim,)),
+    ('d_min', np.float64), ('certification', 'U9'),
 ]
 _ccx_overlap_dtype = lambda dim: [
     ('u', np.float64, (2,)), ('v', np.float64, (2,)), ('point', np.float64, (2, dim)),
@@ -125,10 +130,12 @@ def _dedup_isolated(entries, curves, tol):
         c1, c2 = int(e['curve1_i']), int(e['curve2_i'])
         u, v = float(e['u']), float(e['v'])
         pt = e['point']
+        cert = str(e.get('certification', 'exact'))
+        d_min = float(e.get('d_min', 0.0))
         if c1 <= c2:
-            canonical.append((c1, c2, u, v, pt))
+            canonical.append((c1, c2, u, v, pt, cert, d_min))
         else:
-            canonical.append((c2, c1, v, u, pt))
+            canonical.append((c2, c1, v, u, pt, cert, d_min))
 
     # Sort by (curve pair, u parameter)
     canonical.sort(key=lambda x: (x[0], x[1], x[2]))
@@ -136,14 +143,18 @@ def _dedup_isolated(entries, curves, tol):
     # Walk and merge within each curve pair
     kept = [canonical[0]]
     for entry in canonical[1:]:
-        c1, c2, u, v, pt = entry
-        prev_c1, prev_c2, prev_u, prev_v, prev_pt = kept[-1]
+        c1, c2, u, v, pt, cert, d_min = entry
+        prev = kept[-1]
 
-        if c1 == prev_c1 and c2 == prev_c2:
+        if c1 == prev[0] and c2 == prev[1]:
             ptol_a = ptols[c1]
             ptol_b = ptols[c2]
-            if abs(u - prev_u) < ptol_a and abs(v - prev_v) < ptol_b:
-                # Duplicate — skip (keep the earlier one, which was sorted first)
+            if abs(u - prev[2]) < ptol_a and abs(v - prev[3]) < ptol_b:
+                # Duplicate (span-seam) — keep the better-certified side:
+                # an exact root over a tolerance contact, else the smaller
+                # measured distance (L62: the contact IS the argmin).
+                if _isolated_entry_beats(cert, d_min, prev[5], prev[6]):
+                    kept[-1] = entry
                 continue
 
         kept.append(entry)
@@ -151,12 +162,73 @@ def _dedup_isolated(entries, curves, tol):
     # Convert back to dict format (un-canonicalize is not needed —
     # the canonical order is fine for the output)
     result = []
-    for c1, c2, u, v, pt in kept:
+    for c1, c2, u, v, pt, cert, d_min in kept:
         result.append({
             'u': u, 'v': v, 'point': pt,
             'curve1_i': c1, 'curve2_i': c2,
+            'certification': cert, 'd_min': d_min,
         })
     return result
+
+
+def _isolated_entry_beats(cert, d_min, prev_cert, prev_d_min):
+    """Span-seam merge preference: exact beats tolerance, then lower d_min."""
+    if cert == 'exact' and prev_cert != 'exact':
+        return True
+    if cert != 'exact' and prev_cert == 'exact':
+        return False
+    return d_min < prev_d_min
+
+
+def _absorb_uncertified_contacts(result, status, context, return_status,
+                                 mapper):
+    """L62 typed cannot-decide is a PER-CANDIDATE outcome, never a span-pair
+    failure.  Record the payload on the status ledger, mark the aggregate
+    incomplete, and let the candidate scan CONTINUE — escalating it into the
+    stop-after-span signal discarded certified intersections in span pairs
+    the loop never reached, under a 'budget exhausted' diagnosis that was
+    false (review 2026-08-19).  ``mapper`` lifts each entry's span-local
+    parameters to the global NURBS parameterization.  With
+    ``return_status=False`` the fail-fast contract still raises, naming the
+    typed cause.
+    """
+    uncert = result.get('uncertified_contacts')
+    if not uncert:
+        return result
+    status.setdefault('uncertified_contacts', []).append({
+        'context': context,
+        'entries': [mapper(dict(e)) for e in uncert],
+    })
+    status['complete'] = False
+    status['partial_results'] += 1
+    if not return_status:
+        raise RuntimeError(
+            f"{context}: typed uncertified contacts (the measurement cannot "
+            "decide membership at this tolerance); pass return_status=True "
+            "to receive the typed payload")
+    if not result.get('budget_exhausted', False):
+        # Topology-incomplete ONLY through the typed entries: the honest
+        # aggregate marker is status['complete']=False plus the payload —
+        # not a scan stop.
+        result = dict(result)
+        result['boundary_topology_complete'] = True
+    return result
+
+
+def _seam_check_slack(curve1, curve2):
+    """Operand envelope for the adapter's NURBS-level re-verification.
+
+    The engine accepts membership at the closed boundary within its
+    certified measurement envelope; re-measuring with an UNSLACKED
+    ``> tol`` at the NURBS level silently reversed those decisions (a
+    ``gap == tol`` contact evaluates to ``tol ± evaluation roundoff``).
+    Two de Casteljau chains and a norm, priced on the curves' own
+    coordinate scale.
+    """
+    scale = max(float(np.max(np.abs(curve1.control_points))),
+                float(np.max(np.abs(curve2.control_points))))
+    return (8.0 * (int(curve1.order) + int(curve2.order))
+            * float(np.finfo(np.float64).eps) * scale)
 
 
 def _dedup_isolated_pair(entries, curve1, curve2, tol):
@@ -178,6 +250,12 @@ def _dedup_isolated_pair(entries, curve1, curve2, tol):
     for entry in sorted_entries[1:]:
         prev = kept[-1]
         if abs(entry['u'] - prev['u']) < ptol_u and abs(entry['v'] - prev['v']) < ptol_v:
+            if _isolated_entry_beats(
+                    entry.get('certification', 'exact'),
+                    float(entry.get('d_min', 0.0)),
+                    prev.get('certification', 'exact'),
+                    float(prev.get('d_min', 0.0))):
+                kept[-1] = entry
             continue
         kept.append(entry)
 
@@ -276,11 +354,18 @@ def nurbs_ccx(
         result = bez_ccx_v4(
             pts1, pts2, atol=tol, rational=rational, **call_kwargs,
         )
+        _u_int, _v_int = _c1.interval(), _c2.interval()
+        result = _absorb_uncertified_contacts(
+            result, status, context, return_status,
+            lambda e, _ui=_u_int, _vi=_v_int: dict(
+                e, u=_ui[0] + (_ui[1] - _ui[0]) * e['u'],
+                v=_vi[0] + (_vi[1] - _vi[0]) * e['v']))
         result, stop_after_span = _consume_bezier_status(
             result, status, context, return_status,
             remaining_cells, remaining_results,
         )
 
+        seam_slack = _seam_check_slack(curve1, curve2)
         for inter in result['isolated']:
             u_glob, v_glob = _map_local_to_global(
                 inter['u'], inter['v'], *_c1.interval(), *_c2.interval(),
@@ -290,9 +375,15 @@ def nurbs_ccx(
 
             pt1 = evaluate_nurbs_curve(curve1, u_glob, 0)['C']
             pt2 = evaluate_nurbs_curve(curve2, v_glob, 0)['C']
-            if float(np.linalg.norm(pt1 - pt2)) >= tol:
+            # L62: closed membership — dist == tol is a member, up to the
+            # re-evaluation's own operand envelope.
+            if float(np.linalg.norm(pt1 - pt2)) > tol + seam_slack:
                 continue
-            raw_isolated.append({'u': u_glob, 'v': v_glob, 'point': inter['point']})
+            raw_isolated.append({
+                'u': u_glob, 'v': v_glob, 'point': inter['point'],
+                'certification': str(inter.get('certification', 'exact')),
+                'd_min': float(inter.get('d_min', 0.0)),
+            })
 
         for overlap in result['overlaps']:
             ur = overlap.get('u_range', (0.0, 1.0))
@@ -318,6 +409,9 @@ def nurbs_ccx(
         isolated['u'] = [e['u'] for e in deduped]
         isolated['v'] = [e['v'] for e in deduped]
         isolated['point'] = [e['point'] for e in deduped]
+        isolated['d_min'] = [e.get('d_min', 0.0) for e in deduped]
+        isolated['certification'] = [
+            e.get('certification', 'exact') for e in deduped]
 
     if not raw_overlaps_u:
         overlaps = None
@@ -450,11 +544,19 @@ def nurbs_ccx_multiple(
         result = bez_ccx_v4(
             pts1, pts2, atol=tol, rational=rational, **call_kwargs,
         )
+        _u_int, _v_int = segm1.interval(), segm2.interval()
+        result = _absorb_uncertified_contacts(
+            result, status, context, return_status,
+            lambda e, _ui=_u_int, _vi=_v_int, _a=curve1_i, _b=curve2_i: dict(
+                e, u=_ui[0] + (_ui[1] - _ui[0]) * e['u'],
+                v=_vi[0] + (_vi[1] - _vi[0]) * e['v'],
+                curve1_i=_a, curve2_i=_b))
         result, stop_after_span = _consume_bezier_status(
             result, status, context, return_status,
             remaining_cells, remaining_results,
         )
 
+        seam_slack = _seam_check_slack(curves[curve1_i], curves[curve2_i])
         for inter in result['isolated']:
             u_glob, v_glob = _map_local_to_global(
                 inter['u'], inter['v'], *segm1.interval(), *segm2.interval(),
@@ -463,12 +565,16 @@ def nurbs_ccx_multiple(
             from mmcore.nurbs._nurbs_eval import evaluate_nurbs_curve
             pt1 = evaluate_nurbs_curve(curves[curve1_i], u_glob, 0)['C']
             pt2 = evaluate_nurbs_curve(curves[curve2_i], v_glob, 0)['C']
-            if float(np.linalg.norm(pt1 - pt2)) >= tol:
+            # L62: closed membership — dist == tol is a member, up to the
+            # re-evaluation's own operand envelope.
+            if float(np.linalg.norm(pt1 - pt2)) > tol + seam_slack:
                 continue
             raw_isolated.append({
                 'u': u_glob, 'v': v_glob,
                 'point': inter['point'],
                 'curve1_i': curve1_i, 'curve2_i': curve2_i,
+                'certification': str(inter.get('certification', 'exact')),
+                'd_min': float(inter.get('d_min', 0.0)),
             })
 
         for overlap in result['overlaps']:
@@ -499,6 +605,9 @@ def nurbs_ccx_multiple(
         isolated['point'] = [e['point'] for e in deduped]
         isolated['curve1_i'] = [e['curve1_i'] for e in deduped]
         isolated['curve2_i'] = [e['curve2_i'] for e in deduped]
+        isolated['d_min'] = [e.get('d_min', 0.0) for e in deduped]
+        isolated['certification'] = [
+            e.get('certification', 'exact') for e in deduped]
 
     if not raw_overlaps:
         overlaps = None

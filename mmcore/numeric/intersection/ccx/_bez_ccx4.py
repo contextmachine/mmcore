@@ -4,6 +4,13 @@ This module implements a subdivision-based CCX algorithm that uses the
 squared-distance net ``||C1(u) - C2(v)||^2`` in Bernstein form to classify
 cells as NO_INTERSECTION, UNIQUE_ISOLATED, OVERLAP, or INDETERMINATE,
 avoiding explicit Jacobian-rank analysis.
+
+L62 (owner contract 2026-08-18): isolated-intersection membership is
+``d_min <= atol``, closed, at every ``atol`` — the acceptance-distance
+semantics standard in CAD.  The strict roundoff machinery introduced by
+5d05ddc is re-scoped, not reverted: it grades the ``certification`` tag and
+guards sub-``atol`` topology, while membership itself is decided by the
+tolerance tier's net-certified minimum measurement (see ``bez_ccx``).
 """
 from __future__ import annotations
 
@@ -253,10 +260,20 @@ def _eval_curve_scaled_components(C, t, rational, component_scale):
 def _strict_residual_ok(C1, C2, u, v, rational, component_scale=None):
     """Accept a point equality only inside a floating roundoff envelope.
 
-    ``atol`` is a search/resolution tolerance, not membership in the exact
-    intersection set.  The envelope is tied to each coordinate's own control
-    scale and curve degrees, so every representable nonzero offset in an
-    otherwise constant coordinate remains nonzero for this predicate.
+    The envelope is tied to each coordinate's own control scale and curve
+    degrees, so every representable nonzero offset in an otherwise constant
+    coordinate remains nonzero for this predicate.
+
+    Post-L62 jurisdiction (owner, 2026-08-18): this strict envelope has NO
+    membership role.  Its three jobs are (a) grading the ``certification``
+    tag (``'exact'`` = agreement inside this envelope), (b) the
+    sub-``atol`` topology guards (distinct crossings inside a band must
+    never merge — resolution finer than ``atol`` is legitimately
+    load-bearing there), and (c) backing the typed straddle outcome of the
+    tolerance tier.  Public membership of an isolated contact is
+    ``d_min <= atol`` (closed), decided by the net-certified measurement in
+    `_measure_net_distance` — never by this predicate and never by a raw
+    Newton residual.
     """
     p1 = eval_curve(C1, float(u), rational=rational)
     p2 = eval_curve(C2, float(v), rational=rational)
@@ -317,9 +334,12 @@ def _strict_polish_ccx(C1, C2, u, v, rational, component_scale=None,
     The Newton calls are intentionally unbounded by the current subdivision
     cell (they retain only the public [0,1] curve domains).  Cell bounds are
     a search device and must not turn a root just across a cell seam into a
-    near-root.  Neither Newton's step size nor ``atol`` can accept the result;
-    the component-wise residual certificate above is the sole membership
-    gate.
+    near-root.  Neither Newton's step size nor ``atol`` can accept the
+    result; the component-wise residual certificate above is the sole gate
+    of the EXACT tier — it decides what may carry ``certification='exact'``
+    and nothing more.  Public membership is the L62 tolerance contract
+    (``d_min <= atol``, closed); a candidate this polish refuses is not
+    rejected, it falls through to the net-certified minimum measurement.
     """
     u = float(np.clip(u, 0.0, 1.0))
     v = float(np.clip(v, 0.0, 1.0))
@@ -572,14 +592,19 @@ def _tolerance_overlap_certificate(C1, C2, atol, rational, ptol_u, ptol_v,
          A non-flipping (tangential) touch inside the band is covered by
          the overlap; root-like dips alone are not crossing evidence.
 
-    Returns ``(overlap | None, brackets, band_evidence, span_evidence)``:
+    Returns ``(overlap | None, brackets, band_evidence, span_evidence,
+    anchors)``:
     ``brackets`` is a list of ``(u, v)`` seeds for strict root polishing;
     ``band_evidence`` is True when some qualifying domain end continues as a
     within-``atol`` coincidence BAND into the domain interior (inward-probe
     test) — a mere corner CONTACT (curves within atol at one endpoint but
     diverging immediately, e.g. consecutive edges of a loop sharing a
     vertex) is NOT band evidence and must not arm the bounded fallback;
-    ``span_evidence`` is the widest endpoint-qualified u-extent (or None).
+    ``span_evidence`` is the widest endpoint-qualified u-extent (or None);
+    ``anchors`` is the deduped list of endpoint-qualified ``(u, v)`` pairs —
+    the L62 drain suppresses tolerance candidates connected to an anchor
+    when the certificate ALSO found crossing structure (never merge), and
+    leaves corner/terminus contacts alone otherwise.
     """
     ends1 = [np.asarray(eval_curve(C1, t, rational=rational), dtype=np.float64)
              for t in (0.0, 1.0)]
@@ -642,13 +667,16 @@ def _tolerance_overlap_certificate(C1, C2, atol, rational, ptol_u, ptol_v,
         if band_evidence:
             break
 
-    if len(cands) < 2:
-        return None, [], band_evidence, None
+    # Deduped endpoint-qualified pairs double as the BAND ANCHORS the L62
+    # drain uses: structure connected to a domain-end coincidence anchor is
+    # this certificate's jurisdiction when crossing evidence exists.
     uniq = []
     for u, v in cands:
         if not any(abs(u - uu) <= 4.0 * ptol_u and abs(v - vv) <= 4.0 * ptol_v
                    for uu, vv in uniq):
             uniq.append((float(u), float(v)))
+    if len(cands) < 2:
+        return None, [], band_evidence, None, uniq
     span_evidence = None
     if len(uniq) >= 2:
         u_ext = [u for u, _v in uniq]
@@ -743,8 +771,8 @@ def _tolerance_overlap_certificate(C1, C2, atol, rational, ptol_u, ptol_v,
             "v_range": (float(va), float(vb)),
             "certification": "tolerance",
             "residual_max": float(res.max()),
-        }, brackets, band_evidence, span_evidence)
-    return None, brackets, band_evidence, span_evidence
+        }, brackets, band_evidence, span_evidence, uniq)
+    return None, brackets, band_evidence, span_evidence, uniq
 
 
 def _vector_residual_hull_excludes_zero(C1, C2, rational, depth):
@@ -756,8 +784,14 @@ def _vector_residual_hull_excludes_zero(C1, C2, rational, depth):
 
     If every coefficient is strictly on the same side of zero, with a
     subdivision- and product-roundoff margin, the two curve pieces cannot
-    intersect.  Independent homogeneous scales cancel because each curve is
-    normalized as a whole before the cross product.
+    intersect EXACTLY — this is a statement about the zero level set only,
+    never about distance (L62): a pair at distance ``tol/1e6`` satisfies it
+    in the offset coordinate while being a member at every practical
+    ``atol``.  Phase 2 therefore uses it to route cells (zero-free cells
+    skip exact-root work and descend to their certified minimizer), and
+    prunes on it only when the tolerance tier is off.  Independent
+    homogeneous scales cancel because each curve is normalized as a whole
+    before the cross product.
 
     Envelope (2026-07-25, cluster-4 burn-down).  The margin is the house
     TWO-TERM derived form, not the operator term alone:
@@ -832,6 +866,364 @@ def _vector_residual_hull_excludes_zero(C1, C2, rational, depth):
             return True
     return False
 
+
+# ---------------------------------------------------------------------------
+# L62: tolerance tier for isolated contacts
+# ---------------------------------------------------------------------------
+# Membership is ``d_min <= atol`` (closed) at every ``atol`` — the standard
+# CAD semantics (owner contract 2026-08-18).  The strict roundoff envelope
+# above keeps exactly three jobs and NO membership role: grading the
+# ``certification`` tag, the sub-``atol`` topology guards, and the straddle
+# tail below.  ``d_min`` is measured against the squared-distance net's own
+# certified values, never against a raw Newton residual, so acceptance is
+# translation-invariant to the same degree the net construction is.
+
+from mmcore.numeric.bern_sq_dist import bernstein_basis as _bernstein_basis
+
+
+def _ccx_net_measurement_envelope(C1, C2, F, rational):
+    """Roundoff envelope for values read off the squared-distance net.
+
+    Two-term derived form (house discipline — every factor prices an
+    operation actually performed, every term has an operand):
+
+    * OPERATOR term ``eps * f_max``: Bernstein evaluation / subdivision of
+      the degree-(2p, 2q) net accumulates roundings of coefficients bounded
+      by ``max|F|``.
+    * SOURCE term ``eps * d_max * src``: each coefficient is a convolution
+      of Gram products of the cross-difference net ``D``.  What ``src`` is
+      depends on how ``D`` rounds:
+        - polynomial curves: ``D_ij = P_i - Q_j`` is ONE correctly rounded
+          subtraction of exact inputs, so its error is result-relative
+          (``eps * |D|``) — a world translation cancels in the subtraction
+          itself (Sterbenz for nearby operands) and CANNOT inflate this
+          term.  ``src = d_max``.
+        - rational curves: ``D_ij = P_i*w2_j - Q_j*w1_i`` rounds its two
+          PRODUCTS at world scale before the cancelling subtract, so the
+          operand magnitudes are the honest source — this is where a far
+          world position genuinely destroys precision, and where the typed
+          straddle outcome of `_tolerance_membership` becomes reachable.
+
+    Direction of safety (corrected by review 2026-08-19): this envelope
+    reaches an ACCEPT path — the membership tie window is
+    ``d_hat <= atol + eps_d`` — so on its own an overpriced net envelope
+    IS a false-accept window (measured: 0.68·atol at |ctrl| ~ 3e3, where
+    the global extent² scaling dwarfs the local evaluation error).  It is
+    therefore never used alone: `_measure_contact` pairs it with the
+    direct-evaluation measurement and the SMALLER certified envelope
+    governs, which bounds the tie window by the sharper of the two at
+    every scale.
+    """
+    C1 = np.asarray(C1, dtype=np.float64)
+    C2 = np.asarray(C2, dtype=np.float64)
+    if rational:
+        P, Pw = C1[:, :-1], C1[:, -1]
+        Q, Qw = C2[:, :-1], C2[:, -1]
+        D = (P[:, None, :] * Qw[None, :, None]
+             - Q[None, :, :] * Pw[:, None, None])
+        src = float(np.max(
+            np.abs(P)[:, None, :] * np.abs(Qw)[None, :, None]
+            + np.abs(Q)[None, :, :] * np.abs(Pw)[:, None, None]))
+    else:
+        D = C1[:, None, :] - C2[None, :, :]
+        src = float(np.max(np.abs(D)))
+    d_max = float(np.max(np.abs(D)))
+    f_max = float(np.max(np.abs(F)))
+    factor = 32.0 * max(1, len(C1) + len(C2))
+    return factor * float(np.finfo(np.float64).eps) * (d_max * src + f_max)
+
+
+def _measure_net_distance(F, Pw, Qw, u, v, env_F):
+    """Certified distance measurement at ``(u, v)`` from the top-level net.
+
+    Returns ``(d_hat, eps_d)`` — the measured curve-curve distance and its
+    roundoff envelope — or ``None`` when the weight denominator collapses.
+    """
+    p = (F.shape[0] - 1) // 2
+    q = (F.shape[1] - 1) // 2
+    Bu = _bernstein_basis(2 * p, float(u))
+    Bv = _bernstein_basis(2 * q, float(v))
+    N = float(Bu @ F @ Bv)
+    w1 = float(_bernstein_basis(p, float(u)) @ np.asarray(Pw, dtype=np.float64))
+    w2 = float(_bernstein_basis(q, float(v)) @ np.asarray(Qw, dtype=np.float64))
+    denom = (w1 * w2) ** 2
+    if not np.isfinite(denom) or denom <= 0.0:
+        return None
+    d2 = N / denom
+    env_d2 = float(env_F) / denom
+    d_hat = float(np.sqrt(max(d2, 0.0)))
+    env_root = float(np.sqrt(max(env_d2, 0.0)))
+    if d_hat > env_root:
+        eps_d = env_d2 / d_hat
+    else:
+        # Near-zero regime: d^2 is below its own envelope, so the distance
+        # is only located inside [0, ~sqrt(2*env)].
+        eps_d = 2.0 * env_root
+    return d_hat, float(eps_d)
+
+
+def _measure_direct_distance(C1, C2, u, v, rational):
+    """Direct-evaluation distance measurement with an operand envelope.
+
+    Two de Casteljau chains, one subtraction, one norm: the error scales
+    with the curves' own coordinate magnitudes (position + extent,
+    weight-conditioned for rational inputs) — LINEARLY, where the
+    squared-distance net's coefficients carry the pair's extent squared.
+    The two measurements are complementary: the net construction cancels
+    world position once (exactly, by Sterbenz, for polynomial inputs) but
+    saturates at sqrt-of-envelope for large extents; this one is sharp at
+    any ordinary extent but degrades with world position.  Membership uses
+    whichever certified envelope is smaller (`_measure_contact`).
+    """
+    p1 = np.asarray(eval_curve(C1, float(u), rational=rational),
+                    dtype=np.float64)
+    p2 = np.asarray(eval_curve(C2, float(v), rational=rational),
+                    dtype=np.float64)
+    if not (np.all(np.isfinite(p1)) and np.all(np.isfinite(p2))):
+        return None
+    d = float(np.linalg.norm(p1 - p2))
+    pts1 = _cartesian_curve_controls_for_exactness(C1, rational)
+    pts2 = _cartesian_curve_controls_for_exactness(C2, rational)
+    if pts1 is None or pts2 is None:
+        return None
+    axis_scale = np.maximum(np.max(np.abs(pts1), axis=0),
+                            np.max(np.abs(pts2), axis=0))
+    cond = 1.0
+    if rational:
+        C1a = np.asarray(C1, dtype=np.float64)
+        C2a = np.asarray(C2, dtype=np.float64)
+        w1 = np.abs(C1a[:, -1])
+        w2 = np.abs(C2a[:, -1])
+        w1_min, w2_min = float(np.min(w1)), float(np.min(w2))
+        if w1_min <= 0.0 or w2_min <= 0.0:
+            return None
+        # Rational evaluation conditioning: the dehomogenizing division
+        # amplifies numerator roundoff by at most the weight RATIO (which
+        # is invariant under the homogeneous scalings the exactness suite
+        # pins).
+        cond = max(float(np.max(w1)) / w1_min, float(np.max(w2)) / w2_min)
+    eps = float(np.finfo(np.float64).eps)
+    e_axis = 8.0 * max(1, len(C1) + len(C2)) * eps * cond * axis_scale
+    eps_d = float(np.linalg.norm(e_axis)) + 4.0 * eps * d
+    return d, eps_d
+
+
+def _measure_contact(F, Pw, Qw, C1, C2, u, v, env_F, rational):
+    """Certified d_min measurement: the sharper of net and direct.
+
+    Both measurements are honest certified intervals for the same
+    quantity, with complementary failure modes (see the two helpers), so
+    the one with the smaller envelope governs.  Review 2026-08-19: the
+    net envelope alone — global, extent²-scaled — opened a false-accept
+    window of up to 0.68·atol at ordinary CAD extents (|ctrl| ~ 3e3 with
+    atol = 1e-3) and armed the cannot-decide tail ~6 orders of magnitude
+    early; the direct measurement's ~eps·|coords| envelope closes both at
+    every scale where float64 can represent the geometry at all.
+    """
+    m_net = _measure_net_distance(F, Pw, Qw, u, v, env_F)
+    m_dir = _measure_direct_distance(C1, C2, u, v, rational)
+    if m_net is None:
+        return m_dir
+    if m_dir is None:
+        return m_net
+    return m_dir if m_dir[1] < m_net[1] else m_net
+
+
+def _tolerance_membership(d_hat, eps_d, atol):
+    """Owner membership contract (L62 §1): closed inequality, typed tail.
+
+    ``'member'`` iff ``d_min <= atol`` with the inequality CLOSED.  The
+    engine holds ``d_min`` only inside the certified envelope
+    ``[d_hat - eps_d, d_hat + eps_d]``, so the closed inequality is
+    enforced at measurement resolution: a value within ``eps_d`` of the
+    boundary IS the boundary, and the tie resolves to membership by
+    contract (a pair constructed at ``gap == tol`` measures
+    ``atol ± roundoff`` and must be exactly one intersection).  Rejection
+    is certified: ``d_hat - eps_d > atol``.  ``eps_d`` is roundoff-scale,
+    so the acceptance bias this admits is the measurement's own noise
+    floor, never a second tolerance.
+
+    The typed ``'undecided'`` outcome arms only when the envelope both
+    covers the boundary AND is itself at the decision scale
+    (``eps_d >= atol``) — the measurement cannot resolve tolerance-sized
+    structure at all.  With ``eps_d`` taken from `_measure_contact` (the
+    sharper of the net and direct envelopes) this is reachable only where
+    float64 genuinely cannot hold the geometry against ``atol``:
+    coordinate magnitudes of order ``atol / (deg·eps)`` for the direct
+    measurement, compounded by weight conditioning for rational inputs
+    (the pinned |T| = 1e12 unequal-weights fixture).
+    """
+    if eps_d >= atol and abs(d_hat - atol) <= eps_d:
+        return "undecided"
+    return "member" if d_hat <= atol + eps_d else "reject"
+
+
+def _polish_min_ccx(C1, C2, u0, v0, rational, max_iter=48, bounds=None):
+    """Damped Gauss-Newton minimizer of ``||C1(u) - C2(v)||``.
+
+    The result is a SEARCH product only — membership is decided by the
+    certified measurement, never by this iteration's residual.  The
+    iterate is clamped to ``bounds`` (the originating cell) when given,
+    else to [0,1]²: unlike the EXACT tier's deliberately unbounded Newton,
+    the minimizer must respect its cell's basin — a Gauss-Newton step
+    happily jumps a super-``atol`` ridge into a deeper neighboring basin,
+    and the abandoned basin's contact is then never emitted (measured on
+    a triple-dip pair: both mid-region seeds slid to the domain corners
+    and the interior contact vanished).  Cross-cell duplicates of one
+    minimizer are the drain's job.  A minimizer clamped onto a domain
+    edge is the endpoint-contact configuration.
+    """
+    lo_u, hi_u, lo_v, hi_v = bounds if bounds is not None else (
+        0.0, 1.0, 0.0, 1.0)
+    lo_u = max(0.0, float(lo_u)); hi_u = min(1.0, float(hi_u))
+    lo_v = max(0.0, float(lo_v)); hi_v = min(1.0, float(hi_v))
+    u = float(min(hi_u, max(lo_u, float(u0))))
+    v = float(min(hi_v, max(lo_v, float(v0))))
+    p1, d1 = eval_curve_d1(C1, u, rational=rational)
+    p2, d2 = eval_curve_d1(C2, v, rational=rational)
+    r = p1 - p2
+    f = float(np.dot(r, r))
+    if not np.isfinite(f):
+        return u, v
+    for _ in range(max_iter):
+        a11 = float(np.dot(d1, d1))
+        a22 = float(np.dot(d2, d2))
+        a12 = -float(np.dot(d1, d2))
+        g1 = float(np.dot(d1, r))
+        g2 = -float(np.dot(d2, r))
+        damp = 1e-12 * max(a11, a22)
+        det = (a11 + damp) * (a22 + damp) - a12 * a12
+        if not np.isfinite(det) or det <= 0.0:
+            break
+        su = (-g1 * (a22 + damp) + g2 * a12) / det
+        sv = (-g2 * (a11 + damp) + g1 * a12) / det
+        if max(abs(su), abs(sv)) < 4.0 * np.finfo(np.float64).eps:
+            break
+        scale = 1.0
+        improved = False
+        for _ls in range(20):
+            uc = float(min(hi_u, max(lo_u, u + scale * su)))
+            vc = float(min(hi_v, max(lo_v, v + scale * sv)))
+            p1c, d1c = eval_curve_d1(C1, uc, rational=rational)
+            p2c, d2c = eval_curve_d1(C2, vc, rational=rational)
+            rc = p1c - p2c
+            fc = float(np.dot(rc, rc))
+            if fc < f:
+                u, v, p1, d1, p2, d2, r, f = uc, vc, p1c, d1c, p2c, d2c, rc, fc
+                improved = True
+                break
+            scale *= 0.5
+        if not improved:
+            break
+    return u, v
+
+
+def _sublevel_connected(C1, C2, F, Pw, Qw, env_F, ua, va, ub, vb,
+                        atol, ptol_u, ptol_v, rational):
+    """Valley-following containment of a path in ``{D <= atol}``.
+
+    Used to enforce the component rules: a candidate connected to an exact
+    root belongs to a component the exact machinery already resolved (no
+    tolerance contact — the tiers cannot double-count), and two connected
+    tolerance candidates are ONE contact at the argmin (owner decision
+    2026-08-18: a compact region of sub-``atol`` distance is a single
+    isolated tangent intersection — there are no "band" outcomes).
+
+    The tested path follows the PAIRING, not the straight (u,v) chord: a
+    sub-``atol`` component is generically curved in parameter space, and
+    the chord between two of its points leaves the set (review
+    2026-08-19: one curved component shipped as several contacts).  The
+    walk samples the dominant parameter axis and inverts each sample onto
+    the partner curve — the L47 certificate's own pairing device — so the
+    path tracks the valley floor, and it must ARRIVE: an inversion path
+    that ends on a different branch is not a connection.  Aliasing thinner
+    than the ptol pitch remains, in the safe direction (not connected
+    keeps both candidates and never merges topology).
+    """
+    du, dv = ub - ua, vb - va
+    walk_u = (abs(du) / max(ptol_u, 1e-12)
+              >= abs(dv) / max(ptol_v, 1e-12))
+    span = abs(du) if walk_u else abs(dv)
+    pitch = max(ptol_u if walk_u else ptol_v, 1e-12)
+    steps = int(min(64, max(2, np.ceil(span / pitch))))
+    src, dst = (C1, C2) if walk_u else (C2, C1)
+    t_prev = None
+    t_dst = None
+    for k in range(steps + 1):
+        s = k / steps
+        t_src = (ua + s * du) if walk_u else (va + s * dv)
+        seed = (va + s * dv) if walk_u else (ua + s * du)
+        if t_prev is not None:
+            seed = t_prev
+        pt = np.asarray(eval_curve(src, float(t_src), rational=rational),
+                        dtype=np.float64)
+        t_dst, _res = _invert_point_on_curve(dst, pt, seed, rational)
+        u_s, v_s = (t_src, t_dst) if walk_u else (t_dst, t_src)
+        m = _measure_contact(F, Pw, Qw, C1, C2, u_s, v_s, env_F, rational)
+        if m is None or _tolerance_membership(m[0], m[1], atol) != "member":
+            return False
+        t_prev = t_dst
+    target = vb if walk_u else ub
+    arrive_tol = 4.0 * (ptol_v if walk_u else ptol_u)
+    return t_dst is not None and abs(t_dst - target) <= arrive_tol
+
+
+# Cap on materialized tolerance-minimum candidates per engine call — a work
+# budget in the max_results family, not a classification threshold.
+_TOL_POOL_CAP = 4_096
+
+
+
+def _endpoint_contact_candidates(C1, C2, F, Pw, Qw, env_F, atol, rational,
+                                 cells):
+    """Phase-1 boundary analysis lifted from level 0 to level ``atol²``.
+
+    A component of ``{D <= atol}`` touching a domain edge of the parameter
+    square is a curve-terminus contact.  The interior tier cannot reach it:
+    a boundary minimum has no interior stationary point, so the
+    derivative-sign prune removes its cells — exactly as Phase 1 owns the
+    level-0 boundary zeros.  Each of the four curve termini whose boundary
+    net dips under the (weight-corrected) ``atol²`` hull bound is projected
+    onto the other curve; surviving candidates join the shared tolerance
+    pool, where the component rules dedup them against exact roots and
+    interior contacts.  Billing: one cell per projection performed (the
+    L47 arming-scan pricing).
+    """
+    from mmcore.numeric.intersection._sq_dist_classify import (
+        _weight_max_product,
+    )
+    cands = []
+    w_sc = _weight_max_product(Pw, Qw)
+    edges = (
+        (0, 0.0, F[0, :]), (0, 1.0, F[-1, :]),
+        (1, 0.0, F[:, 0]), (1, 1.0, F[:, -1]),
+    )
+    for which, t_end, edge_net in edges:
+        # Sound hull pre-filter: min D² on this edge above atol² → the
+        # sub-level set cannot touch it.  Envelope-slacked like every
+        # other level-atol bar in this module: the edge coefficients carry
+        # the net-construction roundoff, and gap == atol must survive the
+        # closed contract (review 2026-08-19: this was the one unslacked
+        # bar, and a rotated end-to-end pair at gap == atol lost its
+        # contact to a 1-ulp coefficient rounding 134/300 times).
+        if (float(np.min(edge_net)) / (w_sc ** 2)
+                > atol * atol + env_F / (w_sc ** 2)):
+            continue
+        if cells.remaining <= 0:
+            break
+        cells.spend(1)
+        src, dst = (C1, C2) if which == 0 else (C2, C1)
+        pt = np.asarray(eval_curve(src, t_end, rational=rational),
+                        dtype=np.float64)
+        s_proj, _res = _project_point_on_curve(dst, pt, rational)
+        u, v = (t_end, s_proj) if which == 0 else (s_proj, t_end)
+        m = _measure_contact(F, Pw, Qw, C1, C2, u, v, env_F, rational)
+        if m is None:
+            continue
+        if _tolerance_membership(m[0], m[1], atol) == "reject":
+            continue
+        cands.append((m[0], m[1], float(u), float(v)))
+    return cands
 
 
 from mmcore.numeric.bern import bernstein_partial_derivative_coeffs
@@ -913,11 +1305,24 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
                 known_points=None,
                 max_depth=50, max_cells=50_000,
                 max_results=4_096,
-                initial_stack=None):
+                initial_stack=None,
+                F_top=None, Pw_top=None, Qw_top=None, env_F=None,
+                tol_pool=None):
     """Phase 2: find isolated intersections via subdivision + Newton + cutout.
 
     No boundary analysis, no overlap checks, no classifier.
     Just: min-of-net → derivative sign → Newton → cutout.
+
+    L62 tolerance tier: when ``tol_pool`` is a list, cells certified
+    zero-free are no longer pruned — they descend toward the interior
+    minimizer of the squared distance, and terminal cells that the strict
+    (exact) tier cannot accept contribute net-certified minimum candidates
+    ``(d_hat, eps_d, u, v)`` to the pool.  The pool is drained ONCE by the
+    caller (component merge + membership), so this function never decides
+    tolerance membership on its own.  With ``tol_pool=None`` the legacy
+    exact-only behavior is preserved bit-for-bit (nested engine callers
+    consume exact boundary zeros; their own tolerance semantics are a
+    separate contract).
     """
     from mmcore.numeric.intersection._sq_dist_classify import (
         _check_min_of_net, _check_lipschitz, _weight_max_product,
@@ -954,9 +1359,6 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
         else:
             pts1 = seg1
             pts2 = seg2
-        if _vector_residual_hull_excludes_zero(
-                seg1, seg2, rational, depth):
-            continue
         bb1 = np.array(aabb(pts1)); bb1[0] -= atol; bb1[1] += atol
         bb2 = np.array(aabb(pts2)); bb2[0] -= atol; bb2[1] += atol
         if not aabb_intersect(bb1, bb2):
@@ -964,12 +1366,20 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
 
         w_sc = _weight_max_product(pw, qw)
 
-        # min-of-net prune
-        if _check_min_of_net(F_cell, atol, w_sc):
+        # min-of-net / Lipschitz prunes.  L62: with the tier armed, a
+        # certified lower bound must clear atol² by the net measurement
+        # envelope before the cell may be deleted — at gap == atol the true
+        # minimum EQUALS the bar and subdivision roundoff on the restricted
+        # coefficients must not break the closed membership contract.
+        # Under-pruning is sound (the terminal measurement rejects); the
+        # tier-off bar is bit-identical to the legacy one.
+        atol_prune = atol
+        if tol_pool is not None:
+            atol_prune = float(np.sqrt(
+                atol * atol + env_F / (w_sc ** 2)))
+        if _check_min_of_net(F_cell, atol_prune, w_sc):
             continue
-
-        # Lipschitz prune
-        if _check_lipschitz(F_cell, atol, w_sc):
+        if _check_lipschitz(F_cell, atol_prune, w_sc):
             continue
 
         # Derivative sign pruning
@@ -984,13 +1394,77 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
         if not can_have_stationary:
             continue
 
-        # ptol-based early termination
-        if (u1 - u0) <= ptol_u and (v1 - v0) <= ptol_v:
+        # L62: the vector-residual hull certifies "no exact zero on this
+        # cell's closure" — a statement about the ZERO LEVEL SET, not about
+        # distance.  Using it as a cell prune was the near-miss loss site
+        # (a cell whose distance sits in (0, atol] was deleted with no
+        # downstream recourse — measured: a z-gap of tol/1e6 erased the
+        # intersection).  With the tolerance tier armed it only ROUTES the
+        # cell: certified zero-free cells skip the exact-root Newton work
+        # and descend toward the certified minimizer instead.  Tier off
+        # (``tol_pool is None``): it remains the prune it always was.
+        zero_free = _vector_residual_hull_excludes_zero(
+            seg1, seg2, rational, depth)
+        if zero_free and tol_pool is None:
+            continue
+
+        # ptol-based early termination.  L62 adds two COARSE terminal
+        # conditions for ZERO-FREE cells — a cell that cannot contain a
+        # root needs only to locate its minimum candidate, never to
+        # isolate roots at ptol resolution:
+        #   * wholly-in-band: the hull upper bound of D² sits below atol²,
+        #     so membership cannot change by subdividing — only the argmin
+        #     sharpens, and the minimizer polish locates it from this
+        #     cell's seed; the drain's argmin sort + connectivity merge
+        #     select the component argmin across cells;
+        #   * certified-convex: `_check_uniqueness_2d`'s Hessian-PD
+        #     certificate (the level-0 uniqueness doctrine, one level up)
+        #     proves at most ONE interior minimizer in the cell, which the
+        #     Gauss-Newton polish finds from any seed.
+        # Without these, a thin sub-atol valley (~ptol across, macroscopic
+        # along) forces isotropic subdivision to cover its whole length at
+        # ptol pitch — measured 545k cells on one shallow rational
+        # ellipse-spline crossing, every candidate discarded at the drain.
+        # Cells that may contain zeros keep the full exact-tier descent.
+        #
+        # A third structural rule (L62): an axis whose CURVE PIECE has
+        # collapsed — Cartesian hull diameter at or under half the dedup
+        # radius — is RESOLVED: every candidate inside that piece lands in
+        # one 3D dedup ball, so further splitting of that axis cannot
+        # produce additional distinct results, only descent cost
+        # (measured: a curve terminus curling to ~1e-4 from the partner
+        # kept halving a point-like piece toward ptol pitch, 100k cells on
+        # one span pair).  Such an axis stops subdividing below; a cell
+        # resolved on both axes is terminal.
+        collapsed1 = collapsed2 = False
+        if tol_pool is not None:
+            collapsed1 = float(np.linalg.norm(
+                pts1.max(axis=0) - pts1.min(axis=0))) <= 0.5 * atol
+            collapsed2 = float(np.linalg.norm(
+                pts2.max(axis=0) - pts2.min(axis=0))) <= 0.5 * atol
+        at_ptol = (((u1 - u0) <= ptol_u or collapsed1)
+                   and ((v1 - v0) <= ptol_v or collapsed2))
+        coarse_stop = False
+        if tol_pool is not None and zero_free and not at_ptol:
+            w1_lo = float(np.min(pw))
+            w2_lo = float(np.min(qw))
+            if w1_lo > 0.0 and w2_lo > 0.0:
+                coarse_stop = (
+                    float(np.max(F_cell)) / ((w1_lo * w2_lo) ** 2)
+                    <= atol * atol)
+            if not coarse_stop:
+                from mmcore.numeric.intersection._sq_dist_classify import (
+                    _check_uniqueness_2d,
+                )
+                coarse_stop = _check_uniqueness_2d(F_cell)
+        if at_ptol or coarse_stop:
             u_mid = 0.5 * (u0 + u1)
             v_mid = 0.5 * (v0 + v1)
-            polished = _strict_polish_ccx(
-                C1_orig, C2_orig, u_mid, v_mid, rational,
-                component_scale=component_scale, require_newton=True)
+            polished = None
+            if not zero_free:
+                polished = _strict_polish_ccx(
+                    C1_orig, C2_orig, u_mid, v_mid, rational,
+                    component_scale=component_scale, require_newton=True)
             if polished is not None:
                 u_sol, v_sol, pt = polished
                 if (u0 - 0.25 * ptol_u <= u_sol <= u1 + 0.25 * ptol_u
@@ -999,11 +1473,35 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
                         and not _is_duplicate(isolated, pt, atol)):
                     isolated.append({
                         "u": float(u_sol), "v": float(v_sol),
-                        "point": pt, "_micro": True,
+                        "point": pt, "certification": "exact",
+                        "d_min": 0.0, "_micro": True,
                     })
+            elif tol_pool is not None:
+                # L62 terminal tolerance candidate: polish the MINIMIZER
+                # (not a root) and measure it against the top-level net.
+                # Candidates that wander out of this cell's neighborhood
+                # are dropped — the owning cell contributes them itself.
+                mu, mv = _polish_min_ccx(
+                    C1_orig, C2_orig, u_mid, v_mid, rational,
+                    bounds=(u0, u1, v0, v1))
+                if (u0 - ptol_u <= mu <= u1 + ptol_u
+                        and v0 - ptol_v <= mv <= v1 + ptol_v):
+                    m = _measure_contact(
+                        F_top, Pw_top, Qw_top, C1_orig, C2_orig,
+                        mu, mv, env_F, rational)
+                    if (m is not None
+                            and _tolerance_membership(m[0], m[1], atol)
+                            != "reject"):
+                        if len(tol_pool) < _TOL_POOL_CAP:
+                            tol_pool.append(
+                                (m[0], m[1], float(mu), float(mv)))
+                        else:
+                            exhausted = True
             continue
 
-        # Newton from cell center
+        # Newton from cell center (exact tier — a zero-free cell cannot
+        # contain a root on its closure, so the strict attempts are skipped
+        # there and the cell descends toward its minimizer)
         u_mid = 0.5 * (u0 + u1)
         v_mid = 0.5 * (v0 + v1)
         uv_candidates = [
@@ -1011,28 +1509,33 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
             (u_mid, v_mid),
         ]
         root_found = False
-        for u_mid, v_mid in uv_candidates:
-            if root_found:
-                break
-            polished = _strict_polish_ccx(
-                C1_orig, C2_orig, u_mid, v_mid, rational,
-                component_scale=component_scale, require_newton=True)
-            if polished is not None:
-                u_sol, v_sol, pt = polished
-            else:
-                continue
-            if u0 < u_sol < u1 and v0 < v_sol < v1:
-                is_new = not _is_duplicate(isolated, pt, atol)
-                #print(f"CCX: is_new: {is_new}")
-                if is_new:
-                    isolated.append({"u": float(u_sol), "v": float(v_sol), "point": pt})
-                    sub_cells = _cutout_2d(
-                        F_cell, seg1, seg2, pw, qw, u0, u1, v0, v1, depth,
-                        float(u_sol), float(v_sol), ptol_u, ptol_v, rational,
-                    )
-                    stack.extend(sub_cells)
-                    root_found=True
+        if not zero_free:
+            for u_mid, v_mid in uv_candidates:
+                if root_found:
                     break
+                polished = _strict_polish_ccx(
+                    C1_orig, C2_orig, u_mid, v_mid, rational,
+                    component_scale=component_scale, require_newton=True)
+                if polished is not None:
+                    u_sol, v_sol, pt = polished
+                else:
+                    continue
+                if u0 < u_sol < u1 and v0 < v_sol < v1:
+                    is_new = not _is_duplicate(isolated, pt, atol)
+                    #print(f"CCX: is_new: {is_new}")
+                    if is_new:
+                        isolated.append({
+                            "u": float(u_sol), "v": float(v_sol),
+                            "point": pt, "certification": "exact",
+                            "d_min": 0.0,
+                        })
+                        sub_cells = _cutout_2d(
+                            F_cell, seg1, seg2, pw, qw, u0, u1, v0, v1, depth,
+                            float(u_sol), float(v_sol), ptol_u, ptol_v, rational,
+                        )
+                        stack.extend(sub_cells)
+                        root_found=True
+                        break
 
         if root_found:continue
 
@@ -1051,19 +1554,37 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
 
         u_mid_split = 0.5 * (u0 + u1)
         v_mid_split = 0.5 * (v0 + v1)
-        seg1_L, seg1_R = _subdivide_curve(seg1)
-        seg2_L, seg2_R = _subdivide_curve(seg2)
-        F_LL, F_LR, F_RR,F_RL, =_subdivide_sq_dist_net_2d(F_cell,0.5 ,0.5)
+        split_u = not collapsed1
+        split_v = not collapsed2
+        if split_u and split_v:
+            seg1_L, seg1_R = _subdivide_curve(seg1)
+            seg2_L, seg2_R = _subdivide_curve(seg2)
+            F_LL, F_LR, F_RR,F_RL, =_subdivide_sq_dist_net_2d(F_cell,0.5 ,0.5)
 
-
-        pw_L = seg1_L[:, -1].copy() if rational else np.ones(seg1_L.shape[0])
-        pw_R = seg1_R[:, -1].copy() if rational else np.ones(seg1_R.shape[0])
-        qw_L = seg2_L[:, -1].copy() if rational else np.ones(seg2_L.shape[0])
-        qw_R = seg2_R[:, -1].copy() if rational else np.ones(seg2_R.shape[0])
-        stack.append((seg1_L, seg2_L, F_LL, pw_L, qw_L, u0, u_mid_split, v0, v_mid_split, depth+1))
-        stack.append((seg1_L, seg2_R, F_LR, pw_L, qw_R,u0, u_mid_split, v_mid_split, v1, depth+1))
-        stack.append((seg1_R, seg2_R, F_RR, pw_R,  qw_R,u_mid_split, u1, v_mid_split, v1, depth+1))
-        stack.append((seg1_R, seg2_L, F_RL, pw_R, qw_L,u_mid_split, u1,  v0, v_mid_split, depth+1))
+            pw_L = seg1_L[:, -1].copy() if rational else np.ones(seg1_L.shape[0])
+            pw_R = seg1_R[:, -1].copy() if rational else np.ones(seg1_R.shape[0])
+            qw_L = seg2_L[:, -1].copy() if rational else np.ones(seg2_L.shape[0])
+            qw_R = seg2_R[:, -1].copy() if rational else np.ones(seg2_R.shape[0])
+            stack.append((seg1_L, seg2_L, F_LL, pw_L, qw_L, u0, u_mid_split, v0, v_mid_split, depth+1))
+            stack.append((seg1_L, seg2_R, F_LR, pw_L, qw_R,u0, u_mid_split, v_mid_split, v1, depth+1))
+            stack.append((seg1_R, seg2_R, F_RR, pw_R,  qw_R,u_mid_split, u1, v_mid_split, v1, depth+1))
+            stack.append((seg1_R, seg2_L, F_RL, pw_R, qw_L,u_mid_split, u1,  v0, v_mid_split, depth+1))
+        elif split_u:
+            # v-piece collapsed: refine u only (L62 anisotropic rule above)
+            seg1_L, seg1_R = _subdivide_curve(seg1)
+            F_L, F_R = _subdivide_sq_dist_net(F_cell, 0, 0.5)
+            pw_L = seg1_L[:, -1].copy() if rational else np.ones(seg1_L.shape[0])
+            pw_R = seg1_R[:, -1].copy() if rational else np.ones(seg1_R.shape[0])
+            stack.append((seg1_L, seg2, F_L, pw_L, qw, u0, u_mid_split, v0, v1, depth+1))
+            stack.append((seg1_R, seg2, F_R, pw_R, qw, u_mid_split, u1, v0, v1, depth+1))
+        else:
+            # u-piece collapsed: refine v only
+            seg2_L, seg2_R = _subdivide_curve(seg2)
+            F_L, F_R = _subdivide_sq_dist_net(F_cell, 1, 0.5)
+            qw_L = seg2_L[:, -1].copy() if rational else np.ones(seg2_L.shape[0])
+            qw_R = seg2_R[:, -1].copy() if rational else np.ones(seg2_R.shape[0])
+            stack.append((seg1, seg2_L, F_L, pw, qw_L, u0, u1, v0, v_mid_split, depth+1))
+            stack.append((seg1, seg2_R, F_R, pw, qw_R, u0, u1, v_mid_split, v1, depth+1))
 
     return isolated[n_known:], exhausted, cells
 
@@ -1082,6 +1603,7 @@ def bez_ccx(
     max_depth=50,
     max_cells=100_000,
     max_results=4_096,
+    tolerance_tier=True,
 ) -> dict:
     """Bezier curve-curve intersection via two-phase architecture.
 
@@ -1102,6 +1624,26 @@ def bez_ccx(
     structure that NEITHER certificate can promote and the bounded fallback
     cannot discretize returns ``uncertified_overlap_span=(u_lo, u_hi)`` with
     ``boundary_topology_complete=False`` — typed, not a bare budget flag.
+
+    L62 isolated tolerance tier (owner contract 2026-08-18): membership of
+    an isolated contact is ``d_min <= atol``, CLOSED, at every ``atol`` —
+    ``atol`` is the acceptance distance, the standard CAD semantics.  Each
+    ``isolated`` entry carries ``certification`` (``'exact'`` = agreement
+    inside the strict roundoff envelope; ``'tolerance'`` = a certified
+    near-miss minimum) and ``d_min`` (the net-certified measured distance;
+    0.0 for exact roots).  The tag is metadata — membership never depends
+    on it.  Per component of ``{D <= atol}``: certified zeros inside →
+    exact roots only; zero-free and compact → exactly ONE contact at the
+    certified argmin (there is no "band" outcome — a long sub-``atol``
+    graze is still one tangent contact); touching a domain edge → an
+    endpoint contact from the lifted Phase-1 boundary analysis;
+    boundary-anchored both ends → the L47 overlap path, unchanged.  A
+    candidate whose measurement envelope straddles the ``atol`` boundary at
+    decision scale returns typed ``uncertified_contacts`` (cannot-decide,
+    never a guess) with ``boundary_topology_complete=False``.
+    ``tolerance_tier=False`` restores exact-only acceptance for engine
+    callers that consume level-0 boundary zeros (the nested CSX call; its
+    own tolerance semantics are a separate ledger item).
     """
     C1 = np.asarray(C1, dtype=np.float64)
     C2 = np.asarray(C2, dtype=np.float64)
@@ -1133,6 +1675,14 @@ def bez_ccx(
     ptol_u, ptol_v = _compute_param_tols(C1, C2, atol, rational)
     component_scale = _ccx_exactness_context(
         C1_orig, C2_orig, rational)
+
+    # L62: one measurement envelope per call, derived from the operands the
+    # net construction actually consumed; the candidate pool collects
+    # net-certified minima from the endpoint lift and Phase 2 and is
+    # drained exactly once, in ``_finalize``.
+    env_F = (_ccx_net_measurement_envelope(C1, C2, F, rational)
+             if tolerance_tier else None)
+    tol_pool = [] if tolerance_tier else None
 
     isolated = []
     overlaps = []
@@ -1180,7 +1730,25 @@ def bez_ccx(
         return _result([], [], topology_complete=False)
     #print(f"CCX: {cls} (phase 1)")
     if cls.kind == NO_INTERSECTION:
-        return _result([], [])
+        # L62: the classifier's lower bounds carry construction roundoff.
+        # A pair whose true minimum sits within the measurement envelope of
+        # atol (gap == atol is a member, closed) must not be discarded by a
+        # bound that cleared the bar by less than that envelope — re-test
+        # with the envelope-slacked bar and fall through to the tier when
+        # inconclusive.
+        certified_out = True
+        if tolerance_tier:
+            from mmcore.numeric.intersection._sq_dist_classify import (
+                _check_min_of_net, _check_lipschitz,
+            )
+            w_top = float(np.max(np.abs(Pw))) * float(np.max(np.abs(Qw)))
+            atol_slacked = float(np.sqrt(
+                atol * atol + env_F / (w_top ** 2)))
+            certified_out = (
+                _check_min_of_net(F, atol_slacked, w_top)
+                or _check_lipschitz(F, atol_slacked, w_top))
+        if certified_out:
+            return _result([], [])
 
     # 1a. Collect validated boundary zeros (don't add to isolated yet)
     boundary_hits = []  # list of strictly validated (u, v, point)
@@ -1274,11 +1842,15 @@ def bez_ccx(
     residual_band_evidence = False
     uncertified_span_evidence = None
     interior_bracket_hits = []
+    band_anchors = []
+    band_crossing_evidence = False
     if not overlap_found and cells.remaining > 0:
         cells.spend(1)
         tol_overlap, tol_brackets, residual_band_evidence, \
-            uncertified_span_evidence = _tolerance_overlap_certificate(
+            uncertified_span_evidence, band_anchors = \
+            _tolerance_overlap_certificate(
                 C1_orig, C2_orig, atol, rational, ptol_u, ptol_v)
+        band_crossing_evidence = bool(tol_brackets)
         if tol_overlap is not None:
             overlaps.append(tol_overlap)
             overlap_found = True
@@ -1311,19 +1883,154 @@ def bez_ccx(
         if non_affine_overlap_fallback else None
     )
 
+    # L62: the tier stays armed even when the overlap-class fallback is —
+    # a call-wide stand-down silently lost members with topology claimed
+    # complete (review 2026-08-19: band evidence at one terminus deleted
+    # an unrelated far-end contact; an overlap-class verdict deleted every
+    # sub-tol member of a triple-dip pair).  Jurisdiction is enforced
+    # STRUCTURALLY in the drain instead: candidates on certified overlap
+    # spans, on the structural typed span, or connected to a band anchor
+    # while the certificate holds crossing evidence, are suppressed there
+    # — which is exactly the never-merge boundary, no wider.
+    tier_active = bool(tolerance_tier)
+
+    # L62 Phase-1 lift: curve-terminus contacts at level ``atol²`` (the
+    # boundary-touching components of {D <= atol}).
+    if tier_active:
+        tol_pool.extend(_endpoint_contact_candidates(
+            C1_orig, C2_orig, F, Pw, Qw, env_F, atol, rational, cells))
+
+    def _drain_tolerance_pool():
+        """L62 component rules over the collected minimum candidates.
+
+        Candidates ascend by measured distance, so the accepted contact of
+        each component is its certified argmin (owner decision 2026-08-18:
+        one compact sub-``atol`` region = ONE isolated tangent contact —
+        there is no band outcome).  A candidate connected inside
+        ``{D <= atol}`` to an exact root — or lying on a certified overlap
+        span — belongs to a component the exact machinery already resolved
+        and is suppressed: the tiers cannot double-count by construction.
+        """
+        nonlocal budget_exhausted
+        accepted, undecided = [], []
+        if not tol_pool:
+            return accepted, undecided
+        # Suppression u-spans: every certified overlap range.  The
+        # structural typed span (when the fallback exhausts unpromoted) is
+        # deliberately NOT one of them: it names structure the engine
+        # could not certify, and a certified point contact inside it is a
+        # refinement, not a contradiction — the never-merge boundary for
+        # refused bands is the anchor-connectivity rule below, which arms
+        # exactly when the certificate holds crossing evidence.
+        spans = []
+        for ovl in overlaps:
+            lo, hi = ovl["u_range"]
+            spans.append((min(lo, hi), max(lo, hi)))
+        for d_hat, eps_d, u_c, v_c in sorted(tol_pool):
+            # A candidate on structure another tier already resolved (or
+            # typed) is suppressed REGARDLESS of its own verdict: on those
+            # spans the overlap machinery's outcome IS the answer, and in
+            # the parameter dedup ball of an accepted root/contact that
+            # entry is the answer — an unresolvable measurement of an
+            # already-resolved component is not a typed outcome (measured:
+            # the exact seam touch of a ray at tol=1e-6, where the net's
+            # sqrt roundoff floor exceeds atol, spuriously flagged its own
+            # root's neighborhood).
+            if any(lo - ptol_u <= u_c <= hi + ptol_u for lo, hi in spans):
+                continue
+            suppressed = False
+            for entry in isolated + accepted:
+                if (abs(float(entry["u"]) - u_c) <= 4.0 * ptol_u
+                        and abs(float(entry["v"]) - v_c) <= 4.0 * ptol_v):
+                    suppressed = True
+                    break
+            if suppressed:
+                continue
+            verdict = _tolerance_membership(d_hat, eps_d, atol)
+            if verdict == "reject":
+                continue
+            if verdict == "undecided":
+                # Typed cannot-decide entries dedup by parameter proximity
+                # only — the connectivity test is a membership predicate
+                # and has no meaning at a scale the measurement cannot
+                # resolve.
+                if not any(abs(e["u"] - u_c) <= 4.0 * ptol_u
+                           and abs(e["v"] - v_c) <= 4.0 * ptol_v
+                           for e in undecided):
+                    undecided.append({
+                        "u": float(u_c), "v": float(v_c),
+                        "d_min": float(d_hat), "envelope": float(eps_d),
+                    })
+                continue
+            # Component rules, by CONNECTIVITY only (the 3D-point radius
+            # shortcut merged genuinely disconnected components whose
+            # witnesses happened to fall within atol in space — review
+            # 2026-08-19; connectivity is what distinguishes one graze
+            # from two):
+            #   * connected to an accepted root/contact → same component,
+            #     already represented;
+            #   * connected to a band anchor while the L47 certificate
+            #     holds crossing evidence → refused-band jurisdiction (the
+            #     woven family): a point contact would merge crossing
+            #     topology, so the typed-span path answers instead.
+            connected = False
+            for entry in isolated + accepted:
+                if _sublevel_connected(
+                        C1_orig, C2_orig, F, Pw, Qw, env_F, u_c, v_c,
+                        float(entry["u"]), float(entry["v"]),
+                        atol, ptol_u, ptol_v, rational):
+                    connected = True
+                    break
+            if not connected and band_crossing_evidence:
+                for ua, va in band_anchors:
+                    if _sublevel_connected(
+                            C1_orig, C2_orig, F, Pw, Qw, env_F, u_c, v_c,
+                            float(ua), float(va),
+                            atol, ptol_u, ptol_v, rational):
+                        connected = True
+                        break
+            if connected:
+                continue
+            if len(isolated) + len(accepted) >= max_results:
+                budget_exhausted = True
+                break
+            p1 = np.asarray(
+                eval_curve(C1_orig, float(u_c), rational=rational),
+                dtype=np.float64)
+            p2 = np.asarray(
+                eval_curve(C2_orig, float(v_c), rational=rational),
+                dtype=np.float64)
+            accepted.append({
+                "u": float(u_c), "v": float(v_c),
+                "point": 0.5 * (p1 + p2),
+                "certification": "tolerance", "d_min": float(d_hat),
+            })
+        tol_pool.clear()
+        return accepted, undecided
+
     def _finalize(topology_complete=True):
         # Typed L47 outcome, mirroring CSX's L42 export: when the overlap-
         # class structure could not be certified AND the bounded fallback
         # could not discretize it, name the span instead of billing the
         # failure to the budget with topology claimed complete.
+        tol_accept, tol_undecided = (
+            _drain_tolerance_pool() if tier_active else ([], []))
+        isolated.extend(tol_accept)
         structural = (non_affine_overlap_fallback and budget_exhausted
                       and not overlap_found)
-        res = _result(isolated, overlaps,
-                      topology_complete=topology_complete and not structural)
+        res = _result(
+            isolated, overlaps,
+            topology_complete=(topology_complete and not structural
+                               and not tol_undecided))
         if structural:
             span = uncertified_span_evidence or (0.0, 1.0)
             res["uncertified_overlap_span"] = (
                 float(span[0]), float(span[1]))
+        if tol_undecided:
+            # L62 typed cannot-decide (the |coords| >~ atol/eps tail):
+            # membership at these candidates is not measurable at the atol
+            # scale — named, never guessed (the L47 typed-outcome pattern).
+            res["uncertified_contacts"] = tol_undecided
         return res
 
     # 1c. Classify boundary hits: overlap endpoints go into the overlap,
@@ -1355,14 +2062,16 @@ def bez_ccx(
                     if len(isolated) >= max_results:
                         budget_exhausted = True
                         break
-                    isolated.append({"u": u_bz, "v": v_bz, "point": pt})
+                    isolated.append({"u": u_bz, "v": v_bz, "point": pt,
+                                     "certification": "exact", "d_min": 0.0})
     else:
         for u_bz, v_bz, pt in boundary_hits:
             if not _is_duplicate(isolated, pt, atol):
                 if len(isolated) >= max_results:
                     budget_exhausted = True
                     break
-                isolated.append({"u": u_bz, "v": v_bz, "point": pt})
+                isolated.append({"u": u_bz, "v": v_bz, "point": pt,
+                                 "certification": "exact", "d_min": 0.0})
 
     # Interior crossings certified from the residual tier's rejected
     # brackets (crossing structure inside a tolerance band is topology,
@@ -1372,7 +2081,8 @@ def bez_ccx(
             if len(isolated) >= max_results:
                 budget_exhausted = True
                 break
-            isolated.append({"u": u_hit, "v": v_hit, "point": pt})
+            isolated.append({"u": u_hit, "v": v_hit, "point": pt,
+                             "certification": "exact", "d_min": 0.0})
 
     if budget_exhausted:
         return _finalize()
@@ -1411,12 +2121,17 @@ def bez_ccx(
             C1_sub, _ = _subdivide_curve(C1_sub, u_hi_rescaled)
         pw_sub = C1_sub[:, -1].copy() if rational else np.ones(C1_sub.shape[0])
 
-        # Quick min-of-net check
+        # Quick min-of-net check (envelope-slacked bar when the tier is
+        # armed — same closed-contract discipline as the Phase-2 prunes)
         from mmcore.numeric.intersection._sq_dist_classify import (
             _check_min_of_net, _weight_max_product,
         )
         w_sc = _weight_max_product(pw_sub, Qw)
-        if _check_min_of_net(F_sub, atol, w_sc):
+        atol_prune = atol
+        if tier_active:
+            atol_prune = float(np.sqrt(
+                atol * atol + env_F / (w_sc ** 2)))
+        if _check_min_of_net(F_sub, atol_prune, w_sc):
             continue
 
         # Run Phase 2 on this sub-interval × full v
@@ -1436,6 +2151,8 @@ def bez_ccx(
             known_points=isolated,
             max_depth=max_depth, max_cells=phase2_cell_limit,
             max_results=max_results - len(isolated),
+            F_top=F, Pw_top=Pw, Qw_top=Qw, env_F=env_F,
+            tol_pool=(tol_pool if tier_active else None),
         )
         cells.spend(cells_used)
         if non_affine_overlap_fallback:
