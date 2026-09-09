@@ -575,7 +575,7 @@ def insert_knot_curve(curve:NURBSCurveTuple,u:float, num:int=1):
     Returns:
         A new curve with the knot inserted
     """
-    rational = isinstance(curve, NURBSCurveTuple) and not np.allclose(curve.weights,1)
+    rational = isinstance(curve, NURBSCurveTuple) and not np.all(np.asarray(curve.weights) == 1.0)
     knots = np.array(curve.knot).tolist()
     degree = curve.order-1
     span = _find_span_linear(degree, knots, len(curve.control_points), u)
@@ -648,7 +648,7 @@ def split_curve(curve: BSplineCurveTuple | NURBSCurveTuple, t: float, **kwargs):
         curve2_kv.insert(0, t)
 
     # Control points (use homogeneous coordinates if rational)
-    rational=isinstance(curve, NURBSCurveTuple) and not np.allclose(curve.weights,1)
+    rational=isinstance(curve, NURBSCurveTuple) and not np.all(np.asarray(curve.weights) == 1.0)
 
     if rational:
         # Convert to homogeneous coordinates first

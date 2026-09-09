@@ -478,14 +478,14 @@ def subdivide_sq_dist_net(F, axis, t=0.5):
 def restrict_net_axis_v(Fv, axis, lo, hi, cell_lo, cell_hi):
     """Restrict a Bernstein net WITH a trailing value dim along one axis."""
     span = cell_hi - cell_lo
-    if span < 1e-30:
+    if span <= 0.0:
         return Fv
     frac_lo = (lo - cell_lo) / span
     frac_hi = (hi - cell_lo) / span
-    if frac_lo > 1e-12:
+    if frac_lo > 0.0:
         _, Fv = _dc_split_nd(Fv, axis=axis, t=frac_lo)
-    if frac_hi < 1.0 - 1e-12:
-        frac_hi_rescaled = (frac_hi - frac_lo) / (1.0 - frac_lo) if frac_lo > 1e-12 else frac_hi
+    if frac_hi < 1.0:
+        frac_hi_rescaled = (frac_hi - frac_lo) / (1.0 - frac_lo) if frac_lo > 0.0 else frac_hi
         Fv, _ = _dc_split_nd(Fv, axis=axis, t=frac_hi_rescaled)
     return Fv
 

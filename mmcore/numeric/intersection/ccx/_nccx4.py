@@ -17,6 +17,9 @@ from mmcore.nurbs._nurbs_param_tol import nurbs_curve_param_tolerance
 from mmcore.numeric.bvh.lbvh import build_bvh, AABB, bvh_intersect
 from mmcore.numeric.intersection.ccx._bez_ccx4 import bez_ccx as bez_ccx_v4
 from mmcore.numeric._bezier_common import eval_curve
+from mmcore.numeric.intersection._parameter_mapping import (
+    map_isolated, map_overlap, reject_parameter_aliases, strip_mapping_metadata, mapping_issue,
+)
 
 # ---------------------------------------------------------------------------
 # Dtypes (self-contained, no dependency on _nccx.py)
@@ -39,14 +42,14 @@ _multiple_ccx_overlap_dtype = lambda dim: _ccx_overlap_dtype(dim) + _curves_ref_
 
 
 def _is_rational(curve: NURBSCurveTuple) -> bool:
-    return not np.allclose(curve.weights, 1.0)
+    return not np.all(curve.weights == 1.0)
 
 
 def _map_local_to_global(u_loc, v_loc, u0, u1, v0, v1):
     return (u0 + (u1 - u0) * u_loc, v0 + (v1 - v0) * v_loc)
 
 
-_BEZIER_LIMIT_KWARGS = ('max_depth',)
+_BEZIER_LIMIT_KWARGS = ('max_depth', 'tolerance_tier')
 _DEFAULT_MAX_CELLS = 100_000
 _DEFAULT_MAX_RESULTS = 4_096
 
@@ -90,13 +93,10 @@ def _consume_bezier_status(
 # ---------------------------------------------------------------------------
 
 def _dedup_isolated(entries, curves, tol):
-    """Deduplicate isolated intersections using parametric tolerances.
+    """Deduplicate paired roots while retaining distinct exact preimages.
 
-    Duplicates arise only at Bezier span boundaries: decompose_curve splits
-    at knots, so the same knot-intersection appears from both adjacent
-    segments.  We group by canonical curve pair, compute the parametric
-    tolerance for each curve, and merge entries whose parameters on BOTH
-    curves are within their respective tolerances.
+    Exact roots require identical paired parameters; modeling contacts
+    keep their existing tolerance-based preference and clustering rule.
 
     Parameters
     ----------
@@ -149,7 +149,10 @@ def _dedup_isolated(entries, curves, tol):
         if c1 == prev[0] and c2 == prev[1]:
             ptol_a = ptols[c1]
             ptol_b = ptols[c2]
-            if abs(u - prev[2]) < ptol_a and abs(v - prev[3]) < ptol_b:
+            exact_pair = cert == prev[5] == 'exact'
+            same = ((u == prev[2] and v == prev[3]) if exact_pair else
+                    (abs(u - prev[2]) < ptol_a and abs(v - prev[3]) < ptol_b))
+            if same:
                 # Duplicate (span-seam) — keep the better-certified side:
                 # an exact root over a tolerance contact, else the smaller
                 # measured distance (L62: the contact IS the argmin).
@@ -249,7 +252,10 @@ def _dedup_isolated_pair(entries, curve1, curve2, tol):
     kept = [sorted_entries[0]]
     for entry in sorted_entries[1:]:
         prev = kept[-1]
-        if abs(entry['u'] - prev['u']) < ptol_u and abs(entry['v'] - prev['v']) < ptol_v:
+        exact_pair = entry.get('certification', 'exact') == prev.get('certification', 'exact') == 'exact'
+        same = ((entry['u'] == prev['u'] and entry['v'] == prev['v']) if exact_pair else
+                (abs(entry['u'] - prev['u']) < ptol_u and abs(entry['v'] - prev['v']) < ptol_v))
+        if same:
             if _isolated_entry_beats(
                     entry.get('certification', 'exact'),
                     float(entry.get('d_min', 0.0)),
@@ -277,6 +283,9 @@ def nurbs_ccx(
     curve1, curve2 : NURBSCurve or NURBSCurveTuple
     tol : float
         Geometric tolerance.
+    tolerance_tier : bool, optional
+        Forwarded to the Bezier solver; False requests exact zero-set
+        search with explicit status for unresolved candidates.
 
     Returns
     -------
@@ -367,9 +376,15 @@ def nurbs_ccx(
 
         seam_slack = _seam_check_slack(curve1, curve2)
         for inter in result['isolated']:
-            u_glob, v_glob = _map_local_to_global(
-                inter['u'], inter['v'], *_c1.interval(), *_c2.interval(),
+            mapped = map_isolated(
+                inter, ('u', 'v'), (_c1.interval(), _c2.interval()),
+                ((pts1, (0,)), (pts2, (1,))), rational,
+                tol if inter.get('certification', 'exact') == 'exact' else tol + seam_slack,
+                status, context, return_status,
             )
+            if mapped is None:
+                continue
+            u_glob, v_glob = mapped['u'], mapped['v']
             # Verify NURBS-level distance (Bezier-level may be valid at knot
             # seams but NURBS-level can differ)
 
@@ -378,28 +393,34 @@ def nurbs_ccx(
             # L62: closed membership — dist == tol is a member, up to the
             # re-evaluation's own operand envelope.
             if float(np.linalg.norm(pt1 - pt2)) > tol + seam_slack:
+                mapping_issue(status, context, return_status,
+                              mapped['_local_parameter_payload'],
+                              'mapped root fails NURBS source evaluation')
                 continue
-            raw_isolated.append({
-                'u': u_glob, 'v': v_glob, 'point': inter['point'],
-                'certification': str(inter.get('certification', 'exact')),
-                'd_min': float(inter.get('d_min', 0.0)),
-            })
+            raw_isolated.append(mapped)
 
         for overlap in result['overlaps']:
             ur = overlap.get('u_range', (0.0, 1.0))
             vr = overlap.get('v_range', (0.0, 1.0))
-            u0g, v0g = _map_local_to_global(ur[0], vr[0], *_c1.interval(), *_c2.interval())
-            u1g, v1g = _map_local_to_global(ur[1], vr[1], *_c1.interval(), *_c2.interval())
-            raw_overlaps_u.append([u0g, u1g])
-            raw_overlaps_v.append([v0g, v1g])
+            mapped = map_overlap(
+                overlap, ('u', 'v'), (_c1.interval(), _c2.interval()),
+                ((pts1, (0,)), (pts2, (1,))), rational, tol,
+                status, context, return_status)
+            if mapped is None:
+                continue
+            raw_overlaps_u.append(mapped['u_range'])
+            raw_overlaps_v.append(mapped['v_range'])
             pt0 = eval_curve(pts1, ur[0], rational=rational)
             pt1 = eval_curve(pts1, ur[1], rational=rational)
             raw_overlaps_xyz.append([pt0, pt1])
-        if stop_after_span:
+        if stop_after_span and min(_remaining_allowances(status)) <= 0:
             break
 
     # Dedup isolated
-    deduped = _dedup_isolated_pair(raw_isolated, curve1, curve2, tol)
+    raw_isolated = reject_parameter_aliases(
+        raw_isolated, ('u', 'v'), status, 'nurbs_ccx assembly', return_status)
+    deduped = strip_mapping_metadata(
+        _dedup_isolated_pair(raw_isolated, curve1, curve2, tol))
 
     # Pack into structured arrays
     if not deduped:
@@ -445,6 +466,9 @@ def nurbs_ccx_multiple(
     curves : list[NURBSCurveTuple]
     tol : float
         Geometric tolerance.
+    tolerance_tier : bool, optional
+        Forwarded to the Bezier solver; False requests exact zero-set
+        search with explicit status for unresolved candidates.
     self_intersections : bool
         Whether to check for self-intersections within each curve.
 
@@ -558,9 +582,15 @@ def nurbs_ccx_multiple(
 
         seam_slack = _seam_check_slack(curves[curve1_i], curves[curve2_i])
         for inter in result['isolated']:
-            u_glob, v_glob = _map_local_to_global(
-                inter['u'], inter['v'], *segm1.interval(), *segm2.interval(),
+            mapped = map_isolated(
+                inter, ('u', 'v'), (segm1.interval(), segm2.interval()),
+                ((pts1, (0,)), (pts2, (1,))), rational,
+                tol if inter.get('certification', 'exact') == 'exact' else tol + seam_slack,
+                status, context, return_status,
             )
+            if mapped is None:
+                continue
+            u_glob, v_glob = mapped['u'], mapped['v']
             # Verify NURBS-level distance at knot seams
             from mmcore.nurbs._nurbs_eval import evaluate_nurbs_curve
             pt1 = evaluate_nurbs_curve(curves[curve1_i], u_glob, 0)['C']
@@ -568,32 +598,41 @@ def nurbs_ccx_multiple(
             # L62: closed membership — dist == tol is a member, up to the
             # re-evaluation's own operand envelope.
             if float(np.linalg.norm(pt1 - pt2)) > tol + seam_slack:
+                mapping_issue(status, context, return_status,
+                              mapped['_local_parameter_payload'],
+                              'mapped root fails NURBS source evaluation')
                 continue
-            raw_isolated.append({
-                'u': u_glob, 'v': v_glob,
-                'point': inter['point'],
-                'curve1_i': curve1_i, 'curve2_i': curve2_i,
-                'certification': str(inter.get('certification', 'exact')),
-                'd_min': float(inter.get('d_min', 0.0)),
-            })
+            mapped.update(curve1_i=curve1_i, curve2_i=curve2_i)
+            if curve1_i > curve2_i:
+                mapped['curve1_i'], mapped['curve2_i'] = curve2_i, curve1_i
+                mapped['u'], mapped['v'] = mapped['v'], mapped['u']
+                mapped['_exact_global_parameters'] = mapped['_exact_global_parameters'][::-1]
+            raw_isolated.append(mapped)
 
         for overlap in result['overlaps']:
             ur = overlap.get('u_range', (0.0, 1.0))
             vr = overlap.get('v_range', (0.0, 1.0))
-            u0g, v0g = _map_local_to_global(ur[0], vr[0], *segm1.interval(), *segm2.interval())
-            u1g, v1g = _map_local_to_global(ur[1], vr[1], *segm1.interval(), *segm2.interval())
+            mapped = map_overlap(
+                overlap, ('u', 'v'), (segm1.interval(), segm2.interval()),
+                ((pts1, (0,)), (pts2, (1,))), rational, tol,
+                status, context, return_status)
+            if mapped is None:
+                continue
             pt0 = eval_curve(pts1, ur[0], rational=rational)
             pt1 = eval_curve(pts1, ur[1], rational=rational)
             raw_overlaps.append({
-                'u': [u0g, u1g], 'v': [v0g, v1g],
+                'u': mapped['u_range'], 'v': mapped['v_range'],
                 'point': [pt0, pt1],
                 'curve1_i': curve1_i, 'curve2_i': curve2_i,
             })
-        if stop_after_span:
+        if stop_after_span and min(_remaining_allowances(status)) <= 0:
             break
 
     # Dedup isolated using parametric tolerances
-    deduped = _dedup_isolated(raw_isolated, curves, tol)
+    raw_isolated = reject_parameter_aliases(
+        raw_isolated, ('u', 'v'), status, 'nurbs_ccx_multiple assembly',
+        return_status, identity_keys=('curve1_i', 'curve2_i'))
+    deduped = strip_mapping_metadata(_dedup_isolated(raw_isolated, curves, tol))
 
     # Pack into structured arrays
     if not deduped:

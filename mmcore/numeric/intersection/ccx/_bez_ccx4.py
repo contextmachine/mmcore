@@ -19,12 +19,16 @@ import numpy as np
 from mmcore.numeric.aabb import aabb_offset
 from mmcore.numeric.aabb import aabb_intersect,aabb
 from mmcore.numeric._work_budget import DownCounter
+from mmcore.numeric.intersection._root_box_certificate import (
+    unique_root_box, root_existence_certificate, root_boxes_have_same_root,
+    residual_roundoff_bound, residual_hull_excludes_zero,
+)
 from mmcore.numeric.bern import de_casteljau_split_nd
 from mmcore.numeric.bern_sq_dist import curve_curve_squared_net_homog
 from mmcore.numeric._bezier_common import (
     extract_weights, eval_curve, eval_curve_d1, newton_ccx,
     bernstein_product_1d, subdivide_curve, subdivide_sq_dist_net,
-    restrict_net_axis,
+    restrict_net_axis, restrict_net_axis_v,
 )
 from mmcore.numeric.intersection._sq_dist_classify import (
     classify_sq_dist_net,
@@ -775,6 +779,18 @@ def _tolerance_overlap_certificate(C1, C2, atol, rational, ptol_u, ptol_v,
     return None, brackets, band_evidence, span_evidence, uniq
 
 
+def _original_ccx_residual_excludes_zero(first, second, rational):
+    if rational:
+        left = first[:, None, :-1]*second[None, :, -1:]
+        right = second[None, :, :-1]*first[:, None, -1:]
+        net = left-right
+        source = np.max(np.abs(left)+np.abs(right), axis=(0, 1))
+    else:
+        net = first[:, None, :]-second[None, :, :]
+        source = None
+    return residual_hull_excludes_zero(net, residual_roundoff_bound(net, source_scale=source))
+
+
 def _vector_residual_hull_excludes_zero(C1, C2, rational, depth):
     """Certify that one Cartesian residual component cannot be zero.
 
@@ -1238,13 +1254,13 @@ _restrict_net_axis = restrict_net_axis
 
 def _split_intervals(cut, lo, hi, ptol):
     """Split [lo, hi] into up to 3 sub-intervals around cut ± ptol."""
-    cut_lo = max(cut - ptol, lo)
-    cut_hi = min(cut + ptol, hi)
+    cut_lo = min(hi, max(cut - ptol, lo))
+    cut_hi = max(lo, min(cut + ptol, hi))
     intervals = []
-    if lo + 1e-15 < cut_lo:
+    if lo < cut_lo:
         intervals.append((lo, cut_lo))
     intervals.append((cut_lo, cut_hi))
-    if cut_hi < hi - 1e-15:
+    if cut_hi < hi:
         intervals.append((cut_hi, hi))
     return intervals
 
@@ -1259,38 +1275,38 @@ def _cutout_2d(F_cell, seg1, seg2, pw, qw, u0, u1, v0, v1, depth,
     u_intervals = _split_intervals(u_cut, u0, u1, ptol_u)
     v_intervals = _split_intervals(v_cut, v0, v1, ptol_v)
 
-    u_center = len(u_intervals) // 2 if len(u_intervals) == 3 else (0 if len(u_intervals) == 1 else -1)
-    v_center = len(v_intervals) // 2 if len(v_intervals) == 3 else (0 if len(v_intervals) == 1 else -1)
+    u_center = (max(u_cut-ptol_u, u0), min(u_cut+ptol_u, u1))
+    v_center = (max(v_cut-ptol_v, v0), min(v_cut+ptol_v, v1))
 
     sub_cells = []
     for ui, (u_lo, u_hi) in enumerate(u_intervals):
         for vi, (v_lo, v_hi) in enumerate(v_intervals):
-            if ui == u_center and vi == v_center:
+            if (u_lo, u_hi) == u_center and (v_lo, v_hi) == v_center:
                 continue
-            if u_hi - u_lo < 1e-15 or v_hi - v_lo < 1e-15:
+            if u_hi <= u_lo or v_hi <= v_lo:
                 continue
 
             F_sub = _restrict_net_axis(F_cell, 0, u_lo, u_hi, u0, u1)
             F_sub = _restrict_net_axis(F_sub, 1, v_lo, v_hi, v0, v1)
 
             # Restrict curves
-            u_frac_lo = (u_lo - u0) / max(u1 - u0, 1e-30)
-            u_frac_hi = (u_hi - u0) / max(u1 - u0, 1e-30)
+            u_frac_lo = (u_lo - u0) / (u1 - u0)
+            u_frac_hi = (u_hi - u0) / (u1 - u0)
             C1_sub = seg1
-            if u_frac_lo > 1e-12:
+            if u_frac_lo > 0.:
                 _, C1_sub = _subdivide_curve(C1_sub, u_frac_lo)
-            if u_frac_hi < 1.0 - 1e-12:
-                uf_rescaled = (u_frac_hi - u_frac_lo) / (1.0 - u_frac_lo) if u_frac_lo > 1e-12 else u_frac_hi
+            if u_frac_hi < 1.0:
+                uf_rescaled = (u_frac_hi - u_frac_lo) / (1.0 - u_frac_lo) if u_frac_lo > 0. else u_frac_hi
                 C1_sub, _ = _subdivide_curve(C1_sub, uf_rescaled)
             pw_sub = C1_sub[:, -1].copy() if rational else np.ones(C1_sub.shape[0])
 
-            v_frac_lo = (v_lo - v0) / max(v1 - v0, 1e-30)
-            v_frac_hi = (v_hi - v0) / max(v1 - v0, 1e-30)
+            v_frac_lo = (v_lo - v0) / (v1 - v0)
+            v_frac_hi = (v_hi - v0) / (v1 - v0)
             C2_sub = seg2
-            if v_frac_lo > 1e-12:
+            if v_frac_lo > 0.:
                 _, C2_sub = _subdivide_curve(C2_sub, v_frac_lo)
-            if v_frac_hi < 1.0 - 1e-12:
-                vf_rescaled = (v_frac_hi - v_frac_lo) / (1.0 - v_frac_lo) if v_frac_lo > 1e-12 else v_frac_hi
+            if v_frac_hi < 1.0:
+                vf_rescaled = (v_frac_hi - v_frac_lo) / (1.0 - v_frac_lo) if v_frac_lo > 0. else v_frac_hi
                 C2_sub, _ = _subdivide_curve(C2_sub, vf_rescaled)
             qw_sub = C2_sub[:, -1].copy() if rational else np.ones(C2_sub.shape[0])
 
@@ -1307,7 +1323,7 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
                 max_results=4_096,
                 initial_stack=None,
                 F_top=None, Pw_top=None, Qw_top=None, env_F=None,
-                tol_pool=None):
+                tol_pool=None, unresolved_root_boxes=None):
     """Phase 2: find isolated intersections via subdivision + Newton + cutout.
 
     No boundary analysis, no overlap checks, no classifier.
@@ -1334,6 +1350,62 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
     exhausted = False
     component_scale = _ccx_exactness_context(
         C1_orig, C2_orig, rational)
+    if rational:
+        left = C1_orig[:, None, :-1] * C2_orig[None, :, -1:]
+        right = C2_orig[None, :, :-1] * C1_orig[:, None, -1:]
+        root_net = left-right
+        root_source = np.max(np.abs(left)+np.abs(right), axis=(0, 1))
+    else:
+        root_net = C1_orig[:, None, :]-C2_orig[None, :, :]
+        root_source = None
+    residual_error = residual_roundoff_bound(root_net, depth=4, source_scale=root_source)
+
+    def root_neighborhood_resolved(u, v, record=True):
+        box = unique_root_box(root_net, (u, v), (ptol_u, ptol_v), root_source)
+        certificate = root_existence_certificate(
+            C1_orig, C2_orig, (u, v), box, root_net, rational, root_source)
+        known = None
+        if box is not None:
+            for entry in isolated:
+                enclosure = entry.get('parameter_root_box')
+                if (enclosure is not None
+                        and entry.get('root_existence_certification')
+                        and all(a <= lo <= hi <= b for (lo, hi), (a, b)
+                                in zip(enclosure, box))):
+                    known = entry
+                    if certificate is None:
+                        certificate = 'known_root_enclosure'
+                    break
+        if record and unresolved_root_boxes is not None and (box is None or certificate is None):
+            unresolved = {
+                'u_range': (max(0., u-ptol_u), min(1., u+ptol_u)),
+                'v_range': (max(0., v-ptol_v), min(1., v+ptol_v)),
+                'reason': ('root_neighborhood_uniqueness' if box is None else 'root_existence'),
+                'candidate': (float(u), float(v)),
+            }
+            if box is not None:
+                unresolved['parameter_uniqueness_box'] = box
+            unresolved_root_boxes.append(unresolved)
+        return box, certificate, known
+
+    def attach_certificate(entry, box, certificate, known):
+        if certificate is None:
+            return
+        entry['root_existence_certification'] = certificate
+        if known is not None:
+            entry['parameter_root_box'] = known['parameter_root_box']
+        elif certificate == 'exact_parameter_identity':
+            entry['parameter_root_box'] = ((entry['u'], entry['u']), (entry['v'], entry['v']))
+        elif box is not None:
+            entry['parameter_root_box'] = box
+        if box is not None:
+            entry['parameter_uniqueness_box'] = box
+
+    # Known boundary roots own only proved product neighborhoods. Their
+    # first-curve parameter alone says nothing about other partner sheets.
+    for entry in isolated:
+        box, certificate, known = root_neighborhood_resolved(entry['u'], entry['v'], record=False)
+        attach_certificate(entry, box, certificate, known)
 
     if initial_stack is not None:
         stack = list(initial_stack)
@@ -1361,7 +1433,14 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
             pts2 = seg2
         bb1 = np.array(aabb(pts1)); bb1[0] -= atol; bb1[1] += atol
         bb2 = np.array(aabb(pts2)); bb2[0] -= atol; bb2[1] += atol
-        if not aabb_intersect(bb1, bb2):
+        if tol_pool is not None and not aabb_intersect(bb1, bb2):
+            continue
+        cell_box = ((u0, u1), (v0, v1))
+        if any(entry.get('root_existence_certification')
+               and entry.get('parameter_uniqueness_box') is not None
+               and all(a <= lo <= hi <= b for (lo, hi), (a, b)
+                       in zip(cell_box, entry['parameter_uniqueness_box']))
+               for entry in isolated):
             continue
 
         w_sc = _weight_max_product(pw, qw)
@@ -1377,18 +1456,21 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
         if tol_pool is not None:
             atol_prune = float(np.sqrt(
                 atol * atol + env_F / (w_sc ** 2)))
-        if _check_min_of_net(F_cell, atol_prune, w_sc):
-            continue
-        if _check_lipschitz(F_cell, atol_prune, w_sc):
-            continue
+        if tol_pool is not None:
+            if _check_min_of_net(F_cell, atol_prune, w_sc):
+                continue
+            if _check_lipschitz(F_cell, atol_prune, w_sc):
+                continue
 
         # Derivative sign pruning
         Fv = F_cell[..., np.newaxis]
         can_have_stationary = True
-        for ax in range(2):
+        for ax in (range(2) if tol_pool is not None else ()):
             dF = bernstein_partial_derivative_coeffs(Fv, axis=ax)
             coeffs = dF[..., 0]
-            if np.min(coeffs) > 0 or np.max(coeffs) <= 0:
+            # The cell includes its boundary: a zero derivative on a
+            # shared face can still carry an exact root on that face.
+            if np.min(coeffs) > 0 or np.max(coeffs) < 0:
                 can_have_stationary = False
                 break
         if not can_have_stationary:
@@ -1403,8 +1485,12 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
         # cell: certified zero-free cells skip the exact-root Newton work
         # and descend toward the certified minimizer instead.  Tier off
         # (``tol_pool is None``): it remains the prune it always was.
-        zero_free = _vector_residual_hull_excludes_zero(
-            seg1, seg2, rational, depth)
+        # Restrict the ORIGINAL unsquared residual, rather than rebuilding
+        # it from already-rounded curve pieces. Its source error remains
+        # fixed even when residual cancellation shrinks the current hull.
+        residual_cell = restrict_net_axis_v(root_net, 0, u0, u1, 0., 1.)
+        residual_cell = restrict_net_axis_v(residual_cell, 1, v0, v1, 0., 1.)
+        zero_free = residual_hull_excludes_zero(residual_cell, residual_error)
         if zero_free and tol_pool is None:
             continue
 
@@ -1467,15 +1553,27 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
                     component_scale=component_scale, require_newton=True)
             if polished is not None:
                 u_sol, v_sol, pt = polished
-                if (u0 - 0.25 * ptol_u <= u_sol <= u1 + 0.25 * ptol_u
+                box, certificate, known = root_neighborhood_resolved(u_sol, v_sol)
+                if unresolved_root_boxes is not None and (box is None or certificate is None):
+                    unresolved_root_boxes[-1]['u_range'] = (
+                        min(u0, unresolved_root_boxes[-1]['u_range'][0]),
+                        max(u1, unresolved_root_boxes[-1]['u_range'][1]))
+                    unresolved_root_boxes[-1]['v_range'] = (
+                        min(v0, unresolved_root_boxes[-1]['v_range'][0]),
+                        max(v1, unresolved_root_boxes[-1]['v_range'][1]))
+                if (known is None and (certificate is not None or tol_pool is not None)
+                        and u0 - 0.25 * ptol_u <= u_sol <= u1 + 0.25 * ptol_u
                         and v0 - 0.25 * ptol_v <= v_sol
                         <= v1 + 0.25 * ptol_v
-                        and not _is_duplicate(isolated, pt, atol)):
-                    isolated.append({
+                        and not _is_duplicate(isolated, pt, atol,
+                                              u_sol, v_sol, ptol_u, ptol_v)):
+                    entry = {
                         "u": float(u_sol), "v": float(v_sol),
                         "point": pt, "certification": "exact",
                         "d_min": 0.0, "_micro": True,
-                    })
+                    }
+                    attach_certificate(entry, box, certificate, known)
+                    isolated.append(entry)
             elif tol_pool is not None:
                 # L62 terminal tolerance candidate: polish the MINIMIZER
                 # (not a root) and measure it against the top-level net.
@@ -1497,6 +1595,11 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
                                 (m[0], m[1], float(mu), float(mv)))
                         else:
                             exhausted = True
+            elif unresolved_root_boxes is not None and not zero_free:
+                unresolved_root_boxes.append({
+                    'u_range': (u0, u1), 'v_range': (v0, v1),
+                    'reason': 'unresolved_terminal_cell',
+                })
             continue
 
         # Newton from cell center (exact tier — a zero-free cell cannot
@@ -1520,21 +1623,37 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
                     u_sol, v_sol, pt = polished
                 else:
                     continue
-                if u0 < u_sol < u1 and v0 < v_sol < v1:
-                    is_new = not _is_duplicate(isolated, pt, atol)
-                    #print(f"CCX: is_new: {is_new}")
-                    if is_new:
-                        isolated.append({
+                if u0 <= u_sol <= u1 and v0 <= v_sol <= v1:
+                    box, certificate, known = root_neighborhood_resolved(u_sol, v_sol)
+                    is_new = known is None and not _is_duplicate(
+                        isolated, pt, atol, u_sol, v_sol, ptol_u, ptol_v)
+                    if is_new and (certificate is not None or tol_pool is not None):
+                        entry = {
                             "u": float(u_sol), "v": float(v_sol),
-                            "point": pt, "certification": "exact",
-                            "d_min": 0.0,
-                        })
+                            "point": pt, "certification": "exact", "d_min": 0.0,
+                        }
+                        attach_certificate(entry, box, certificate, known)
+                        isolated.append(entry)
+                    if box is None and unresolved_root_boxes is not None:
+                        # A ptol-sized box below the certificate's arithmetic
+                        # resolution cannot make progress by repeating tiny
+                        # cuts around ulp-shifting candidates. Reserve this
+                        # whole surviving cell explicitly and continue with
+                        # the independent queued cells.
+                        unresolved_root_boxes[-1]['u_range'] = (u0, u1)
+                        unresolved_root_boxes[-1]['v_range'] = (v0, v1)
+                        root_found = True
+                        break
+                    # An unproved neighborhood remains explicitly reserved
+                    # in exact mode. With a proof, the same product cutout
+                    # applies to both new roots and known boundary roots.
+                    if box is not None or unresolved_root_boxes is not None:
                         sub_cells = _cutout_2d(
                             F_cell, seg1, seg2, pw, qw, u0, u1, v0, v1, depth,
                             float(u_sol), float(v_sol), ptol_u, ptol_v, rational,
                         )
                         stack.extend(sub_cells)
-                        root_found=True
+                        root_found = True
                         break
 
         if root_found:continue
@@ -1554,8 +1673,19 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
 
         u_mid_split = 0.5 * (u0 + u1)
         v_mid_split = 0.5 * (v0 + v1)
-        split_u = not collapsed1
-        split_v = not collapsed2
+        # A product cutout often leaves one very narrow coordinate and
+        # one long coordinate. Splitting both repeats identical rounded
+        # children on the narrow axis before the long axis is resolved.
+        split_u = not collapsed1 and u1-u0 > ptol_u and u0 < u_mid_split < u1
+        split_v = not collapsed2 and v1-v0 > ptol_v and v0 < v_mid_split < v1
+        if not split_u and not split_v:
+            exhausted = True
+            if unresolved_root_boxes is not None:
+                unresolved_root_boxes.append({
+                    'u_range': (u0, u1), 'v_range': (v0, v1),
+                    'reason': 'parameter_resolution',
+                })
+            continue
         if split_u and split_v:
             seg1_L, seg1_R = _subdivide_curve(seg1)
             seg2_L, seg2_R = _subdivide_curve(seg2)
@@ -1664,6 +1794,17 @@ def bez_ccx(
         budget_exhausted = True
         return _result([], [], topology_complete=False)
 
+    if not tolerance_tier:
+        from mmcore.numeric.intersection.ccx._linear_exact import exact_linear_ccx
+        linear_result = exact_linear_ccx(C1, C2, rational, max_results, atol=atol)
+        if linear_result is not None:
+            return linear_result
+        from mmcore.numeric.intersection.ccx._curve_line_exact import exact_curve_line_ccx
+        curve_line_result = exact_curve_line_ccx(
+            C1, C2, rational, max_cells=int(max_cells), max_results=int(max_results), atol=atol)
+        if curve_line_result is not None:
+            return curve_line_result
+
     F = curve_curve_squared_net_homog(C1, C2, rational=rational)
 
     _, Pw = extract_weights(C1, rational=rational)
@@ -1686,6 +1827,7 @@ def bez_ccx(
 
     isolated = []
     overlaps = []
+    unresolved_root_boxes = [] if not tolerance_tier else None
 
     # ===================================================================
     # PHASE 1: Boundary analysis + overlap (initial patch only)
@@ -1736,7 +1878,7 @@ def bez_ccx(
         # bound that cleared the bar by less than that envelope — re-test
         # with the envelope-slacked bar and fall through to the tier when
         # inconclusive.
-        certified_out = True
+        certified_out = _original_ccx_residual_excludes_zero(C1, C2, rational)
         if tolerance_tier:
             from mmcore.numeric.intersection._sq_dist_classify import (
                 _check_min_of_net, _check_lipschitz,
@@ -1817,6 +1959,16 @@ def bez_ccx(
             seen_ranges.add(key)
             if _overlap_mapping_is_identity(
                     C1_orig, C2_orig, (ua, ub), (va, vb), rational):
+                if not tolerance_tier:
+                    from mmcore.numeric.intersection._root_box_certificate import affine_residual_is_zero
+                    proof_cost = len(C1_orig)+len(C2_orig)-1
+                    if cells.remaining < proof_cost:
+                        budget_exhausted = True
+                        break
+                    cells.spend(proof_cost)
+                    if not affine_residual_is_zero(
+                            C1_orig, C2_orig, (ua, va), (ub, vb), rational):
+                        continue
                 promoted = (ua, ub, va, vb)
                 break
 
@@ -1844,7 +1996,7 @@ def bez_ccx(
     interior_bracket_hits = []
     band_anchors = []
     band_crossing_evidence = False
-    if not overlap_found and cells.remaining > 0:
+    if tolerance_tier and not overlap_found and cells.remaining > 0:
         cells.spend(1)
         tol_overlap, tol_brackets, residual_band_evidence, \
             uncertified_span_evidence, band_anchors = \
@@ -2016,6 +2168,41 @@ def bez_ccx(
         tol_accept, tol_undecided = (
             _drain_tolerance_pool() if tier_active else ([], []))
         isolated.extend(tol_accept)
+        if not tolerance_tier:
+            from mmcore.numeric.intersection._root_box_certificate import (
+                root_existence_certificate, jacobian_is_injective, residual_roundoff_bound,
+            )
+            if rational:
+                left = C1_orig[:, None, :-1]*C2_orig[None, :, -1:]
+                right = C2_orig[None, :, :-1]*C1_orig[:, None, -1:]
+                existence_net = left-right
+                existence_source = np.max(np.abs(left)+np.abs(right), axis=(0, 1))
+            else:
+                existence_net = C1_orig[:, None, :]-C2_orig[None, :, :]
+                existence_source = None
+            certified = []
+            for entry in isolated:
+                parameters = (entry['u'], entry['v'])
+                box = tuple((max(0., t-r), min(1., t+r))
+                            for t, r in zip(parameters, (ptol_u, ptol_v)))
+                certificate = entry.get('root_existence_certification') or root_existence_certificate(
+                    C1_orig, C2_orig, parameters, box, existence_net,
+                    rational, existence_source)
+                if certificate is not None:
+                    entry['root_existence_certification'] = certificate
+                    certified.append(entry)
+                else:
+                    unresolved_root_boxes.append({
+                        'u_range': box[0], 'v_range': box[1], 'reason': 'root_existence',
+                        'candidate': parameters})
+            isolated[:] = certified
+            if overlaps and not jacobian_is_injective(
+                    existence_net, (1,), residual_roundoff_bound(
+                        existence_net, source_scale=existence_source)):
+                unresolved_root_boxes.extend({
+                    'u_range': tuple(overlap['u_range']), 'v_range': (0., 1.),
+                    'reason': 'curve_preimage_uniqueness',
+                } for overlap in overlaps)
         structural = (non_affine_overlap_fallback and budget_exhausted
                       and not overlap_found)
         res = _result(
@@ -2031,6 +2218,13 @@ def bez_ccx(
             # membership at these candidates is not measurable at the atol
             # scale — named, never guessed (the L47 typed-outcome pattern).
             res["uncertified_contacts"] = tol_undecided
+        res['unresolved_obligations_complete'] = bool(
+            not budget_exhausted and not structural and not tol_undecided)
+        if unresolved_root_boxes:
+            res['budget_exhausted'] = True
+            res['boundary_topology_complete'] = False
+            res['truncation_cause'] = 'resolution'
+            res['unresolved_parameter_boxes'] = unresolved_root_boxes
         return res
 
     # 1c. Classify boundary hits: overlap endpoints go into the overlap,
@@ -2056,9 +2250,17 @@ def bez_ccx(
                         C2_orig,
                         eval_curve(C1_orig, float(u_bz), rational=rational),
                         v_expected, rational)
-                on_overlap = abs(v_bz - v_expected) <= 2.0 * ptol_v
+                if ovl.get("certification") == "exact" and not tolerance_tier:
+                    from fractions import Fraction
+                    f = lambda x: Fraction.from_float(float(x))
+                    on_overlap = (u_lo_ovl <= u_bz <= u_hi_ovl
+                        and (f(v_bz)-f(v_start_ovl))*(f(u_end_ovl)-f(u_start_ovl))
+                        == (f(u_bz)-f(u_start_ovl))*(f(v_end_ovl)-f(v_start_ovl)))
+                else:
+                    on_overlap = abs(v_bz - v_expected) <= 2.0 * ptol_v
             if not on_overlap:
-                if not _is_duplicate(isolated, pt, atol):
+                if not _is_duplicate(isolated, pt, atol,
+                                     u_bz, v_bz, ptol_u, ptol_v):
                     if len(isolated) >= max_results:
                         budget_exhausted = True
                         break
@@ -2066,7 +2268,8 @@ def bez_ccx(
                                      "certification": "exact", "d_min": 0.0})
     else:
         for u_bz, v_bz, pt in boundary_hits:
-            if not _is_duplicate(isolated, pt, atol):
+            if not _is_duplicate(isolated, pt, atol,
+                                 u_bz, v_bz, ptol_u, ptol_v):
                 if len(isolated) >= max_results:
                     budget_exhausted = True
                     break
@@ -2077,7 +2280,8 @@ def bez_ccx(
     # brackets (crossing structure inside a tolerance band is topology,
     # never merged — CSX invariant, 1-D form).
     for u_hit, v_hit, pt in interior_bracket_hits:
-        if not _is_duplicate(isolated, pt, atol):
+        if not _is_duplicate(isolated, pt, atol,
+                             u_hit, v_hit, ptol_u, ptol_v):
             if len(isolated) >= max_results:
                 budget_exhausted = True
                 break
@@ -2086,6 +2290,30 @@ def bez_ccx(
 
     if budget_exhausted:
         return _finalize()
+
+    # A certified correspondence covering an entire source curve is
+    # exhaustive when its partner has only one preimage per point. This
+    # also owns overlap endpoints in the closed complement intervals.
+    if not tolerance_tier and overlaps:
+        from mmcore.numeric.intersection._root_box_certificate import jacobian_is_injective
+        if rational:
+            left = C1[:, None, :-1]*C2[None, :, -1:]
+            right = C2[None, :, :-1]*C1[:, None, -1:]
+            overlap_net = left-right
+            overlap_source = np.max(np.abs(left)+np.abs(right), axis=(0, 1))
+        else:
+            overlap_net = C1[:, None, :]-C2[None, :, :]
+            overlap_source = None
+        overlap_error = residual_roundoff_bound(overlap_net, source_scale=overlap_source)
+        for overlap in overlaps:
+            if overlap.get('certification') != 'exact':
+                continue
+            if ((sorted(overlap['v_range']) == [0., 1.]
+                 and jacobian_is_injective(overlap_net, (0,), overlap_error))
+                    or (sorted(overlap['u_range']) == [0., 1.]
+                        and jacobian_is_injective(overlap_net, (1,), overlap_error))):
+                isolated.clear()
+                return _finalize()
 
     # ===================================================================
     # PHASE 2: Isolated intersection search
@@ -2100,24 +2328,25 @@ def bez_ccx(
         ovl = overlaps[-1]
         u_lo_ovl = min(ovl["u_range"])
         u_hi_ovl = max(ovl["u_range"])
-        u_exclude.append((u_lo_ovl - ptol_u, u_hi_ovl + ptol_u))
-    for iso in isolated:
-        u_exclude.append((iso["u"] - ptol_u, iso["u"] + ptol_u))
+        padding = ptol_u if tolerance_tier else 0.
+        u_exclude.append((u_lo_ovl - padding, u_hi_ovl + padding))
+    # Isolated roots never remove an entire u slab: C2 may have another
+    # exact preimage at that same u. Phase 2 owns proved product boxes.
 
 
     u_intervals = _compute_remaining_intervals(u_exclude, 0.0, 1.0)
 
     for u_lo, u_hi in u_intervals:
-        if u_hi - u_lo < ptol_u * 0.1:
+        if u_hi <= u_lo or (tolerance_tier and u_hi-u_lo < ptol_u*.1):
             continue
 
         # Restrict net and first curve to this u sub-interval
         F_sub = _restrict_net_axis(F, 0, u_lo, u_hi, 0.0, 1.0)
         C1_sub = C1
-        if u_lo > 1e-12:
+        if u_lo > 0.:
             _, C1_sub = _subdivide_curve(C1_sub, u_lo)
-        if u_hi < 1.0 - 1e-12:
-            u_hi_rescaled = (u_hi - u_lo) / (1.0 - u_lo) if u_lo > 1e-12 else u_hi
+        if u_hi < 1.0:
+            u_hi_rescaled = (u_hi - u_lo) / (1.0 - u_lo) if u_lo > 0. else u_hi
             C1_sub, _ = _subdivide_curve(C1_sub, u_hi_rescaled)
         pw_sub = C1_sub[:, -1].copy() if rational else np.ones(C1_sub.shape[0])
 
@@ -2131,7 +2360,7 @@ def bez_ccx(
         if tier_active:
             atol_prune = float(np.sqrt(
                 atol * atol + env_F / (w_sc ** 2)))
-        if _check_min_of_net(F_sub, atol_prune, w_sc):
+        if tier_active and _check_min_of_net(F_sub, atol_prune, w_sc):
             continue
 
         # Run Phase 2 on this sub-interval × full v
@@ -2153,6 +2382,7 @@ def bez_ccx(
             max_results=max_results - len(isolated),
             F_top=F, Pw_top=Pw, Qw_top=Qw, env_F=env_F,
             tol_pool=(tol_pool if tier_active else None),
+            unresolved_root_boxes=unresolved_root_boxes,
         )
         cells.spend(cells_used)
         if non_affine_overlap_fallback:
@@ -2161,7 +2391,8 @@ def bez_ccx(
 
         for iso in phase2_iso:
             iso.pop('_micro', None)
-            if not _is_duplicate(isolated, iso["point"], atol):
+            if not _is_duplicate(isolated, iso["point"], atol,
+                                 iso["u"], iso["v"], ptol_u, ptol_v):
                 isolated.append(iso)
 
         if non_affine_overlap_fallback and phase2_exhausted:
@@ -2170,10 +2401,16 @@ def bez_ccx(
     return _finalize()
 
 
-def _is_duplicate(isolated, pt, atol):
-    """Check if *pt* is within *atol* of any existing isolated point."""
+def _is_duplicate(isolated, pt, atol, u, v, ptol_u, ptol_v):
+    """Merge representatives of one root in the curve-parameter product.
+
+    The same geometric point can have distinct preimages on either curve;
+    those roots are separate boundary incidences for a nested CSX solve.
+    """
     for entry in isolated:
         existing = np.asarray(entry["point"])
-        if np.linalg.norm(existing - pt) < atol:
+        if (abs(entry["u"] - u) <= 2.0 * ptol_u
+                and abs(entry["v"] - v) <= 2.0 * ptol_v
+                and np.linalg.norm(existing - pt) < atol):
             return True
     return False

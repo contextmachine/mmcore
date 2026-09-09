@@ -107,7 +107,7 @@ def _residual_vec_net(C, S, rational):
             - Sp[None, :, :, :] * Cw[:, None, None, None])
 
 
-def _residual_excludes_zero(G_cell):
+def _residual_excludes_zero(G_cell, roundoff=None):
     """True if some component's Bernstein hull excludes 0 → no zero of G.
 
     L52 slice 6c: exclusion only beyond the L1 roundoff margin
@@ -123,12 +123,14 @@ def _residual_excludes_zero(G_cell):
     for c in range(3):
         comp = G_cell[..., c]
         margin = 128.0 * eps * float(np.abs(comp).max())
+        if roundoff is not None:
+            margin = max(margin, float(roundoff[c]))
         if float(comp.min()) > margin or float(comp.max()) < -margin:
             return True
     return False
 
 
-def _residual_aligned_excludes_zero(G_cell):
+def _residual_aligned_excludes_zero(G_cell, roundoff=None):
     """Geometry-ALIGNED zero exclusion (ledger L60).
 
     The axis-component test above converges linearly in clearance but only
@@ -147,18 +149,38 @@ def _residual_aligned_excludes_zero(G_cell):
     stricter, the sound direction).
     """
     flat = G_cell.reshape(-1, 3)
-    n_hat = flat.mean(axis=0)
-    n_len = float(np.linalg.norm(n_hat))
-    if n_len <= 0.0 or not np.isfinite(n_len):
+    mean = flat.mean(axis=0)
+
+    def excludes(direction):
+        n_len = float(np.linalg.norm(direction))
+        if n_len <= 0.0 or not np.isfinite(n_len):
+            return False
+        n_hat = direction / n_len
+        scalar = (G_cell[..., 0] * n_hat[0]
+                  + G_cell[..., 1] * n_hat[1]
+                  + G_cell[..., 2] * n_hat[2])
+        eps = float(np.finfo(np.float64).eps)
+        margin = 128.0 * eps * float(np.abs(scalar).max())
+        if roundoff is not None:
+            operands = float(np.dot(
+                np.abs(n_hat), np.max(np.abs(flat), axis=0)))
+            margin = max(margin, float(np.dot(np.abs(n_hat), roundoff))
+                         + (5.0*eps/(1.0-5.0*eps))*operands)
+        return bool(float(scalar.min()) > margin
+                    or float(scalar.max()) < -margin)
+
+    if excludes(mean):
+        return True
+    # The mean can contain a large tangential displacement. The direction
+    # of least coefficient variation exposes the constant normal gap of
+    # nearby planar/grazing geometry. Eigenanalysis only proposes a fixed
+    # direction; the same bounded Bernstein hull test certifies rejection.
+    centered = flat - mean
+    try:
+        _, directions = np.linalg.eigh(centered.T @ centered)
+    except np.linalg.LinAlgError:
         return False
-    n_hat = n_hat / n_len
-    scalar = (G_cell[..., 0] * n_hat[0]
-              + G_cell[..., 1] * n_hat[1]
-              + G_cell[..., 2] * n_hat[2])
-    margin = (128.0 * float(np.finfo(np.float64).eps)
-              * float(np.abs(scalar).max()))
-    return bool(float(scalar.min()) > margin
-                or float(scalar.max()) < -margin)
+    return excludes(directions[:, 0])
 
 
 # L52 slice 7: shared implementation in _bezier_common (verbatim move).
@@ -174,6 +196,57 @@ def _compute_param_tols_csx(C, S, atol, rational):
     ptol_t = float(bez_curve_param_tolerance(C, tol=atol, rational=rational))
     ptol_u, ptol_v = bez_surface_param_tolerance(S, tol=atol, rational=rational)
     return ptol_t, float(ptol_u), float(ptol_v)
+
+
+from mmcore.numeric.intersection._root_box_certificate import (
+    unique_root_box as _unique_csx_root_box,
+    residual_roundoff_bound as _csx_residual_roundoff_bound,
+    jacobian_is_injective as _jacobian_is_injective,
+    root_existence_certificate as _root_existence_certificate,
+    affine_residual_is_zero as _affine_residual_is_zero,
+    root_boxes_have_same_root as _root_boxes_have_same_root,
+)
+
+
+def _certify_csx_root_existence(entries, C, S, G, radii, rational, source_scale):
+    """Discharge only roots with existence evidence; retain unknown boxes."""
+    resolved, unresolved = [], []
+    for entry in entries:
+        parameters = tuple(entry[key] for key in ('t', 'u', 'v'))
+        box = entry.get('_unique_box') or tuple(
+            (max(0., t-r), min(1., t+r)) for t, r in zip(parameters, radii))
+        certificate = (entry['root_existence_certification'] if entry.get('_existence_established')
+                       else 'exact_boundary_curve_intersection' if entry.get('_boundary_root_proof')
+                       else _root_existence_certificate(
+                           C, S, parameters, box, G, rational, source_scale))
+        if certificate is not None:
+            entry['root_existence_certification'] = certificate
+            resolved.append(entry)
+        else:
+            reservation = {
+                't_range': box[0], 'u_range': box[1], 'v_range': box[2],
+                'reason': 'root_existence', 'candidate': parameters,
+            }
+            unique_box = entry.get('_unique_box') or _unique_csx_root_box(
+                G, parameters, radii, source_scale)
+            if unique_box is not None:
+                reservation['parameter_uniqueness_box'] = unique_box
+            unresolved.append(reservation)
+    return resolved, unresolved
+
+
+def _in_csx_root_box(root, box):
+    return all(lo <= x <= hi for x, (lo, hi) in zip(root, box))
+
+
+def _csx_residual_source_scale(C, S, rational):
+    if not rational:
+        return None
+    products = (np.abs(C[:, None, None, :-1]) * np.abs(S[None, ..., -1:])
+                + np.abs(S[None, ..., :-1]) * np.abs(C[:, None, None, -1:]))
+    return np.max(products, axis=(0, 1, 2))
+
+
 
 
 # Floor on sin(angle) below which the angle-aware tolerance stops tightening.
@@ -375,6 +448,15 @@ def _polish_csx_root(C, S, t, u, v, rational, strict_tol):
     else:
         polish_C, polish_S = strict_tol[0], strict_tol[1]
         polish_rational = True
+        # Solve in the same component scales used by the root certificate.
+        # A single absolute LM residual floor cannot polish a short axis:
+        # it stops before that axis meets its relative equality envelope.
+        scale = np.asarray(strict_tol[2], dtype=float)
+        scale = np.where(scale > 0.0, scale, 1.0)
+        polish_C = np.array(polish_C, copy=True)
+        polish_S = np.array(polish_S, copy=True)
+        polish_C[..., :-1] /= scale
+        polish_S[..., :-1] /= scale
     t, u, v, G, _ = newton_csx(
         polish_C, polish_S, t, u, v,
         rational=polish_rational, bounds=None)
@@ -807,7 +889,7 @@ def _boundary_zero_from_tuv_like(bz: BoundaryZero, t, u, v) -> BoundaryZero:
 
 def _find_csx_boundary_zeros(
     F_3d, C, S, atol, ptol_t, ptol_u, ptol_v, rational,
-    *, max_cells=50_000, max_results=4_096,
+    *, max_cells=50_000, max_results=4_096, diagnostics=None,
 ):
     """Find precise intersection points on the boundary faces of the CSX domain.
 
@@ -829,6 +911,8 @@ def _find_csx_boundary_zeros(
     zeros = []
     cells = DownCounter(max_cells)
     exhausted = False
+    structural_incomplete = False
+    boundary_obligations_complete = True
     F_3d_v = F_3d[..., np.newaxis]
 
     # --- Type 1: Curve endpoints (t=0, t=1) ---
@@ -975,10 +1059,41 @@ def _find_csx_boundary_zeros(
         ccx_cells = int(ccx_result.get("cells_processed", 0))
         ccx_cells = min(ccx_cells, cells.remaining)
         cells.spend(ccx_cells)
+        if diagnostics is not None:
+            for unresolved in ccx_result.get('unresolved_parameter_boxes', []):
+                t_range = tuple(unresolved.get('u_range', (0., 1.)))
+                edge_range = tuple(unresolved.get('v_range', (0., 1.)))
+                fixed_range = (float(surf_side), float(surf_side))
+                ranges = ((t_range, fixed_range, edge_range) if surf_axis == 0
+                          else (t_range, edge_range, fixed_range))
+                mapped = dict(zip(('t_range', 'u_range', 'v_range'), ranges))
+                mapped['reason'] = unresolved.get('reason', 'boundary_root')
+                if 'candidate' in unresolved:
+                    t_candidate, edge_candidate = unresolved['candidate']
+                    mapped['candidate'] = ((t_candidate, float(surf_side), edge_candidate)
+                                           if surf_axis == 0 else
+                                           (t_candidate, edge_candidate, float(surf_side)))
+                for field in ('parameter_uniqueness_box', 'parameter_root_box'):
+                    if field in unresolved:
+                        curve_box, edge_box = unresolved[field]
+                        mapped[field] = ((curve_box, fixed_range, edge_box)
+                                         if surf_axis == 0 else
+                                         (curve_box, edge_box, fixed_range))
+                diagnostics.setdefault('unresolved_parameter_boxes', []).append(mapped)
         if (ccx_result.get("budget_exhausted", False)
                 or not ccx_result.get("boundary_topology_complete", True)):
-            exhausted = True
-            break
+            if ccx_result.get('truncation_cause') == 'resolution':
+                structural_incomplete = True
+                boundary_obligations_complete &= bool(ccx_result.get('unresolved_obligations_complete', False))
+                if diagnostics is not None:
+                    diagnostics['truncation_cause'] = 'resolution'
+                # Preserve individually polished witnesses and keep
+                # analyzing independent surface edges within the budget.
+            else:
+                exhausted = True
+                if diagnostics is not None:
+                    diagnostics['truncation_cause'] = ccx_result.get('truncation_cause') or 'boundary'
+                break
 
         for iso in ccx_result['isolated']:
             if len(zeros) >= max_results:
@@ -1001,6 +1116,17 @@ def _find_csx_boundary_zeros(
                 # v is fixed, s_val is u-parameter
                 bz = BoundaryZero(axis=csx_axis, side=surf_side,
                                   param=t_val, param2=s_val)
+            if (iso.get('parameter_root_certification') in
+                    ('exact_linear_elimination', 'exact_curve_line_sturm')
+                    and 'parameter_root_box' in iso):
+                curve_box, edge_box = iso['parameter_root_box']
+                fixed_box = (float(surf_side), float(surf_side))
+                root_box = ((curve_box, fixed_box, edge_box) if surf_axis == 0
+                            else (curve_box, edge_box, fixed_box))
+                parameters = ((t_val, float(surf_side), s_val) if surf_axis == 0
+                              else (t_val, s_val, float(surf_side)))
+                bz._root_proof = {'parameter_root_box': root_box,
+                                  'parameters': parameters, 'point': iso['point']}
             zeros.append(bz)
 
         if exhausted:
@@ -1025,7 +1151,10 @@ def _find_csx_boundary_zeros(
         if exhausted:
             break
 
-    return zeros, exhausted, cells.processed
+    if diagnostics is not None:
+        diagnostics['unresolved_obligations_complete'] = bool(
+            boundary_obligations_complete and not exhausted)
+    return zeros, exhausted or structural_incomplete, cells.processed
 
 
 def _project_point_on_surface(pt, S, u_seed, v_seed, atol, rational, max_it=20):
@@ -1176,20 +1305,20 @@ def _check_csx_overlap_valley(C, S, boundary_zeros, atol, rational):
 def _restrict_net_t(F, t_lo, t_hi):
     """Restrict a trivariate sq-dist net to a sub-interval along axis 0 (t)."""
     Fv = F[..., np.newaxis]
-    if t_lo > 1e-12:
+    if t_lo > 0.0:
         _, Fv = de_casteljau_split_nd(Fv, axis=0, t=t_lo)
-    if t_hi < 1.0 - 1e-12:
-        t_hi_rescaled = (t_hi - t_lo) / (1.0 - t_lo) if t_lo > 1e-12 else t_hi
+    if t_hi < 1.0:
+        t_hi_rescaled = (t_hi - t_lo) / (1.0 - t_lo) if t_lo > 0.0 else t_hi
         Fv, _ = de_casteljau_split_nd(Fv, axis=0, t=t_hi_rescaled)
     return Fv[..., 0]
 
 
 def _restrict_curve(C, t_lo, t_hi):
     """Restrict a Bezier curve to a sub-interval [t_lo, t_hi]."""
-    if t_lo > 1e-12:
+    if t_lo > 0.0:
         _, C = _subdivide_curve(C, t_lo)
-    if t_hi < 1.0 - 1e-12:
-        t_hi_rescaled = (t_hi - t_lo) / (1.0 - t_lo) if t_lo > 1e-12 else t_hi
+    if t_hi < 1.0:
+        t_hi_rescaled = (t_hi - t_lo) / (1.0 - t_lo) if t_lo > 0.0 else t_hi
         C, _ = _subdivide_curve(C, t_hi_rescaled)
     return C
 
@@ -1202,13 +1331,13 @@ def _split_intervals(cut, lo, hi, ptol):
     but marked by being the center).
     Returns all 3 intervals (left, center, right), filtering empties.
     """
-    cut_lo = max(cut - ptol, lo)
-    cut_hi = min(cut + ptol, hi)
+    cut_lo = min(hi, max(cut - ptol, lo))
+    cut_hi = max(lo, min(cut + ptol, hi))
     intervals = []
-    if lo + 1e-15 < cut_lo:
+    if lo < cut_lo:
         intervals.append((lo, cut_lo))
     intervals.append((cut_lo, cut_hi))  # center (to be excluded)
-    if cut_hi < hi - 1e-15:
+    if cut_hi < hi:
         intervals.append((cut_hi, hi))
     return intervals
 
@@ -1229,10 +1358,11 @@ def _cutout_3d(F_cell, G_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,
     u_intervals = _split_intervals(u_cut, u0, u1, ptol_u)
     v_intervals = _split_intervals(v_cut, v0, v1, ptol_v)
 
-    # Identify the center index for each axis
-    t_center = len(t_intervals) // 2 if len(t_intervals) == 3 else (0 if len(t_intervals) == 1 else -1)
-    u_center = len(u_intervals) // 2 if len(u_intervals) == 3 else (0 if len(u_intervals) == 1 else -1)
-    v_center = len(v_intervals) // 2 if len(v_intervals) == 3 else (0 if len(v_intervals) == 1 else -1)
+    # Identify the clipped box by bounds. A domain-edge root leaves two
+    # intervals on that axis, so list length cannot identify its center.
+    t_center = (max(t_cut-ptol_t, t0), min(t_cut+ptol_t, t1))
+    u_center = (max(u_cut-ptol_u, u0), min(u_cut+ptol_u, u1))
+    v_center = (max(v_cut-ptol_v, v0), min(v_cut+ptol_v, v1))
 
     sub_cells = []
 
@@ -1240,11 +1370,12 @@ def _cutout_3d(F_cell, G_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,
         for ui, (u_lo, u_hi) in enumerate(u_intervals):
             for vi, (v_lo, v_hi) in enumerate(v_intervals):
                 # Skip the center box
-                if ti == t_center and ui == u_center and vi == v_center:
+                if ((t_lo, t_hi) == t_center and (u_lo, u_hi) == u_center
+                        and (v_lo, v_hi) == v_center):
                     continue
 
                 # Skip empty intervals
-                if t_hi - t_lo < 1e-15 or u_hi - u_lo < 1e-15 or v_hi - v_lo < 1e-15:
+                if t_hi <= t_lo or u_hi <= u_lo or v_hi <= v_lo:
                     continue
 
                 # Restrict the nets to this sub-box
@@ -1257,8 +1388,8 @@ def _cutout_3d(F_cell, G_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,
 
                 # Restrict curve to t sub-interval
                 C_sub = _restrict_curve(seg_c,
-                    (t_lo - t0) / max(t1 - t0, 1e-30),
-                    (t_hi - t0) / max(t1 - t0, 1e-30))
+                    (t_lo - t0) / (t1 - t0),
+                    (t_hi - t0) / (t1 - t0))
                 pw_sub = C_sub[:, -1].copy() if rational else np.ones(C_sub.shape[0])
 
                 # Restrict surface weights to u,v sub-interval
@@ -1313,6 +1444,9 @@ def _phase2_isolated_search(
     t_lo, t_hi, atol, rational, ptol_t, ptol_u, ptol_v,
     known_points=None,
     max_depth=64, max_cells=50_000, max_results=4_096,
+    exact_topology=False,
+    unresolved_root_boxes=None,
+    obligation_diagnostics=None,
 ):
     """Phase 2: find isolated intersections via subdivision + Newton + cutout.
 
@@ -1328,6 +1462,8 @@ def _phase2_isolated_search(
     _, Pw = extract_weights(C_sub, rational=rational)
     _, Sw = extract_weights(S, rational=rational)
     strict_root_tol = _strict_csx_root_tol(C_orig, S_orig, rational)
+    G_original = _residual_vec_net(C_orig, S_orig, rational)
+    source_scale = _csx_residual_source_scale(C_orig, S_orig, rational)
 
     # Start with known points from Phase 1 so pre-Newton dedup can skip them
     isolated = known_points if known_points is not None else []
@@ -1341,6 +1477,8 @@ def _phase2_isolated_search(
     # knob it can raise, the second is not.  See `bez_csx`'s
     # ``truncation_cause``.
     cause = None
+    if obligation_diagnostics is not None:
+        obligation_diagnostics['unresolved_obligations_complete'] = True
 
     stack = [(F_sub, G_sub, C_sub, Pw.copy(), Sw.copy(),
               t_lo, t_hi, 0.0, 1.0, 0.0, 1.0, 0)]
@@ -1349,43 +1487,45 @@ def _phase2_isolated_search(
         if cells >= max_cells:
             exhausted = True
             cause = cause or "cells"
+            if obligation_diagnostics is not None:
+                obligation_diagnostics['unresolved_obligations_complete'] = False
             break
         if len(isolated) - initial_results >= max_results:
             exhausted = True
             cause = cause or "results"
+            if obligation_diagnostics is not None:
+                obligation_diagnostics['unresolved_obligations_complete'] = False
             break
         cells += 1
 
         F_cell, G_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth = stack.pop()
+        residual_error = _csx_residual_roundoff_bound(
+            G_original, depth=depth, source_scale=source_scale)
 
         # Vector-residual sign prune: one component of G = C·w_S − S·w_C
         # whose coefficient hull excludes 0 proves no zero in the cell.
         # Cheapest and by far the most decisive prune near transversal
         # roots — run it first.
-        if _residual_excludes_zero(G_cell):
+        if _residual_excludes_zero(G_cell, residual_error):
             continue
 
         # L60: the geometry-aligned exclusion — decisive on near-band
         # cells whose residual direction is diagonal to the axes (the
         # axis test converges only at clearance-scale cells there).
-        if _residual_aligned_excludes_zero(G_cell):
+        if _residual_aligned_excludes_zero(G_cell, residual_error):
             continue
 
         # Quick prune: min-of-net
         sw_flat = sw.ravel()
         w_sc = _weight_max_product(pw, sw_flat)
-        if _check_min_of_net(F_cell, atol, w_sc):
+        if not exact_topology and _check_min_of_net(F_cell, atol, w_sc):
             continue
 
-        # Strict-positivity certificate: by the Bernstein convex-hull
-        # property, min(F) > 0 over the coefficients proves ||C-S||² > 0
-        # everywhere in the cell — no zero exists, prune. This terminates
-        # near-miss "valleys" (distance dips below atol with no zero) after
-        # a few subdivisions; without it they are scanned at ptol
-        # resolution, which costs tens of thousands of cells per glancing
-        # approach (SSX guided cuts produce these routinely).
-        if float(np.min(F_cell)) > 0.0:
-            continue
+        # A positive *floating* squared-distance coefficient is not a
+        # strict zero-exclusion certificate. Gram-product cancellation
+        # and subdivision can lift a genuine zero above zero. The
+        # margined vector-residual exclusions above remain valid for
+        # exact-root pruning even inside the modeling-tolerance band.
 
         # Resolution-floor prune: a cell that lies entirely inside the
         # ±2·ptol box of a known root cannot contain an additional zero
@@ -1397,6 +1537,15 @@ def _phase2_isolated_search(
         # time.
         _near_known = False
         for _e in isolated:
+            if exact_topology:
+                box = _e.get('_unique_box')
+                if box is not None and all(
+                        blo <= lo and hi <= bhi
+                        for (lo, hi), (blo, bhi) in zip(
+                            ((t0, t1), (u0, u1), (v0, v1)), box)):
+                    _near_known = True
+                    break
+                continue
             if (t0 >= _e["t"] - 2.0 * ptol_t and t1 <= _e["t"] + 2.0 * ptol_t
                     and u0 >= _e["u"] - 2.0 * ptol_u and u1 <= _e["u"] + 2.0 * ptol_u
                     and v0 >= _e["v"] - 2.0 * ptol_v and v1 <= _e["v"] + 2.0 * ptol_v):
@@ -1406,29 +1555,34 @@ def _phase2_isolated_search(
             continue
 
         # Lipschitz prune
-        if _check_lipschitz(F_cell, atol, w_sc):
+        if not exact_topology and _check_lipschitz(F_cell, atol, w_sc):
             continue
 
         # Derivative sign check: if any partial derivative has all
         # coefficients of the same sign, no stationary point exists
-        Fv = F_cell[..., np.newaxis]
         can_have_stationary = True
-        for ax in range(3):
-            dF = bernstein_partial_derivative_coeffs(Fv, axis=ax)
-            coeffs = dF[..., 0]
-            if np.min(coeffs) >= 0 or np.max(coeffs) <= 0:
-                can_have_stationary = False
-                break
+        if not exact_topology:
+            Fv = F_cell[..., np.newaxis]
+            for ax in range(3):
+                dF = bernstein_partial_derivative_coeffs(Fv, axis=ax)
+                coeffs = dF[..., 0]
+                # A weak sign proves monotonicity only. Roots on a shared
+                # subdivision face have dF=0 there and must survive in at
+                # least one child. Exact topology uses the source-bounded
+                # vector residual instead of unbounded floating F gates.
+                if np.min(coeffs) > 0 or np.max(coeffs) < 0:
+                    can_have_stationary = False
+                    break
         if not can_have_stationary:
             continue
 
-        # ptol-based early termination: if the curve parameter span is
-        # below ptol_t, further subdivision is meaningless — we can't
-        # distinguish different t values within this cell.
+        # Resolve the full product domain: a short curve interval can
+        # still have several well-separated surface-parameter preimages.
         t_span = t1 - t0
         u_span = u1 - u0
         v_span = v1 - v0
-        if t_span <= ptol_t:
+        if (not exact_topology and t_span <= ptol_t
+                and u_span <= ptol_u and v_span <= ptol_v):
             # Micro-fragment: verify cell center is near a root, then
             # Newton-refine before reporting. Refinement collapses
             # near-duplicates (parametrically close to a known root but
@@ -1487,17 +1641,88 @@ def _phase2_isolated_search(
 
         if residual_ok:
             pt = eval_curve(C_orig, t_sol, rational=rational)
-            is_new = not _is_duplicate(isolated, t_sol, u_sol, v_sol, pt,
-                                       atol, ptol_t, ptol_u, ptol_v)
+            root = (float(t_sol), float(u_sol), float(v_sol))
+            radii = (ptol_t, ptol_u, ptol_v)
+            unique_box = None
+            existence_certificate = None
+            inherited_root_box = None
+            matching = []
+            if exact_topology and in_cell:
+                radii = tuple(min(tol, span) for tol, span in zip(
+                    radii, (t_span, u_span, v_span)))
+                unique_box = _unique_csx_root_box(
+                    G_original, root, radii, source_scale)
+                if unique_box is not None:
+                    existence_certificate = _root_existence_certificate(
+                        C_orig, S_orig, root, unique_box, G_original, rational, source_scale)
+                    if existence_certificate is None:
+                        for known in isolated:
+                            root_enclosure = known.get('parameter_root_box')
+                            if (root_enclosure is not None
+                                    and known.get('root_existence_certification')
+                                    and all(lo <= a <= b <= hi for (a, b), (lo, hi)
+                                            in zip(root_enclosure, unique_box))):
+                                existence_certificate = 'known_root_enclosure'
+                                inherited_root_box = root_enclosure
+                                break
+                if unique_box is not None and existence_certificate is None:
+                    # This region is reserved as unresolved, not consumed
+                    # as a root. Search its complement within the budget.
+                    if unresolved_root_boxes is not None:
+                        unresolved_root_boxes.append({
+                            't_range': unique_box[0], 'u_range': unique_box[1],
+                            'v_range': unique_box[2], 'reason': 'root_existence',
+                            'candidate': root, 'parameter_uniqueness_box': unique_box})
+                    exhausted, cause = True, 'resolution'
+                    stack.extend(_cutout_3d(
+                        F_cell, G_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,
+                        *root, *radii, rational))
+                    continue
+                if unique_box is not None:
+                    # Each box has an independently established root.
+                    # Uniqueness on their union identifies those roots.
+                    matching = [e for e in isolated if
+                                (e.get('_unique_box') is None
+                                 and (e['t'], e['u'], e['v']) == root) or
+                                (e.get('parameter_root_box') is not None
+                                 and e.get('root_existence_certification')
+                                 and all(lo <= a <= b <= hi for (a, b), (lo, hi)
+                                         in zip(e['parameter_root_box'], unique_box))) or
+                                (e.get('_unique_box') is not None
+                                 and _root_boxes_have_same_root(
+                                     G_original, e['_unique_box'], unique_box, source_scale))]
+                    if matching:
+                        matching[0]['_unique_box'] = unique_box
+                        matching[0]['root_existence_certification'] = existence_certificate
+                        matching[0]['_existence_established'] = True
+                        for redundant in matching[1:]:
+                            isolated[:] = [e for e in isolated if e is not redundant]
+            if exact_topology and unique_box is not None:
+                is_new = not matching
+            else:
+                is_new = not _is_duplicate(isolated, t_sol, u_sol, v_sol, pt,
+                                           atol, ptol_t, ptol_u, ptol_v,
+                                           exact_topology=exact_topology)
             if is_new:
                 # A genuine root. Record it regardless of which cell it
                 # lies in — _is_duplicate protects against a double add
                 # when the root's home cell converges to it later.
-                isolated.append({
+                entry = {
                     "t": float(t_sol), "u": float(u_sol), "v": float(v_sol),
                     "point": pt,
-                })
-            if in_cell:
+                }
+                if unique_box is not None:
+                    entry['_unique_box'] = unique_box
+                    entry['root_existence_certification'] = existence_certificate
+                    entry['_existence_established'] = True
+                    if inherited_root_box is not None:
+                        entry['parameter_root_box'] = inherited_root_box
+                    elif existence_certificate == 'exact_parameter_identity':
+                        entry['parameter_root_box'] = tuple((t, t) for t in root)
+                    else:
+                        entry['parameter_root_box'] = unique_box
+                isolated.append(entry)
+            if in_cell and (not exact_topology or unique_box is not None):
                 # Cut the root's ptol-neighborhood out of THIS cell so the
                 # remaining sub-cells cannot re-converge to the same
                 # attractor. Valid for newly found and already-known roots
@@ -1505,7 +1730,7 @@ def _phase2_isolated_search(
                 sub_cells = _cutout_3d(
                     F_cell, G_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,
                     float(t_sol), float(u_sol), float(v_sol),
-                    ptol_t, ptol_u, ptol_v, rational,
+                    *radii, rational,
                 )
                 stack.extend(sub_cells)
                 continue
@@ -1537,11 +1762,21 @@ def _phase2_isolated_search(
             # ledger utilization (harness case 11 at atol<=1e-5).
             exhausted = True
             cause = cause or "depth"
+            if obligation_diagnostics is not None:
+                obligation_diagnostics['unresolved_obligations_complete'] = False
             continue
 
         # Subdivide along the axis with the largest span
         spans = [t1 - t0, u1 - u0, v1 - v0]
         axis = int(np.argmax(spans))
+        if exact_topology:
+            lo, hi = ((t0, t1), (u0, u1), (v0, v1))[axis]
+            if not lo < 0.5 * (lo + hi) < hi:
+                exhausted = True
+                cause = cause or 'resolution'
+                if obligation_diagnostics is not None:
+                    obligation_diagnostics['unresolved_obligations_complete'] = False
+                continue
 
         G_L, G_R = de_casteljau_split_nd(G_cell, axis=axis, t=0.5)
         if axis == 0:
@@ -1607,6 +1842,7 @@ def bez_csx(
     max_depth=None,
     max_cells=100_000,
     max_results=4_096,
+    tolerance_tier=True,
 ) -> dict:
     """Bezier curve-surface intersection via two-phase architecture.
 
@@ -1634,6 +1870,10 @@ def bez_csx(
         Maximum isolated roots materialized before returning a partial
         result. Positive-dimensional sets must be classified separately;
         this cap prevents an unrecognized set from turning dedup quadratic.
+    tolerance_tier : bool
+        Allow residual-certified curve/surface overlaps within ``atol``.
+        Set False when a caller needs only exact intersection topology;
+        exact affine overlaps and isolated-root search remain enabled.
 
     Returns
     -------
@@ -1662,6 +1902,41 @@ def bez_csx(
                 "budget_exhausted": True, "cells_processed": 0,
                 "truncation_cause": "preflight",
                 "boundary_topology_complete": False}
+
+    if (not tolerance_tier and int(max_results) > 0
+            and not geometry_collapsed(c_pts)):
+        # Bound exact coefficient construction before converting an
+        # arbitrary-degree source net to Fraction arithmetic. This is an
+        # operation-derived preflight against the existing shared cap.
+        from mmcore.numeric.intersection._exact_univariate import coefficient_build_work
+        planar_construction_work = coefficient_build_work(len(C))
+        if S.shape[:2] == (2, 2) and planar_construction_work > max_cells:
+            return {'isolated': [], 'overlaps': [], 'parameter_fibers': [],
+                    'budget_exhausted': True, 'boundary_topology_complete': False,
+                    'cells_processed': 0, 'truncation_cause': 'preflight',
+                    'required_coefficient_work': planar_construction_work}
+        from mmcore.numeric.intersection.csx._planar_overlap import (
+            exact_planar_bilinear_overlap,
+        )
+        planar_overlaps = exact_planar_bilinear_overlap(
+            C, S, rational=rational)
+        if planar_overlaps:
+            # The helper proves the full curve is inside a convex planar
+            # patch, or exactly clips a line against that convex patch.
+            # Its complement is therefore empty of additional roots.
+            return {
+                'isolated': [], 'overlaps': planar_overlaps,
+                'parameter_fibers': [], 'budget_exhausted': False,
+                'cells_processed': planar_construction_work, 'boundary_topology_complete': True,
+            }
+        from mmcore.numeric.intersection.csx._planar_roots import (
+            exact_planar_bilinear_roots,
+        )
+        planar_roots = exact_planar_bilinear_roots(
+            C, S, rational=rational, max_cells=int(max_cells),
+            max_results=int(max_results), atol=atol)
+        if planar_roots is not None:
+            return planar_roots
 
     strict_root_tol = _strict_csx_root_tol(C, S, rational)
 
@@ -1786,10 +2061,12 @@ def bez_csx(
     # PHASE 1: Boundary analysis + overlap detection (initial patch only)
     # ===================================================================
     boundary_result_cap = min(max(0, int(max_results)), 128)
+    boundary_diagnostics = {}
     (csx_boundary_zeros, boundary_exhausted,
      boundary_cells) = _find_csx_boundary_zeros(
         F, C, S, atol, ptol_t, ptol_u, ptol_v, rational,
         max_cells=cells.remaining, max_results=boundary_result_cap,
+        diagnostics=boundary_diagnostics,
     )
     cells.spend(boundary_cells)
     if boundary_exhausted:
@@ -1803,7 +2080,8 @@ def bez_csx(
         # validated hits in the same situation). The public flag still
         # records that the topology is incomplete.
         budget_exhausted = True
-        truncation_cause = truncation_cause or "boundary"
+        truncation_cause = truncation_cause or boundary_diagnostics.get(
+            'truncation_cause', 'boundary')
     elif not all(isinstance(bz, BoundaryZero) for bz in csx_boundary_zeros):
         budget_exhausted = True
         boundary_exhausted = True
@@ -1811,6 +2089,11 @@ def bez_csx(
         csx_boundary_zeros = []
 
     t_exclude = []  # t-intervals to cut from the curve
+    exact_topology = not tolerance_tier
+    source_scale = _csx_residual_source_scale(C, S, rational)
+    search_unresolved_boxes = list(boundary_diagnostics.get('unresolved_parameter_boxes', []))
+    obligations_complete = (not boundary_exhausted or bool(
+        boundary_diagnostics.get('unresolved_obligations_complete', False)))
 
     # Accept boundary zeros. Each candidate is refined via Newton:
     # boundary analysis can return near-miss candidates (e.g., CCX
@@ -1821,27 +2104,62 @@ def bez_csx(
     for bz in csx_boundary_zeros:
         if len(isolated) >= max_results:
             budget_exhausted = True
+            obligations_complete = False
+            truncation_cause = truncation_cause or 'results'
             break
         t_bz, u_bz, v_bz = _boundary_zero_to_tuv(bz, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0)
-        t_r, u_r, v_r, G_r, root_ok = _polish_csx_boundary_root(
-            C, S, bz, t_bz, u_bz, v_bz, rational,
-            strict_root_tol)
+        boundary_proof = getattr(bz, '_root_proof', None) if exact_topology else None
+        if boundary_proof is not None:
+            t_r, u_r, v_r = boundary_proof['parameters']
+            root_ok = True
+        else:
+            t_r, u_r, v_r, G_r, root_ok = _polish_csx_boundary_root(
+                C, S, bz, t_bz, u_bz, v_bz, rational,
+                strict_root_tol)
 
         if root_ok:
-            pt_r = eval_curve(C, t_r, rational=rational)
-            if not _is_duplicate(isolated,t_r, u_r, v_r, pt_r, atol,ptol_t,ptol_u,ptol_v):
-                isolated.append({
+            pt_r = (boundary_proof['point'] if boundary_proof is not None else
+                    eval_curve(C, t_r, rational=rational))
+            if not _is_duplicate(isolated,t_r, u_r, v_r, pt_r, atol,ptol_t,ptol_u,ptol_v,
+                                 exact_topology=exact_topology):
+                entry = {
                     "t": float(t_r), "u": float(u_r), "v": float(v_r),
                     "point": pt_r,
-                })
-                t_exclude.append((t_r - ptol_t, t_r + ptol_t))
+                }
+                if exact_topology:
+                    if boundary_proof is not None:
+                        entry['_boundary_root_proof'] = boundary_proof
+                        entry['parameter_root_box'] = boundary_proof['parameter_root_box']
+                        entry['root_existence_certification'] = 'exact_boundary_curve_intersection'
+                        entry['_existence_established'] = True
+                    box = _unique_csx_root_box(
+                        G_full, (t_r, u_r, v_r),
+                        (ptol_t, ptol_u, ptol_v), source_scale)
+                    if box is not None:
+                        proof_inside = (boundary_proof is not None and all(
+                            lo <= a <= b <= hi for (a, b), (lo, hi)
+                            in zip(boundary_proof['parameter_root_box'], box)))
+                        certificate = ('exact_boundary_curve_intersection' if proof_inside
+                                       else _root_existence_certificate(
+                                           C, S, (t_r, u_r, v_r), box, G_full, rational, source_scale))
+                        if certificate is not None:
+                            entry['_unique_box'] = box
+                            entry['root_existence_certification'] = certificate
+                            entry['_existence_established'] = True
+                            if 'parameter_root_box' not in entry:
+                                entry['parameter_root_box'] = (tuple((t, t) for t in (t_r, u_r, v_r))
+                                                               if certificate == 'exact_parameter_identity' else box)
+                isolated.append(entry)
+                # An isolated root resolves its (t,u,v) neighborhood,
+                # not this t slab across the entire surface. Phase 2
+                # receives it as a known point and cuts its product box.
 
     # Valley check for overlap — only on a COMPLETE boundary-zero set: a
     # truncated set could pair the wrong endpoints into a false overlap
     # claim (L51: the per-root keeps above are sound, this pairing is not).
     non_affine_overlap_span = None
     _valley_pair_seen = False
-    if not boundary_exhausted and len(csx_boundary_zeros) >= 2:
+    if (not boundary_exhausted or exact_topology) and len(csx_boundary_zeros) >= 2:
         overlap_pair = _check_csx_overlap_valley(C, S, csx_boundary_zeros, atol, rational)
         _valley_pair_seen = overlap_pair is not None
         if overlap_pair is not None:
@@ -1856,8 +2174,19 @@ def bez_csx(
                 strict_root_tol)
             endpoint_a = (t_a, u_a, v_a)
             endpoint_b = (t_b, u_b, v_b)
-            if (root_a and root_b and _certify_affine_csx_overlap(
-                    C, S, endpoint_a, endpoint_b, rational)):
+            affine_overlap = (root_a and root_b and _certify_affine_csx_overlap(
+                    C, S, endpoint_a, endpoint_b, rational))
+            if affine_overlap and exact_topology:
+                proof_cost = len(C)+sum(n-1 for n in S.shape[:-1])
+                if cells.remaining < proof_cost:
+                    affine_overlap = False
+                    budget_exhausted = True
+                    truncation_cause = 'cells'
+                else:
+                    cells.spend(proof_cost)
+                    affine_overlap = _affine_residual_is_zero(
+                        C, S, endpoint_a, endpoint_b, rational)
+            if affine_overlap:
                 bz_a_strict = _boundary_zero_from_tuv_like(
                     bz_a, *endpoint_a)
                 bz_b_strict = _boundary_zero_from_tuv_like(
@@ -1873,11 +2202,13 @@ def bez_csx(
                     "certification": "exact",
                 })
                 t_exclude.append(
-                    (t_lo_ovl - ptol_t, t_hi_ovl + ptol_t))
+                    (t_lo_ovl - (0. if exact_topology else ptol_t),
+                     t_hi_ovl + (0. if exact_topology else ptol_t)))
                 # Remove isolated points inside the certified overlap.
+                padding = 0. if exact_topology else atol
                 isolated = [iso for iso in isolated
-                            if not (t_lo_ovl - atol
-                                    <= iso["t"] <= t_hi_ovl + atol)]
+                            if not (t_lo_ovl - padding
+                                    <= iso["t"] <= t_hi_ovl + padding)]
             elif root_a and root_b:
                 # Ledger L42: a valley-confirmed pair whose affine identity
                 # cannot be certified is either a curved-UV EXACT overlap
@@ -1895,6 +2226,31 @@ def bez_csx(
                 # signature in the outcome marks the topology incomplete.
                 non_affine_overlap_span = (min(t_a, t_b), max(t_a, t_b))
 
+    if exact_topology and overlaps:
+        error = _csx_residual_roundoff_bound(G_full, source_scale=source_scale)
+        if not _jacobian_is_injective(G_full, (1, 2), error):
+            # One affine correspondence does not exhaust the parameter
+            # product of a folded surface. Keep it as a geometric witness
+            # while refusing to discharge the unknown UV complement.
+            isolated, unresolved_roots = _certify_csx_root_existence(
+                isolated, C, S, G_full, (ptol_t, ptol_u, ptol_v), rational, source_scale)
+            for entry in isolated:
+                box = entry.pop('_unique_box', None)
+                if box is not None:
+                    entry['parameter_uniqueness_box'] = box
+            return {
+                'isolated': isolated, 'overlaps': overlaps,
+                'parameter_fibers': [], 'budget_exhausted': True,
+                'cells_processed': int(cells.processed),
+                'truncation_cause': 'resolution',
+                'boundary_topology_complete': False,
+                'unresolved_parameter_boxes': [
+                    {'t_range': tuple(o['t_range']),
+                     'u_range': (0.0, 1.0), 'v_range': (0.0, 1.0),
+                     'reason': 'surface_preimage_uniqueness'}
+                    for o in overlaps] + unresolved_roots,
+            }
+
     # L59 (USER DECISION: theorem-first tier): certify tolerance/exact
     # overlap spans whenever cheap endpoint evidence arms — a curve t-end
     # lying ON the surface (an axis-0 boundary zero) or a valley pair —
@@ -1909,7 +2265,7 @@ def bez_csx(
     # clearance produces zero exact boundary roots — the certificate must
     # still get its 17-sample look; transversal SSX-nested calls always
     # carry boundary zeros, so their cost profile is untouched).
-    if (not boundary_exhausted and not overlaps
+    if (tolerance_tier and not boundary_exhausted and not overlaps
             and (_valley_pair_seen
                  or not csx_boundary_zeros
                  or any(bz.axis == 0 for bz in csx_boundary_zeros))):
@@ -1963,7 +2319,7 @@ def bez_csx(
     t_intervals = list(t_intervals)
 
     for _ii, (t_lo, t_hi) in enumerate(t_intervals):
-        if (t_hi - t_lo) < ptol_t:
+        if t_hi <= t_lo:
             continue
 
         # Restrict nets and curve to sub-interval
@@ -1987,14 +2343,16 @@ def bez_csx(
 
         _, Pw_sub = extract_weights(C_sub, rational=rational)
         w_sc = _weight_max_product(Pw_sub, Sw.ravel())
-        if _check_min_of_net(F_sub, atol, w_sc):
+        if not exact_topology and _check_min_of_net(F_sub, atol, w_sc):
             continue
 
         # L60: whole-interval geometry-aligned exclusion — a near-band
         # interval whose residual direction rotates slowly clears here in
         # one test instead of thousands of phase-2 cells.
-        if (_residual_excludes_zero(G_sub)
-                or _residual_aligned_excludes_zero(G_sub)):
+        residual_error = _csx_residual_roundoff_bound(
+            G_full, source_scale=source_scale)
+        if (_residual_excludes_zero(G_sub, residual_error)
+                or _residual_aligned_excludes_zero(G_sub, residual_error)):
             cells.spend(1)
             continue
 
@@ -2021,6 +2379,7 @@ def bez_csx(
         if fallback_cells_remaining is not None:
             phase2_cell_limit = min(
                 phase2_cell_limit, fallback_cells_remaining)
+        phase2_obligations = {}
         (_phase2_iso, _phase2_exhausted, _cells_used,
          _phase2_cause) = _phase2_isolated_search(
             F_sub, G_sub, C_sub, S, C_orig, S_orig,
@@ -2028,7 +2387,11 @@ def bez_csx(
             known_points=isolated,
             max_depth=max_depth, max_cells=phase2_cell_limit,
             max_results=max_results - len(isolated),
+            exact_topology=exact_topology,
+            unresolved_root_boxes=search_unresolved_boxes,
+            obligation_diagnostics=phase2_obligations,
         )
+        obligations_complete &= bool(phase2_obligations.get('unresolved_obligations_complete', False))
         if _phase2_cause is not None and truncation_cause is None:
             truncation_cause = _phase2_cause
         cells.spend(_cells_used)
@@ -2059,7 +2422,8 @@ def bez_csx(
         if budget_exhausted or chain:
             budget_exhausted = True
             overlap_topology_incomplete = True
-    if not overlap_topology_incomplete and len(isolated) >= 3:
+    if (tolerance_tier and not overlap_topology_incomplete
+            and len(isolated) >= 3):
         # L52 slice 10a (A2's confirmed lead): a SHORT exact overlap span
         # survives only by DOMAIN CLIPPING (a polynomial curve exactly on
         # the surface over an open sub-interval is on it everywhere, so
@@ -2109,6 +2473,22 @@ def bez_csx(
             # incompleteness after representing the span alone.
             non_span_truncation = len(verified) > 1
 
+    obligations_complete &= (truncation_cause in (None, 'resolution')
+                             and not overlap_topology_incomplete)
+    unresolved_roots = list(search_unresolved_boxes)
+    if exact_topology:
+        isolated, final_unresolved_roots = _certify_csx_root_existence(
+            isolated, C, S, G_full, (ptol_t, ptol_u, ptol_v), rational, source_scale)
+        unresolved_roots.extend(final_unresolved_roots)
+        if unresolved_roots:
+            budget_exhausted = True
+            truncation_cause = 'resolution'
+    for entry in isolated:
+        entry.pop('_boundary_root_proof', None)
+        entry.pop('_existence_established', None)
+        box = entry.pop('_unique_box', None)
+        if box is not None:
+            entry['parameter_uniqueness_box'] = box
     result = {"isolated": isolated, "overlaps": overlaps,
               "parameter_fibers": [],
               "budget_exhausted": bool(budget_exhausted),
@@ -2117,8 +2497,22 @@ def bez_csx(
               "truncation_cause": (truncation_cause if budget_exhausted
                                    else None),
               "boundary_topology_complete": not (
-                  boundary_exhausted or overlap_topology_incomplete)}
+                  boundary_exhausted or overlap_topology_incomplete or unresolved_roots)}
+    result['unresolved_obligations_complete'] = bool(obligations_complete)
+    if unresolved_roots:
+        result['unresolved_parameter_boxes'] = unresolved_roots
     if overlap_topology_incomplete:
+        if exact_topology:
+            # A valley proposal plus a truncated zero search proves no
+            # dimension. Multiple close roots and true overlaps both
+            # reach this fallback, so report only the unresolved product.
+            result['truncation_cause'] = 'resolution'
+            result.setdefault('unresolved_parameter_boxes', []).append({
+                't_range': tuple(non_affine_overlap_span),
+                'u_range': (0.0, 1.0), 'v_range': (0.0, 1.0),
+                'reason': 'uncertified_relation',
+            })
+            return result
         # Typed L42 outcome for the SSX consumer (ledger L28): the span
         # names WHERE the uncertifiable positive-dimensional structure
         # lives, and `non_span_truncation` says whether anything OUTSIDE
@@ -2131,8 +2525,13 @@ def bez_csx(
     return result
 
 
-def _is_duplicate(isolated, t,u,v, pt, atol, ptol_t,ptol_u,ptol_v):
+def _is_duplicate(isolated, t,u,v, pt, atol, ptol_t,ptol_u,ptol_v,
+                  exact_topology=False):
     for entry in isolated:
+        if exact_topology:
+            if (entry['t'], entry['u'], entry['v']) == (t, u, v):
+                return True
+            continue
         # Two independently refined representatives of one root can each
         # sit up to one parametric tolerance from it (boundary vs Phase-2
         # is the common pairing), hence a 2*ptol comparison.  Retain the

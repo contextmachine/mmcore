@@ -6,7 +6,6 @@ instead of the old recursive subdivision approach.
 from __future__ import annotations
 
 import numpy as np
-from numpy.typing import NDArray
 
 from mmcore.nurbs._core import NURBSCurve, NURBSSurface
 from mmcore.nurbs._nurbs_eval import (
@@ -15,13 +14,13 @@ from mmcore.nurbs._nurbs_eval import (
     _nurbs_to_tuple,
 )
 from mmcore.nurbs._nurbs_knots import decompose_curve, decompose_surface
-from mmcore.nurbs._nurbs_param_tol import (
-    nurbs_curve_param_tolerance, nurbs_surface_param_tolerance,
-)
+from mmcore.nurbs._nurbs_param_tol import nurbs_curve_param_tolerance
 from mmcore.numeric.bvh.lbvh import AABB, build_bvh, bvh_intersect
 
 from mmcore.numeric.intersection.csx._bez_csx4 import bez_csx as bez_csx_v4
-from mmcore.numeric._bezier_common import eval_curve, eval_surface
+from mmcore.numeric.intersection._parameter_mapping import (
+    map_isolated, map_overlap, reject_parameter_aliases, strip_mapping_metadata,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -29,11 +28,11 @@ from mmcore.numeric._bezier_common import eval_curve, eval_surface
 # ---------------------------------------------------------------------------
 
 def _is_rational_curve(curve: NURBSCurveTuple) -> bool:
-    return not np.allclose(curve.weights, 1.0)
+    return not np.all(curve.weights == 1.0)
 
 
 def _is_rational_surface(surface: NURBSSurfaceTuple) -> bool:
-    return not np.allclose(surface.weights, 1.0)
+    return not np.all(surface.weights == 1.0)
 
 
 def _surface_patch_aabb(patch: NURBSSurfaceTuple, tol: float) -> AABB:
@@ -52,7 +51,7 @@ def _map_local_to_global_csx(t_loc, u_loc, v_loc, t0, t1, u0, u1, v0, v1):
     return t_glob, u_glob, v_glob
 
 
-_BEZIER_LIMIT_KWARGS = ('max_depth',)
+_BEZIER_LIMIT_KWARGS = ('max_depth', 'tolerance_tier')
 _DEFAULT_MAX_CELLS = 100_000
 _DEFAULT_MAX_RESULTS = 4_096
 
@@ -147,39 +146,47 @@ def _consume_bezier_status(
 # ---------------------------------------------------------------------------
 
 def _merge_overlaps_by_t(overlaps, ptol_t):
-    """Merge adjacent overlaps whose t-ranges touch or overlap.
+    """Join only exact paired endpoints; preserve every other correspondence.
 
-    Adjacent Bezier pairs independently detect portions of the same
-    geometric overlap. Sort by t_range start and merge consecutive
-    entries whose t-ranges are within ptol_t of each other.
+    A common curve-parameter interval does not identify a surface preimage.
+    The range endpoints retain their orientation, including decreasing UV.
+    ``ptol_t`` remains accepted for compatibility, but cannot prove identity.
     """
-    if not overlaps or len(overlaps) <= 1:
-        return list(overlaps) if overlaps else []
-
-    sorted_ovls = sorted(overlaps, key=lambda o: o['t_range'][0])
-
-    merged = [dict(sorted_ovls[0])]  # copy
-    for ovl in sorted_ovls[1:]:
-        prev = merged[-1]
-        # Merge if t-ranges touch or overlap
-        if ovl['t_range'][0] <= prev['t_range'][1] + ptol_t:
-            # Extend the previous overlap
-            prev['t_range'] = (
-                min(prev['t_range'][0], ovl['t_range'][0]),
-                max(prev['t_range'][1], ovl['t_range'][1]),
-            )
-            prev['u_range'] = (
-                min(prev['u_range'][0], ovl['u_range'][0]),
-                max(prev['u_range'][1], ovl['u_range'][1]),
-            )
-            prev['v_range'] = (
-                min(prev['v_range'][0], ovl['v_range'][0]),
-                max(prev['v_range'][1], ovl['v_range'][1]),
-            )
+    result = []
+    for overlap in sorted(overlaps or (), key=lambda o: o['t_range'][0]):
+        current = dict(overlap)
+        if not result:
+            result.append(current)
+            continue
+        previous = result[-1]
+        keys = ('t_range', 'u_range', 'v_range')
+        # Some exact planar proofs expose UV bounding boxes, not paired
+        # endpoint values. Neither identity nor adjacency follows from
+        # matching bounding boxes.
+        if (previous.get('uv_range_is_enclosure', False)
+                or current.get('uv_range_is_enclosure', False)):
+            result.append(current)
+            continue
+        prior_exact = previous.get('_exact_global_ranges')
+        current_exact = current.get('_exact_global_ranges')
+        same_provenance = (prior_exact == current_exact
+                           if prior_exact is not None or current_exact is not None else True)
+        if same_provenance and all(tuple(previous[k]) == tuple(current[k]) for k in keys):
+            continue
+        joined_provenance = (all(a[1] == b[0] for a, b in zip(prior_exact, current_exact))
+                             if prior_exact is not None and current_exact is not None
+                             else prior_exact is current_exact)
+        if joined_provenance and all(previous[k][1] == current[k][0] for k in keys):
+            for key in keys:
+                previous[key] = (previous[key][0], current[key][1])
+            if prior_exact is not None:
+                previous['_exact_global_ranges'] = tuple(
+                    (a[0], b[1]) for a, b in zip(prior_exact, current_exact))
+                previous.setdefault('joined_local_certificates', []).append(
+                    current['local_overlap_certificate'])
         else:
-            merged.append(dict(ovl))
-
-    return merged
+            result.append(current)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -187,64 +194,34 @@ def _merge_overlaps_by_t(overlaps, ptol_t):
 # ---------------------------------------------------------------------------
 
 def _is_seam_duplicate(u1, u2, v1, v2, surface, ptol_u, ptol_v):
-    """Check if (u1,v1) and (u2,v2) are the same point on a periodic seam.
-
-    Returns True only if:
-    - One of u or v differs by the full domain span (the other matches within ptol)
-    - The surface is at least C0 across that seam (first/last CP rows identical)
-    """
-    (u_lo, u_hi), (v_lo, v_hi) = surface.interval()
-    u_span = u_hi - u_lo
-    v_span = v_hi - v_lo
-
-    # Check u-seam: u values at opposite domain ends, v matches
-    if abs(v1 - v2) < ptol_v and u_span > 0:
-        u_wrap = u_span - abs(u1 - u2)
-        if abs(u_wrap) < ptol_u:
-            # Verify C0 continuity: first and last CP rows in u must match
-            cp = surface.control_points
-            w = surface.weights
-            if (np.allclose(cp[0], cp[-1], atol=1e-10) and
-                    np.allclose(w[0], w[-1], atol=1e-10)):
-                return True
-
-    # Check v-seam: v values at opposite domain ends, u matches
-    if abs(u1 - u2) < ptol_u and v_span > 0:
-        v_wrap = v_span - abs(v1 - v2)
-        if abs(v_wrap) < ptol_v:
-            cp = surface.control_points
-            w = surface.weights
-            if (np.allclose(cp[:, 0], cp[:, -1], atol=1e-10) and
-                    np.allclose(w[:, 0], w[:, -1], atol=1e-10)):
-                return True
-
+    """Exact paired endpoints of a proved clamped C0 surface seam."""
+    bounds = surface.interval()
+    parameters = ((u1, u2, v1, v2), (v1, v2, u1, u2))
+    for axis, (a, b, other_a, other_b) in enumerate(parameters):
+        low, high = bounds[axis]
+        if other_a != other_b or {a, b} != {low, high} or low == high:
+            continue
+        order = surface.order_u if axis == 0 else surface.order_v
+        knots = np.asarray(surface.knot_u if axis == 0 else surface.knot_v)
+        if not (np.all(knots[:order] == low) and np.all(knots[-order:] == high)):
+            continue
+        cp, weights = surface.control_points, surface.weights
+        first, last = (cp[0], cp[-1]) if axis == 0 else (cp[:, 0], cp[:, -1])
+        w_first, w_last = ((weights[0], weights[-1]) if axis == 0
+                           else (weights[:, 0], weights[:, -1]))
+        if np.array_equal(first, last) and np.array_equal(w_first, w_last):
+            return True
     return False
 
 
 def _dedup_csx_isolated(entries, curve, surface, tol):
-    """Deduplicate CSX isolated intersections using parametric tolerances.
+    """Retain distinct parameter roots, including within modeling tolerance.
 
-    Same principle as CCX dedup: span-boundary duplicates arise when
-    decompose_curve/decompose_surface splits at knots, and the same
-    geometric intersection appears from both adjacent segments/patches.
-
-    Dedup by sorting on the curve parameter t and merging consecutive
-    entries within ptol_t. Also detects periodic seam duplicates where
-    u (or v) values sit at opposite ends of the domain.
+    Without a common isolating certificate, only identical paired parameters
+    or exact clamped seam endpoints authorize destructive deduplication.
     """
     if len(entries) <= 1:
         return entries
-
-    ptol_t = float(nurbs_curve_param_tolerance(curve, tol))
-    ptol_u, ptol_v = nurbs_surface_param_tolerance(surface, tol)
-    ptol_u, ptol_v = float(ptol_u), float(ptol_v)
-
-    rational_c = _is_rational_curve(curve)
-    rational_s = _is_rational_surface(surface)
-    C_h = (to_homogeneous_1d(curve.control_points, curve.weights)
-           if rational_c else curve.control_points)
-    S_h = (to_homogeneous_2d(surface.control_points, surface.weights)
-           if rational_s else surface.control_points)
 
     sorted_entries = sorted(entries, key=lambda e: e['t'])
 
@@ -253,25 +230,16 @@ def _dedup_csx_isolated(entries, curve, surface, tol):
         prev = deduped[-1]
 
         # Standard parametric proximity check
-        is_dup = (abs(entry['t'] - prev['t']) < ptol_t and
-                  abs(entry['u'] - prev['u']) < ptol_u and
-                  abs(entry['v'] - prev['v']) < ptol_v)
+        is_dup = all(entry[k] == prev[k] for k in ('t', 'u', 'v'))
 
         # Periodic seam check: same t, same v, u at opposite domain ends
-        if not is_dup and abs(entry['t'] - prev['t']) < ptol_t:
+        if not is_dup and entry['t'] == prev['t']:
             is_dup = _is_seam_duplicate(
                 entry['u'], prev['u'], entry['v'], prev['v'],
-                surface, ptol_u, ptol_v,
+                surface, 0., 0.,
             )
 
         if is_dup:
-            # Duplicate — keep the one with smaller residual
-            pt_new_c = eval_curve(C_h, entry['t'], rational=rational_c)
-            pt_new_s = eval_surface(S_h, entry['u'], entry['v'], rational=rational_s)
-            pt_old_c = eval_curve(C_h, prev['t'], rational=rational_c)
-            pt_old_s = eval_surface(S_h, prev['u'], prev['v'], rational=rational_s)
-            if np.linalg.norm(pt_new_c - pt_new_s) < np.linalg.norm(pt_old_c - pt_old_s):
-                deduped[-1] = entry
             continue
         deduped.append(entry)
 
@@ -299,6 +267,9 @@ def nurbs_csx(
     surface : NURBSSurface or NURBSSurfaceTuple
     tol : float
         Geometric tolerance.
+    tolerance_tier : bool, optional
+        Forwarded to the Bezier solver; False requests exact zero-set
+        search and explicit unresolved status when it cannot be certified.
 
     Returns
     -------
@@ -323,7 +294,6 @@ def nurbs_csx(
     if isinstance(surface, NURBSSurface):
         surface = _nurbs_to_tuple(surface)
 
-    dim = max(curve.control_points.shape[-1], surface.control_points.shape[-1])
     rational = _is_rational_curve(curve) or _is_rational_surface(surface)
 
     # Decompose into Bezier segments/patches
@@ -386,75 +356,55 @@ def nurbs_csx(
         )
 
         for iso in result['isolated']:
-            t_glob, u_glob, v_glob = _map_local_to_global_csx(
-                iso['t'], iso['u'], iso['v'],
-                seg_interval[0], seg_interval[1],
-                patch_interval[0][0], patch_interval[0][1],
-                patch_interval[1][0], patch_interval[1][1],
+            mapped = map_isolated(
+                iso, ('t', 'u', 'v'), (seg_interval, *patch_interval),
+                ((pts_c, (0,)), (pts_s, (1, 2))), rational, tol,
+                status, context, return_status,
             )
-            raw_isolated.append({
-                't': t_glob, 'u': u_glob, 'v': v_glob,
-                'point': iso['point'],
-            })
+            if mapped is not None:
+                raw_isolated.append(mapped)
 
         for ovl in result['overlaps']:
-            tr = ovl.get('t_range', (0.0, 1.0))
-            ur = ovl.get('u_range', (0.0, 1.0))
-            vr = ovl.get('v_range', (0.0, 1.0))
-            t0g = seg_interval[0] + tr[0] * (seg_interval[1] - seg_interval[0])
-            t1g = seg_interval[0] + tr[1] * (seg_interval[1] - seg_interval[0])
-            u0g = patch_interval[0][0] + ur[0] * (patch_interval[0][1] - patch_interval[0][0])
-            u1g = patch_interval[0][0] + ur[1] * (patch_interval[0][1] - patch_interval[0][0])
-            v0g = patch_interval[1][0] + vr[0] * (patch_interval[1][1] - patch_interval[1][0])
-            v1g = patch_interval[1][0] + vr[1] * (patch_interval[1][1] - patch_interval[1][0])
-            raw_overlaps.append({
-                't_range': (t0g, t1g),
-                'u_range': (u0g, u1g),
-                'v_range': (v0g, v1g),
-            })
-        if stop_after_span:
+            enclosure = bool(ovl.get('uv_range_is_enclosure', False))
+            mapped = map_overlap(
+                ovl, ('t', 'u', 'v'), (seg_interval, *patch_interval),
+                ((pts_c, (0,)), (pts_s, (1, 2))), rational, tol,
+                status, context, return_status,
+                enclosure_keys=('u', 'v') if enclosure else ())
+            if mapped is not None:
+                mapped['uv_range_is_enclosure'] = enclosure
+                raw_overlaps.append(mapped)
+        if stop_after_span and min(_remaining_allowances(status)) <= 0:
             break
 
     # ---------------------------------------------------------------
-    # Post-processing: merge overlaps, classify micro-fragments
+    # Post-processing: preserve paired-parameter correspondence
     # ---------------------------------------------------------------
     ptol_t = float(nurbs_curve_param_tolerance(curve, tol))
 
-    # 1. Merge adjacent overlaps by t-range
+    # 1. Join exactly matching paired overlap endpoints
     merged_overlaps = _merge_overlaps_by_t(raw_overlaps, ptol_t)
 
-    # 2. Parametric dedup of isolated points
+    # 2. Exact paired-preimage deduplication
+    raw_isolated = reject_parameter_aliases(
+        raw_isolated, ('t', 'u', 'v'), status, 'nurbs_csx assembly', return_status)
     deduped_isolated = _dedup_csx_isolated(raw_isolated, curve, surface, tol)
 
-    # 3. Classify micro-fragments: isolated points adjacent to overlaps
-    #    become part of the overlap; others remain isolated
+    # An isolated root may lie on another sheet over the same t interval.
+    # Endpoint identity is sufficient; t proximity alone is not.
     if merged_overlaps and deduped_isolated:
-        final_isolated = []
-        for iso in deduped_isolated:
-            t_iso = iso['t']
-            absorbed = False
-            for ovl in merged_overlaps:
-                t_lo, t_hi = ovl['t_range']
-                # If isolated point is within ptol of an overlap endpoint,
-                # extend the overlap to include it
-                if abs(t_iso - t_lo) < ptol_t * 10:
-                    ovl['t_range'] = (t_iso, t_hi)
-                    absorbed = True
-                    break
-                elif abs(t_iso - t_hi) < ptol_t * 10:
-                    ovl['t_range'] = (t_lo, t_iso)
-                    absorbed = True
-                    break
-                elif t_lo - ptol_t <= t_iso <= t_hi + ptol_t:
-                    absorbed = True
-                    break
-            if not absorbed:
-                final_isolated.append(iso)
-        deduped_isolated = final_isolated
+        deduped_isolated = [iso for iso in deduped_isolated if not any(
+            (iso['_exact_global_parameters'] == tuple(
+                interval[endpoint] for interval in overlap['_exact_global_ranges']))
+            for overlap in merged_overlaps
+            if not overlap.get('uv_range_is_enclosure', False)
+            for endpoint in (0, 1))]
 
     # Remove the _micro tag from results
-    for iso in deduped_isolated:
+    for iso in strip_mapping_metadata(deduped_isolated):
         iso.pop('_micro', None)
+    for overlap in merged_overlaps:
+        overlap.pop('_exact_global_ranges', None)
 
     isolated = deduped_isolated if deduped_isolated else None
     overlaps = merged_overlaps if merged_overlaps else None
