@@ -54,6 +54,7 @@ N_SLICES = 100
 #   REASON_MULTIPLICITY      = "unresolved_multiplicity"
 #   REASON_OVERLAP_REGION    = "overlap_region_unsupported"
 #   REASON_PARAMETER_FIBER   = "parameter_fiber"
+#   REASON_PARAMETER_REPRESENTATION = "parameter_representation"
 #   REASON_SINGULAR_SET      = "unresolved_singular_set"
 #   REASON_TRACE_UNVERIFIED  = "trace_unverified"  (in _work_budget.py's
 #     documented "Structural family — raising budgets cannot help"; its
@@ -67,6 +68,7 @@ STRUCTURAL_REASONS = {
     'unresolved_multiplicity',
     'overlap_region_unsupported',
     'parameter_fiber',
+    'parameter_representation',
     'unresolved_singular_set',
     'trace_unverified',
     'trace_point_cap',

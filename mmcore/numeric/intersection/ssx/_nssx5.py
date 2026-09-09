@@ -24,17 +24,16 @@ exactly on a decomposition knot line is reported by the adjacent pairs'
 boundary CSX as a curve-on-surface overlap and therefore carries
 ``kind='overlap'`` even when the surfaces cross transversally there.
 
-Two further contract notes. Unified overlap regions guarantee loop
-ORDERING (outer first) but not winding direction on the multi-tile path
-(see ``_assemble_regions``). And ``complete`` may be True even though a
-pair reported ``unresolved_multiplicity`` mid-search: the reason is
-retired — mirroring the engine's own L28 rule — only when a certified
-unified region explains every such pair's whole parameter rect in both
-planes (see ``_retire_multiplicity_if_region_explained``).
+Unified overlap regions guarantee loop ORDERING (outer first) but not
+winding direction on the multi-tile path (see ``_assemble_regions``).
+Assembly preserves every unresolved reason reported by the pair solvers:
+two UV footprints do not establish exhaustive lifted correspondence.
 
 Incompleteness is always soft: certified partial output is returned with
 ``complete=False`` and typed ``status['reasons']``; exceptions are for
-caller errors only.
+caller errors only. Source control coordinates must be finite and weights
+must be finite and strictly positive; unsupported data raises ``ValueError``
+before decomposition or control-hull exclusions.
 """
 from __future__ import annotations
 
@@ -56,6 +55,7 @@ from mmcore.numeric._work_budget import (
     REASON_WORK_BUDGET,
     REASON_POSTPROCESS_CAP,
     REASON_MULTIPLICITY,
+    REASON_PARAMETER_REPRESENTATION,
 )
 from mmcore.numeric.intersection.ssx._bez_ssx5 import (
     bez_ssx, SSXSingularity, _dist_point_polyline,
@@ -108,18 +108,29 @@ def _as_surface_tuple(surf) -> NURBSSurfaceTuple:
 
 
 def _is_rational(surf: NURBSSurfaceTuple) -> bool:
-    return not np.allclose(surf.weights, 1.0)
+    # Weights are representation data, not measured geometry. Even an
+    # arbitrarily small nonuniform perturbation can split a double root.
+    return not bool(np.all(np.asarray(surf.weights) == 1.0))
 
 
 def _axis_closed(surf: NURBSSurfaceTuple, axis: int) -> bool:
-    """C0-periodicity test per parametric axis (the `_ncsx4` seam rule):
-    first and last control-point/weight rows coincide."""
+    """Sufficient exact C0 seam test for a clamped parameter axis.
+
+    Equal end control rows describe equal boundary curves only when the
+    end knots are clamped. An unsupported unclamped seam stays separate.
+    """
+    order = surf.order_u if axis == 0 else surf.order_v
+    knots = np.asarray(surf.knot_u if axis == 0 else surf.knot_v)
+    low, high = surf.interval()[axis]
+    if not (np.all(knots[:order] == low) and
+            np.all(knots[-order:] == high)):
+        return False
     cp, w = surf.control_points, surf.weights
     if axis == 0:
-        return bool(np.allclose(cp[0], cp[-1], rtol=0.0, atol=1e-10)
-                    and np.allclose(w[0], w[-1], rtol=0.0, atol=1e-10))
-    return bool(np.allclose(cp[:, 0], cp[:, -1], rtol=0.0, atol=1e-10)
-                and np.allclose(w[:, 0], w[:, -1], rtol=0.0, atol=1e-10))
+        return bool(np.array_equal(cp[0], cp[-1])
+                    and np.array_equal(w[0], w[-1]))
+    return bool(np.array_equal(cp[:, 0], cp[:, -1])
+                and np.array_equal(w[:, 0], w[:, -1]))
 
 
 @dataclass
@@ -132,6 +143,7 @@ class _DomainCtx:
     spans: NDArray[np.float64]
     ptol: NDArray[np.float64]
     closed: tuple
+    source_patches: object = None
 
 
 def _domain_ctx(s1: NURBSSurfaceTuple, s2: NURBSSurfaceTuple,
@@ -154,12 +166,19 @@ def _axis_diff(a: float, b: float, axis: int, ctx: _DomainCtx) -> float:
     """|a-b| per stuv axis, modulo the domain span on C0-closed axes."""
     d = abs(float(a) - float(b))
     if ctx.closed[axis] and ctx.spans[axis] > 0.0:
-        d = min(d, max(0.0, float(ctx.spans[axis]) - d))
+        d = min(d, abs(float(ctx.spans[axis]) - d))
     return d
 
 
 def _axis_diff_nowrap(a: float, b: float) -> float:
     return abs(float(a) - float(b))
+
+
+def _same_axis_preimage(a,b,axis,ctx):
+    """Exact coordinate identity, including only actual opposite seam ends."""
+    return bool(a == b or (ctx.closed[axis] and (
+        (a == ctx.lows[axis] and b == ctx.highs[axis])
+        or (b == ctx.lows[axis] and a == ctx.highs[axis]))))
 
 
 def _match_stuv(p, q, xyz_p, xyz_q, ctx: _DomainCtx, atol: float) -> bool:
@@ -174,13 +193,17 @@ def _match_stuv(p, q, xyz_p, xyz_q, ctx: _DomainCtx, atol: float) -> bool:
 
 
 def _dup_stuv(p, q, xyz_p, xyz_q, ctx: _DomainCtx, atol: float) -> bool:
-    """Destructive-dedup predicate: per-axis 1·ptol AND xyz <= atol.
-    Wrap-aware. Every destructive test carries the xyz guard."""
+    """Identical paired preimages, modulo proven seams, with an xyz guard.
+
+    Modeling tolerance bounds approximation error, not separation of
+    distinct isolated roots. In the absence of a shared root certificate,
+    retain numerically nearby preimages as distinct output points.
+    """
     d = np.asarray(xyz_p, dtype=np.float64) - np.asarray(
         xyz_q, dtype=np.float64)
     if float(np.linalg.norm(d)) > atol:
         return False
-    return all(_axis_diff(p[i], q[i], i, ctx) <= float(ctx.ptol[i])
+    return all(_same_axis_preimage(p[i], q[i], i, ctx)
                for i in range(4))
 
 
@@ -210,12 +233,27 @@ def _pair_rect(p1: NURBSSurfaceTuple, p2: NURBSSurfaceTuple):
 
 def _remap4(stuv_local, rect):
     """Affine per-axis map of (4,) or (N,4) local stuv into global params."""
+    from mmcore.numeric.intersection._parameter_mapping import affine_parameters
     x = np.array(stuv_local, dtype=np.float64, copy=True)
-    s0, s1, t0, t1, u0, u1, v0, v1 = rect
-    low = np.array([s0, t0, u0, v0], dtype=np.float64)
-    scale = np.array([s1 - s0, t1 - t0, u1 - u0, v1 - v0],
-                     dtype=np.float64)
-    return low + x * scale
+    bounds = np.asarray(rect).reshape(4, 2)
+    if np.all(bounds[:, 0] == 0.) and np.all(bounds[:, 1] == 1.):
+        return x
+    return np.array([affine_parameters(row, bounds)[0]
+                     for row in x.reshape(-1, 4)]).reshape(x.shape)
+
+
+def _remap4_bound(stuv_local, rect, lower):
+    """Outward affine mapping for diagnostic enclosures, not representatives."""
+    from fractions import Fraction
+    from mmcore.numeric.intersection._parameter_mapping import affine_parameters
+    mapped, exact = affine_parameters(stuv_local, np.asarray(rect).reshape(4, 2))
+    result = []
+    for value, target in zip(mapped, exact):
+        rounded = Fraction.from_float(value)
+        if (lower and rounded > target) or (not lower and rounded < target):
+            value = np.nextafter(value, -np.inf if lower else np.inf)
+        result.append(float(value))
+    return tuple(result)
 
 
 # ---------------------------------------------------------------------------
@@ -280,13 +318,6 @@ class _AggregateStatus:
 
     def mark(self, reason: str) -> None:
         self._add(reason)
-
-    def retire(self, reason: str) -> None:
-        """Remove a structural reason RESOLVED by later assembly (the
-        engine's own ``retire_reason`` pattern — e.g. L28 multiplicity
-        sites explained by a certified unified overlap region)."""
-        if reason in self.reasons:
-            self.reasons.remove(reason)
 
     def charge_postprocess(self, amount: int = 1) -> bool:
         ok = self.post.charge_postprocess(amount)
@@ -400,6 +431,12 @@ class _Frag:
     xyz: NDArray[np.float64]      # (N,3)
     kind: str
     overlap: bool
+    pair: object = None
+    rect: object = None
+    endpoint_ids: object = None
+    source_path: object = None
+    source_boundary_face: object = None
+    source_endpoints: object = None
 
 
 @dataclass
@@ -426,13 +463,122 @@ class _RawResults:
     singularities: list = field(default_factory=list)
     unresolved: list = field(default_factory=list)
     # global rects of pairs whose status carried unresolved_multiplicity
-    # (sound SUPERSET of the pair's unexposed ambiguity sites) — input to
-    # the wrapper-level L28 retirement in _assemble_regions.
+    # retained as diagnostics; projected footprints cannot retire ambiguity.
     mult_rects: list = field(default_factory=list)
+    # Delay routing checked pairs until all cross-pair parameter aliases
+    # are known; otherwise withdrawing one tile would invalidate rim IDs.
+    staged_pairs: dict = field(default_factory=dict)
+    parameter_identities: dict = field(default_factory=dict)
 
 
-def _collect_pair(raw: _RawResults, result: dict, rect, pair) -> None:
+def _pair_parameter_samples(result):
+    for index, branch in enumerate(result.get('branches', []) or []):
+        for vertex, (stuv, xyz) in enumerate(zip(*branch.curve)):
+            yield ('branch', index, vertex), stuv, xyz
+    for index, point in enumerate(result.get('points', []) or []):
+        yield ('point', index), point.stuv, point.xyz
+    for index, singularity in enumerate(result.get('singularities', []) or []):
+        yield ('singularity', index), singularity.stuv, singularity.xyz
+        if singularity.stuv_mate is not None:
+            yield ('singularity_mate', index), singularity.stuv_mate, singularity.xyz
+        if singularity.samples is not None:
+            for sample, stuv in enumerate(np.asarray(singularity.samples).reshape(-1, 4)):
+                yield ('singularity_sample', index, sample), stuv, None
+    for index, region in enumerate(result.get('overlap_regions', []) or []):
+        if region.interior_stuv is not None:
+            yield ('region_interior', index), region.interior_stuv, None
+
+
+def _stage_representable_pair(raw, result, rect, pair, sources, rational, atol, agg):
+    from fractions import Fraction
+    from mmcore.numeric.intersection._parameter_mapping import (
+        affine_parameters, map_isolated, mapping_issue,
+        reject_parameter_aliases, _exact_evaluate,
+    )
+    bounds = tuple(map(tuple, np.asarray(rect).reshape(4, 2)))
+    context = f'nurbs_ssx patches {pair}'
+    status = {'complete': True, 'boundary_topology_complete': True, 'partial_results': 0}
+    record = {'result': result, 'rect': rect, 'issues': []}
+    raw.staged_pairs[pair] = record
+    entries = []
+    evaluation_cost = max(1, (3*sum(np.asarray(net).size for net in sources)+127)//128)
+    for entity, stuv, xyz in _pair_parameter_samples(result):
+        if not agg.charge_postprocess(1):
+            record['reason'] = REASON_POSTPROCESS_CAP
+            record['issues'].append({'reason': 'parameter mapping budget exhausted'})
+            break
+        global_float, global_exact = affine_parameters(stuv, bounds)
+        changed = any(Fraction.from_float(value) != exact
+                      for value, exact in zip(global_float, global_exact))
+        if changed:
+            if not agg.charge_postprocess(evaluation_cost):
+                record['reason'] = REASON_POSTPROCESS_CAP
+                record['issues'].append({'reason': 'parameter source-evaluation budget exhausted'})
+                break
+            if xyz is None:
+                try:
+                    local = tuple(Fraction.from_float(float(t)) for t in stuv[:2])
+                    xyz = tuple(float(x) for x in _exact_evaluate(sources[0], local, rational))
+                except (OverflowError, ValueError, ZeroDivisionError):
+                    mapping_issue(status, context, True, {
+                        'entity': entity, 'local_parameters': tuple(stuv),
+                        'parameter_bounds': bounds,
+                        'exact_global_parameters': tuple(str(t) for t in global_exact),
+                    }, 'source evaluation cannot represent the local anchor')
+                    continue
+        entry = dict(zip(('s', 't', 'u', 'v'), stuv), entity=entity)
+        if xyz is not None:
+            entry['point'] = xyz
+        mapped = map_isolated(
+            entry, ('s', 't', 'u', 'v'), bounds,
+            ((sources[0], (0, 1)), (sources[1], (2, 3))),
+            rational, atol, status, context, True)
+        if mapped is not None:
+            entries.append(mapped)
+    reject_parameter_aliases(entries, ('s', 't', 'u', 'v'), status, context, True)
+    record['issues'].extend(status.get('unrepresentable_parameters', []))
+    parameter_issue = bool(status['partial_results'])
+    for entry in entries:
+        key = tuple(entry[k] for k in ('s', 't', 'u', 'v'))
+        exact, payload = entry['_exact_global_parameters'], entry['_local_parameter_payload']
+        previous = raw.parameter_identities.get(key)
+        if previous is not None and previous[0] != exact:
+            issue = {'reason': 'distinct local solutions share global float parameters',
+                     'local_solutions': [previous[2], payload]}
+            record['issues'].append(issue)
+            raw.staged_pairs[previous[1]]['issues'].append(issue)
+            parameter_issue = True
+        else:
+            raw.parameter_identities[key] = (exact, pair, payload)
+    if parameter_issue:
+        agg.mark(REASON_PARAMETER_REPRESENTATION)
+
+
+def _finish_collecting(raw):
+    """Route whole valid pairs; retain local geometry for every rejected pair."""
+    for pair, record in raw.staged_pairs.items():
+        result, rect = record['result'], record['rect']
+        if record['issues']:
+            raw.unresolved.append({
+                'stuv_min': tuple(rect[::2]), 'stuv_max': tuple(rect[1::2]),
+                'reason': record.get('reason', REASON_PARAMETER_REPRESENTATION),
+                'pair': pair, 'local_result': result, 'parameter_bounds': rect,
+                'mapping_issues': record['issues'],
+            })
+        else:
+            _collect_pair(raw, result, rect, pair)
+    raw.staged_pairs.clear()
+    raw.parameter_identities.clear()
+
+
+def _collect_pair(raw: _RawResults, result: dict, rect, pair, *,
+                  sources=None, rational=False, atol=None, agg=None) -> None:
     """Remap one bez_ssx result into global params and route entities."""
+    if sources is not None:
+        _stage_representable_pair(raw, result, rect, pair, sources, rational, atol, agg)
+        return
+    from mmcore.numeric.intersection.ssx._ssx_arc_ownership import map_source_path
+    bounds = np.asarray(rect).reshape(4,2)
     rim_local = set()
     for region in result.get('overlap_regions', []) or []:
         for loop in region.boundary:
@@ -447,7 +593,10 @@ def _collect_pair(raw: _RawResults, result: dict, rect, pair) -> None:
         xyz = np.array(b.curve[1], dtype=np.float64, copy=True)
         rim_map[idx] = len(raw.rim_frags)
         raw.rim_frags.append(
-            _Frag(stuv=stuv_g, xyz=xyz, kind='overlap', overlap=True))
+            _Frag(stuv=stuv_g, xyz=xyz, kind='overlap', overlap=True,
+                  pair=pair,rect=rect,
+                  source_path=map_source_path(getattr(b,'_source_parameter_path',None),bounds),
+                  source_boundary_face=getattr(b,'_source_boundary_face',None)))
 
     for idx, b in enumerate(branches):
         if idx in rim_local:
@@ -455,7 +604,11 @@ def _collect_pair(raw: _RawResults, result: dict, rect, pair) -> None:
         stuv_g = _remap4(np.asarray(b.curve[0], dtype=np.float64), rect)
         xyz = np.array(b.curve[1], dtype=np.float64, copy=True)
         raw.frags.append(_Frag(stuv=stuv_g, xyz=xyz,
-                               kind=str(b.kind), overlap=bool(b.overlap)))
+                               kind=str(b.kind), overlap=bool(b.overlap),
+                               pair=pair, rect=rect,
+                               source_path=map_source_path(getattr(b,'_source_parameter_path',None),bounds),
+                               source_boundary_face=getattr(b,'_source_boundary_face',None),
+                               source_endpoints=getattr(b,'_registered_endpoints',None)))
 
     for region in result.get('overlap_regions', []) or []:
         loops = [[(rim_map[int(idx)], bool(rev)) for idx, rev in loop]
@@ -470,9 +623,13 @@ def _collect_pair(raw: _RawResults, result: dict, rect, pair) -> None:
             certification=dict(region.certification)))
 
     for p in result.get('points', []) or []:
-        raw.points.append(SSXPoint(
+        mapped = SSXPoint(
             stuv=_remap4(np.asarray(p.stuv, dtype=np.float64), rect),
-            xyz=np.array(p.xyz, dtype=np.float64, copy=True)))
+            xyz=np.array(p.xyz, dtype=np.float64, copy=True))
+        root = getattr(p,'_registered_root',None)
+        if root is not None:
+            mapped._source_point_owner = (pair,root)
+        raw.points.append(mapped)
 
     for s in result.get('singularities', []) or []:
         raw.singularities.append(SSXSingularity(
@@ -488,14 +645,21 @@ def _collect_pair(raw: _RawResults, result: dict, rect, pair) -> None:
 
     for entry in result.get('unresolved_regions', []) or []:
         mapped = dict(entry)
+        if 'candidate' in mapped:
+            from mmcore.numeric.intersection._parameter_mapping import affine_parameters
+            # An unproved source-root proposal is diagnostic data. Keep its
+            # local coordinates explicit and preserve the exact affine map;
+            # it must not pass through the published-root representation gate.
+            candidate = tuple(mapped.pop('candidate'))
+            bounds = tuple(map(tuple, np.asarray(rect).reshape(4, 2)))
+            mapped['local_candidate'] = candidate
+            mapped['candidate_parameter_bounds'] = bounds
+            _, exact = affine_parameters(candidate, bounds)
+            mapped['exact_global_candidate'] = tuple(str(value) for value in exact)
         if 'stuv_min' in mapped:
-            mapped['stuv_min'] = tuple(
-                float(x) for x in _remap4(
-                    np.asarray(mapped['stuv_min'], dtype=np.float64), rect))
+            mapped['stuv_min'] = _remap4_bound(mapped['stuv_min'], rect, lower=True)
         if 'stuv_max' in mapped:
-            mapped['stuv_max'] = tuple(
-                float(x) for x in _remap4(
-                    np.asarray(mapped['stuv_max'], dtype=np.float64), rect))
+            mapped['stuv_max'] = _remap4_bound(mapped['stuv_max'], rect, lower=False)
         raw.unresolved.append(mapped)
 
 
@@ -529,39 +693,237 @@ def _bbox_overlap(xyz_a, xyz_b, pad: float) -> bool:
                 and np.all(b.min(axis=0) - pad <= a.max(axis=0)))
 
 
-def _containment_dedup(frags, atol, agg):
-    """Drop fragments geometrically contained in a longer kept fragment
-    (every sample within 2*atol of its polyline — the Bezier-level rule
-    applied cross-pair). Longest-first; deterministic tie-break by index.
+def _seam_segment_mask(stuv, xyz, ctx, atol):
+    """Exclude explicit periodic vertex pairs from linear interpolation."""
+    s = np.asarray(stuv, dtype=float)
+    x = np.asarray(xyz, dtype=float)
+    mask = np.ones(max(0, len(s) - 1), dtype=bool)
+    if ctx is None:
+        return mask
+    for i in range(len(mask)):
+        wraps = any(ctx.closed[a] and ctx.spans[a] > 0.0
+                    and abs(s[i + 1, a] - s[i, a]) > .5 * ctx.spans[a]
+                    for a in range(4))
+        if wraps and _match_stuv(s[i], s[i + 1], x[i], x[i + 1], ctx, atol):
+            mask[i] = False
+    return mask
+
+
+def _certified_boundary_retrace(frag, keeper, ctx, atol, agg):
+    """Coalesce ordinary tracing with a proved boundary-overlap owner."""
+    if (frag.source_boundary_face is None or keeper.source_boundary_face is None
+            or ctx is None or ctx.source_patches is None
+            or frag.pair is None or keeper.pair is None
+            or frag.rect is None or keeper.rect is None):
+        return False
+    from mmcore.numeric.intersection.ssx._ssx_boundary_identity import certified_boundary_retrace
+    fa, ka = np.asarray(frag.rect).reshape(4, 2), np.asarray(keeper.rect).reshape(4, 2)
+    for owner in (0, 1):
+        if frag.pair[1-owner] != keeper.pair[1-owner]:
+            continue
+        for axis in (2*owner, 2*owner+1):
+            value = frag.stuv[0, axis]
+            if (not np.all(frag.stuv[:, axis] == value)
+                    or not np.all(keeper.stuv[:, axis] == value)):
+                continue
+            sides_f = np.flatnonzero(fa[axis] == value)
+            sides_k = np.flatnonzero(ka[axis] == value)
+            curve_axis = 2*owner+(1-axis % 2)
+            if (len(sides_f) != 1 or len(sides_k) != 1
+                    or not np.array_equal(fa[curve_axis], ka[curve_axis])):
+                continue
+            if (frag.source_boundary_face != (axis,sides_f[0])
+                    or keeper.source_boundary_face != (axis,sides_k[0])):
+                continue
+            source_f = ctx.source_patches[owner][frag.pair[owner]]
+            source_k = ctx.source_patches[owner][keeper.pair[owner]]
+            target = ctx.source_patches[1-owner][frag.pair[1-owner]]
+            net_f = to_homogeneous_2d(source_f.control_points, source_f.weights)
+            net_k = to_homogeneous_2d(source_k.control_points, source_k.weights)
+            curve = np.take(net_f, 0 if sides_f[0] == 0 else -1, axis=axis % 2)
+            other_curve = np.take(net_k, 0 if sides_k[0] == 0 else -1, axis=axis % 2)
+            if not np.array_equal(curve, other_curve):
+                continue
+            surface = to_homogeneous_2d(target.control_points, target.weights)
+            relation = certified_boundary_retrace(
+                frag.stuv, frag.xyz, keeper.stuv, keeper.xyz, curve, surface,
+                curve_axis, (2*(1-owner), 2*(1-owner)+1), fa[curve_axis],
+                4.*ctx.ptol, 2.*atol,
+                charge=lambda n: agg.charge_postprocess(max(1, (n+127)//128)))
+            if relation is None or relation:
+                return relation
+    return False
+
+
+def _containment_dedup(frags, atol, agg, ctx=None):
+    """Coalesce only proved source-arc duplicates, longest first.
+
+    Distinct arcs can share endpoints and identical approximation chords.
+    Shared fragment provenance or exact shared boundary-curve ownership
+    with a unique target preimage is required before deleting a fragment.
     On postprocess exhaustion the remaining fragments are kept
     unexamined (honest: dupes possible, reason already recorded)."""
     if len(frags) <= 1:
         return list(frags)
-    order = sorted(range(len(frags)),
-                   key=lambda k: (-_arc_len(frags[k].xyz), k))
+    order = sorted(range(len(frags)), key=lambda k: (
+        frags[k].kind != 'overlap', -_arc_len(frags[k].xyz), k))
     kept_idx = []
-    for k in order:
+    seen_objects = set()
+    for position,k in enumerate(order):
+        if not agg.charge_postprocess(1):
+            kept_idx.extend(order[position:])
+            break
         f = frags[k]
+        if id(f) in seen_objects:
+            continue
+        seen_objects.add(id(f))
+        if f.source_path is None and f.source_boundary_face is None:
+            kept_idx.append(k)
+            continue
         dup = False
         if len(f.xyz) >= 1 and not agg.postprocess_exhausted:
             for m in kept_idx:
                 g = frags[m]
+                if g.source_path is None and g.source_boundary_face is None:
+                    continue
+                if not agg.charge_postprocess(1):
+                    break
                 if len(g.xyz) < 2:
                     continue
                 if not _bbox_overlap(f.xyz, g.xyz, 2.0 * atol):
                     continue
-                if not agg.charge_postprocess(max(1, len(f.xyz))):
+                if ((f.kind != g.kind or f.overlap != g.overlap)
+                        and (f.kind != 'transversal' or g.kind != 'overlap')):
+                    continue
+                from mmcore.numeric.intersection.ssx._ssx_arc_ownership import source_path_covered
+                contained = source_path_covered(f.source_path,[g.source_path],agg.charge_postprocess)
+                if contained is False:
+                    contained = _certified_boundary_retrace(f, g, ctx, atol, agg)
+                if contained is None:
                     break
-                # xyz-only by design (mirrors the Bezier-level rule): duplicate seam traces coincide parametrically anyway; no param guard here, unlike _dup_stuv.
-                if all(_dist_point_polyline(
-                        np.asarray(p, dtype=np.float64), g.xyz)
-                        <= 2.0 * atol for p in f.xyz):
+                if contained:
                     dup = True
                     break
         if not dup:
             kept_idx.append(k)
     kept_idx.sort()
     return [frags[k] for k in kept_idx]
+
+
+def _seam_box_has_root(net, box, source_scale):
+    """Sufficient Krawczyk inclusion, independent of numerical residual size.
+
+    The caller separately certifies uniqueness. Restriction maps the box
+    to the unit cube; a fixed preconditioned Newton map sends that cube
+    strictly into itself. Unsupported boundary roots remain separate.
+    The floating coefficient/operation enclosures follow the shared root
+    certificate's arithmetic model, not formal arbitrary-precision proof.
+    """
+    from mmcore.numeric.bern import (
+        bernstein_eval_nd, bernstein_partial_derivative_coeffs,
+    )
+    from mmcore.numeric._bezier_common import restrict_net_axis_v
+    from mmcore.numeric.intersection._root_box_certificate import residual_roundoff_bound
+
+    restricted = net
+    for axis, (lo, hi) in enumerate(box):
+        restricted = restrict_net_axis_v(restricted, axis, lo, hi, 0., 1.)
+    # Each axis restriction can perform two de Casteljau subdivisions.
+    error = residual_roundoff_bound(net, depth=2*len(box), source_scale=source_scale)
+    axes = tuple(range(len(box)))
+    magnitude = np.max(np.abs(restricted), axis=axes)
+    eps = np.finfo(float).eps
+    lower, upper = [], []
+    for axis in axes:
+        degree = restricted.shape[axis]-1
+        derivative = bernstein_partial_derivative_coeffs(restricted, axis=axis)
+        derivative_error = degree*(2.*error + 4.*eps*magnitude)
+        lower.append(np.nextafter(derivative.min(axis=axes)-derivative_error, -np.inf))
+        upper.append(np.nextafter(derivative.max(axis=axes)+derivative_error, np.inf))
+    lower, upper = np.asarray(lower).T, np.asarray(upper).T
+    midpoint, radius = .5*(lower+upper), .5*(upper-lower)
+    try:
+        inverse = np.linalg.inv(midpoint)
+    except np.linalg.LinAlgError:
+        return False
+    if not np.all(np.isfinite(inverse)):
+        return False
+    value = bernstein_eval_nd(restricted, np.full(len(box), .5))
+    gamma = (2*len(box)+2)*eps / (1.-(2*len(box)+2)*eps)
+    absolute_inverse = np.abs(inverse)
+    arithmetic = gamma*(np.eye(len(box))+absolute_inverse@(np.abs(midpoint)+radius))
+    linear_radius = .5*np.sum(
+        np.abs(np.eye(len(box))-inverse@midpoint)+absolute_inverse@radius+arithmetic,
+        axis=1)
+    correction = (np.abs(inverse@value)+absolute_inverse@error
+                  + gamma*absolute_inverse@(np.abs(value)+error))
+    return bool(np.all(np.nextafter(correction+linear_radius, np.inf) < .5))
+
+
+def _same_certified_seam_root(fa, pa, fb, pb, ctx, agg):
+    """Identify one transverse CSX event shared by adjacent source patches.
+
+    Proximity only selects the candidate box. Exact adjacency, identical
+    seam coefficients, interval-Jacobian uniqueness and root inclusion
+    authorize the union. Existing branch endpoints are numerical samples
+    of that event; the test does not promote arbitrary low residuals into
+    roots. Singular/tangent events and missing provenance stay separate.
+    """
+    if (ctx.source_patches is None or fa.pair is None or fb.pair is None
+            or fa.rect is None or fb.rect is None):
+        return False
+    changed = [owner for owner in (0, 1) if fa.pair[owner] != fb.pair[owner]]
+    if len(changed) != 1:
+        return False
+    owner = changed[0]
+    ra, rb = np.asarray(fa.rect).reshape(4, 2), np.asarray(fb.rect).reshape(4, 2)
+    for axis in (2*owner, 2*owner+1):
+        if ra[axis, 1] == rb[axis, 0]:
+            cut, side_a, side_b = ra[axis, 1], -1, 0
+        elif rb[axis, 1] == ra[axis, 0]:
+            cut, side_a, side_b = ra[axis, 0], 0, -1
+        else:
+            continue
+        other_axes = [i for i in range(4) if i != axis]
+        if (pa[axis] != cut or pb[axis] != cut
+                or not np.array_equal(ra[other_axes], rb[other_axes])):
+            continue
+        a = ctx.source_patches[owner][fa.pair[owner]]
+        b = ctx.source_patches[owner][fb.pair[owner]]
+        surface = ctx.source_patches[1-owner][fa.pair[1-owner]]
+        ah = to_homogeneous_2d(a.control_points, a.weights)
+        bh = to_homogeneous_2d(b.control_points, b.weights)
+        curve = np.take(ah, side_a, axis=axis % 2)
+        if not np.array_equal(curve, np.take(bh, side_b, axis=axis % 2)):
+            continue
+        sh = to_homogeneous_2d(surface.control_points, surface.weights)
+        if (np.any(curve[:, -1] <= 0.) or np.any(sh[..., -1] <= 0.)
+                or not np.all(np.isfinite(curve)) or not np.all(np.isfinite(sh))):
+            continue
+        parameter_axes = [2*owner + (1-axis % 2), 2*(1-owner), 2*(1-owner)+1]
+        lows = ra[parameter_axes, 0]
+        spans = ra[parameter_axes, 1]-lows
+        if np.any(spans <= 0.):
+            continue
+        candidates = (np.asarray([pa, pb])[:, parameter_axes]-lows)/spans
+        center = candidates.mean(axis=0)
+        radii = .5*np.ptp(candidates, axis=0)+ctx.ptol[parameter_axes]/spans
+        if not agg.charge_postprocess(max(1, len(curve)*sh.shape[0]*sh.shape[1])):
+            return False
+        from mmcore.numeric.intersection.csx._bez_csx4 import (
+            _residual_vec_net, _csx_residual_source_scale,
+        )
+        from mmcore.numeric.intersection._root_box_certificate import unique_root_box
+        net = _residual_vec_net(curve, sh, rational=True)
+        source_scale = _csx_residual_source_scale(curve, sh, rational=True)
+        box = unique_root_box(net, center, radii, source_scale)
+        if box is None or not all(
+                all(lo <= value <= hi for value, (lo, hi) in zip(candidate, box))
+                for candidate in candidates):
+            continue
+        if _seam_box_has_root(net, box, source_scale):
+            return True
+    return False
 
 
 def _build_chains(frags, ctx, atol, agg, kind_barrier=True):
@@ -615,7 +977,28 @@ def _build_chains(frags, ctx, atol, agg, kind_barrier=True):
                 break
             if _match_stuv(ends[a][2], ends[b][2],
                            ends[a][3], ends[b][3], ctx, atol):
-                union(a, b)
+                # Closeness is a candidate search, not root identity.
+                # Distinct parallel components can have both endpoint
+                # pairs within tolerance; joining those pairs invents a
+                # closed loop and deletes one of the components.
+                ids_a, ids_b = frags[fa].endpoint_ids, frags[fb].endpoint_ids
+                same_vertex = (ids_a is not None and ids_b is not None
+                               and ids_a[ends[a][1]] == ids_b[ends[b][1]])
+                source_a,source_b = frags[fa].source_endpoints,frags[fb].source_endpoints
+                root_a = None if source_a is None else source_a[ends[a][1]]
+                root_b = None if source_b is None else source_b[ends[b][1]]
+                if (frags[fa].pair == frags[fb].pair
+                        and (root_a is not None or root_b is not None)):
+                    if root_a is not None and root_a is root_b:
+                        union(a,b)
+                    # The pair solver already resolved admissible source
+                    # identities. Float aliases cannot undo that decision.
+                    continue
+                if same_vertex or all(
+                        _same_axis_preimage(ends[a][2][i],ends[b][2][i],i,ctx)
+                        for i in range(4)) or _same_certified_seam_root(
+                            frags[fa], ends[a][2], frags[fb], ends[b][2], ctx, agg):
+                    union(a, b)
 
     clusters = {}
     for e in range(len(ends)):
@@ -719,7 +1102,7 @@ def _concat_chain(frags, chain, closed, ctx, atol):
 
 def _assemble_branches(frags, ctx, atol, agg):
     """Containment dedup -> chain assembly -> SSXBranch list."""
-    frags = _containment_dedup(frags, atol, agg)
+    frags = _containment_dedup(frags, atol, agg, ctx=ctx)
     chains = _build_chains(frags, ctx, atol, agg, kind_barrier=True)
     out = []
     for chain, closed in sorted(
@@ -729,18 +1112,25 @@ def _assemble_branches(frags, ctx, atol, agg):
             continue
         kind = frags[chain[0][0]].kind
         overlap = any(frags[fi].overlap for fi, _ in chain)
-        out.append(SSXBranch(curve=(stuv, xyz), closed=bool(closed),
-                             overlap=overlap, kind=kind))
+        branch = SSXBranch(curve=(stuv,xyz),closed=bool(closed),overlap=overlap,kind=kind)
+        owners = tuple(frags[fi].source_path for fi,_ in chain)
+        if all(path is not None for path in owners):
+            branch._source_parameter_paths = owners
+        out.append(branch)
     return out
 
 
 # ---------------------------------------------------------------------------
-# Points: wrap-aware dedup + global on-branch filter
+# Points: wrap-aware dedup; source incidence is resolved before remapping
 # ---------------------------------------------------------------------------
 
 def _assemble_points(points, branches, ctx, atol, agg):
-    """Wrap-aware destructive dedup, then the global on-branch filter
-    (4*atol — the Bezier-level constant). If the postprocess cap fires
+    """Coalesce equal point preimages while preserving unknown arc incidence.
+
+    A point on a branch's approximation chord can still be a distinct
+    isolated source root. The mapped branches carry no complete source-arc
+    ownership certificate, so geometric containment cannot delete it.
+    If the postprocess cap fires
     mid-dedup, the unexamined remainder passes through undropped (honest:
     duplicates possible, REASON_POSTPROCESS_CAP already recorded).
     Membership is by object identity — SSXPoint holds ndarrays, so
@@ -751,6 +1141,11 @@ def _assemble_points(points, branches, ctx, atol, agg):
         for q in kept:
             if not agg.charge_postprocess(1):
                 break
+            owner_p = getattr(p,'_source_point_owner',None)
+            owner_q = getattr(q,'_source_point_owner',None)
+            if (owner_p is not None and owner_q is not None
+                    and owner_p[0] == owner_q[0] and owner_p[1] is not owner_q[1]):
+                continue
             if _dup_stuv(p.stuv, q.stuv, p.xyz, q.xyz, ctx, atol):
                 dup = True
                 break
@@ -763,24 +1158,7 @@ def _assemble_points(points, branches, ctx, atol, agg):
     else:
         pool = kept
 
-    out = []
-    for p in pool:
-        on_branch = False
-        pxyz = np.asarray(p.xyz, dtype=np.float64)
-        for b in branches:
-            xyz = np.asarray(b.curve[1], dtype=np.float64)
-            if len(xyz) < 2:
-                continue
-            if not _bbox_overlap(pxyz[None, :], xyz, 4.0 * atol):
-                continue
-            if not agg.charge_postprocess(max(1, len(xyz) // 8)):
-                break
-            if _dist_point_polyline(pxyz, xyz) <= 4.0 * atol:
-                on_branch = True
-                break
-        if not on_branch:
-            out.append(p)
-    return out
+    return pool
 
 
 # ---------------------------------------------------------------------------
@@ -852,7 +1230,7 @@ def _mate_matches(a, b, ctx):
     discriminate)."""
     if a is None or b is None:
         return a is None and b is None
-    return all(_axis_diff(a[i], b[i], i, ctx) <= 4.0 * float(ctx.ptol[i])
+    return all(_same_axis_preimage(a[i],b[i],i,ctx)
                for i in range(4))
 
 
@@ -863,16 +1241,16 @@ def _assemble_singularities(sings, branches, ctx, atol, agg, s1=None):
     for s in sings:
         dup = False
         for q in kept:
-            if q.kind != s.kind:
+            if q.kind != s.kind or q.surface != s.surface:
                 continue
             if not agg.charge_postprocess(1):
                 break
             if s.kind == 'cusp_curve':
-                if s1 is not None and _clouds_near_identical(
-                        s.samples, q.samples, s1, atol, agg):
-                    dup = True
+                # Sample clouds do not identify their complete source
+                # singular strata, even when the sampled tuples coincide.
+                dup = s is q
             else:
-                if not _match_stuv(s.stuv, q.stuv, s.xyz, q.xyz,
+                if not _dup_stuv(s.stuv, q.stuv, s.xyz, q.xyz,
                                    ctx, atol):
                     continue
                 if (s.kind == 'self_intersection'
@@ -899,26 +1277,21 @@ def _assemble_singularities(sings, branches, ctx, atol, agg, s1=None):
 # ---------------------------------------------------------------------------
 
 def _vertex_seam_tags(vertex_stuv, cuts_per_axis, ctx):
-    """Set of (axis, cut) decomposition-seam bands this vertex lies in
-    (within 4*ptol_axis of the cut coordinate)."""
+    """Exact decomposition seams containing this vertex."""
     tags = set()
     for axis, cuts in enumerate(cuts_per_axis):
-        tol = 4.0 * float(ctx.ptol[axis])
         for cut in cuts:
-            if abs(float(vertex_stuv[axis]) - cut) <= tol:
+            if float(vertex_stuv[axis]) == cut:
                 tags.add((axis, float(cut)))
     return frozenset(tags)
 
 
 def _segment_seam_tags(v0, v1, cuts_per_axis, ctx):
-    """Set of (axis, cut) decomposition-seam bands a SEGMENT lies in:
-    BOTH endpoints within 4*ptol_axis of the cut coordinate."""
+    """Exact decomposition seams containing an entire linear segment."""
     tags = set()
     for axis, cuts in enumerate(cuts_per_axis):
-        tol = 4.0 * float(ctx.ptol[axis])
         for cut in cuts:
-            if (abs(float(v0[axis]) - cut) <= tol
-                    and abs(float(v1[axis]) - cut) <= tol):
+            if float(v0[axis]) == cut and float(v1[axis]) == cut:
                 tags.add((axis, float(cut)))
     return frozenset(tags)
 
@@ -954,7 +1327,10 @@ def _split_rim_at_cut_bands(frag, cuts_per_axis, ctx):
         return [frag]
     return [_Frag(stuv=stuv[a:b + 1].copy(),
                   xyz=frag.xyz[a:b + 1].copy(),
-                  kind='overlap', overlap=True)
+                  kind='overlap', overlap=True,pair=frag.pair,rect=frag.rect,
+                  source_boundary_face=frag.source_boundary_face,
+                  source_path=(frag.source_path[a:b+1] if frag.source_path is not None
+                               and len(frag.source_path) == n else None))
             for a, b in spans]
 
 
@@ -970,30 +1346,30 @@ def _part_seam_tags(frag, cuts_per_axis, ctx):
     return common if common is not None else frozenset()
 
 
-def _rims_are_partners(fa, fb, ctx, atol):
+def _rims_are_partners(fa, fb, ctx, atol, charge=None):
     """Same-locus test between seam rims of ADJACENT tiles: endpoints
-    match crosswise (opposite raw orientation) OR parallel, and
-    midpoints coincide (matching predicate). Raw polyline direction is
+    match crosswise (opposite raw orientation) OR parallel, and the
+    complete lifted paths coincide. Raw polyline direction is
     sampler bookkeeping, not loop orientation: the per-pair rim sampler
     always emits edges in increasing local parameter (rev flags in the
     loop entries carry orientation), so two adjacent tiles' seam rims
     typically arrive PARALLEL even though their loops traverse the
     shared seam oppositely."""
-    mid_a = len(fa.stuv) // 2
-    mid_b = len(fb.stuv) // 2
-    if not _match_stuv(fa.stuv[mid_a], fb.stuv[mid_b],
-                       fa.xyz[mid_a], fb.xyz[mid_b], ctx, atol):
-        return False
     cross = (_match_stuv(fa.stuv[0], fb.stuv[-1], fa.xyz[0], fb.xyz[-1],
                          ctx, atol)
              and _match_stuv(fa.stuv[-1], fb.stuv[0], fa.xyz[-1],
                              fb.xyz[0], ctx, atol))
-    if cross:
-        return True
-    return (_match_stuv(fa.stuv[0], fb.stuv[0], fa.xyz[0], fb.xyz[0],
+    parallel = (_match_stuv(fa.stuv[0], fb.stuv[0], fa.xyz[0], fb.xyz[0],
                         ctx, atol)
             and _match_stuv(fa.stuv[-1], fb.stuv[-1], fa.xyz[-1],
                             fb.xyz[-1], ctx, atol))
+    if not (cross or parallel):
+        return False
+    # Matching approximations merely propose a seam. Actual exact source
+    # parameter paths must prove that the complete seam is shared.
+    from mmcore.numeric.intersection.ssx._ssx_arc_ownership import source_path_covered
+    return (source_path_covered(fa.source_path,[fb.source_path],charge) is True
+            and source_path_covered(fb.source_path,[fa.source_path],charge) is True)
 
 
 def _shoelace_area(poly2):
@@ -1023,97 +1399,12 @@ def _merge_certifications(tiles):
     return cert
 
 
-def _segment_enters_rect(p, q, lo, hi):
-    """True iff segment p->q passes through the OPEN axis-aligned 2-D
-    rect (lo, hi) (parametric clip; touching the boundary only is not
-    entering)."""
-    p = np.asarray(p, dtype=np.float64)
-    d = np.asarray(q, dtype=np.float64) - p
-    t0, t1 = 0.0, 1.0
-    for k in range(2):
-        if abs(d[k]) < 1e-30:
-            if p[k] <= lo[k] or p[k] >= hi[k]:
-                return False
-        else:
-            ta = (lo[k] - p[k]) / d[k]
-            tb = (hi[k] - p[k]) / d[k]
-            if ta > tb:
-                ta, tb = tb, ta
-            t0 = max(t0, ta)
-            t1 = min(t1, tb)
-            if t0 >= t1:
-                return False
-    return True
-
-
-def _rect_inside_region_2d(lo, hi, loops, eps):
-    """Sound containment of an axis-aligned rect in a loop-bounded
-    region: center strictly inside (outer loop, outside holes), all four
-    corners inside-or-near (the engine's 8*ptol site band), and no
-    boundary segment entering the eps-SHRUNKEN open rect. With the
-    boundary excluded from the shrunken rect, that connected rect lies
-    in a single face of the arrangement, so center-inside certifies all
-    of it; the eps collar stays within the near-band acceptance the
-    engine itself applies to multiplicity sites."""
-    lo = np.asarray(lo, dtype=np.float64)
-    hi = np.asarray(hi, dtype=np.float64)
-    center = 0.5 * (lo + hi)
-    if not (_point_in_polygon(center, loops[0])
-            and not any(_point_in_polygon(center, h) for h in loops[1:])):
-        return False
-    for c in (lo, np.array([lo[0], hi[1]]),
-              np.array([hi[0], lo[1]]), hi):
-        inside = (_point_in_polygon(c, loops[0])
-                  and not any(_point_in_polygon(c, h) for h in loops[1:]))
-        near = min(_dist_point_polyline_2d(c, lp) for lp in loops) <= eps
-        if not (inside or near):
-            return False
-    slo, shi = lo + eps, hi - eps
-    if np.all(slo < shi):
-        for lp in loops:
-            for k in range(len(lp) - 1):
-                if _segment_enters_rect(lp[k], lp[k + 1], slo, shi):
-                    return False
-    return True
-
-
-def _retire_multiplicity_if_region_explained(raw, regions, ctx, agg):
-    """Engine L28 rule lifted to the unified assembly: a pair-level
-    `unresolved_multiplicity` whose WHOLE pair rect is interior to one
-    unified region (both parameter planes, same region — the two-sided
-    site rule) can only have its unexposed ambiguity site inside the
-    region's certified 2-D C2 set — resolved by the region. Retire only
-    when EVERY such pair rect is contained; any rect escaping all
-    regions (case-14 class) or a starved containment check keeps the
-    reason (honest: never retire on unverified evidence)."""
-    if not (regions and raw.mult_rects
-            and REASON_MULTIPLICITY in agg.reasons):
-        return
-    eps12 = 8.0 * max(float(ctx.ptol[0]), float(ctx.ptol[1]))
-    eps34 = 8.0 * max(float(ctx.ptol[2]), float(ctx.ptol[3]))
-    for rect in raw.mult_rects:
-        cost = sum(len(lp) for reg in regions
-                   for lp in reg.uv1_loops + reg.uv2_loops)
-        if not agg.charge_postprocess(max(1, cost // 4)):
-            return
-        s0, s1, t0, t1, u0, u1, v0, v1 = rect
-        if not any(
-                _rect_inside_region_2d((s0, t0), (s1, t1),
-                                       reg.uv1_loops, eps12)
-                and _rect_inside_region_2d((u0, v0), (u1, v1),
-                                           reg.uv2_loops, eps34)
-                for reg in regions):
-            return
-    agg.retire(REASON_MULTIPLICITY)
-
-
 def _assemble_regions(raw, stitched, ctx, atol, agg,
                       s_cuts, t_cuts, u_cuts, v_cuts):
     """Unify per-pair region tiles into one region per connected
-    coincidence component; dissolve interior-seam rims; drop stitched
-    overlap branches absorbed by a unified region's interior; retire
-    pair-level multiplicity marks whose whole pair rect is region
-    interior (engine L28 rule).
+    coincidence component; dissolve interior-seam rims; drop only stitched
+    overlap branches continuously identified with represented rims or
+    dissolved seams. Pair-level uncertainty survives assembly.
 
     Unified regions guarantee loop ORDERING (outer loop first, by |area|
     in the uv1 plane) but not winding direction; the per-tile
@@ -1161,6 +1452,7 @@ def _assemble_regions(raw, stitched, ctx, atol, agg,
     seam_tags = {rid: _part_seam_tags(rims[rid], cuts_per_axis, ctx)
                  for rid in tile_of_rim}
     dissolved = set()
+    dissolved_pairs = []
     tile_parent = list(range(n_tiles))
 
     def _tfind(x):
@@ -1191,8 +1483,14 @@ def _assemble_regions(raw, stitched, ctx, atol, agg,
             if not agg.charge_postprocess(
                     max(1, len(rims[ra].stuv) // 4)):
                 break
-            if _rims_are_partners(rims[ra], rims[rb], ctx, atol):
+            if _rims_are_partners(rims[ra], rims[rb], ctx, atol,
+                                  charge=agg.charge_postprocess):
+                crossed = (_match_stuv(rims[ra].stuv[0], rims[rb].stuv[-1],
+                                       rims[ra].xyz[0], rims[rb].xyz[-1], ctx, atol)
+                           and _match_stuv(rims[ra].stuv[-1], rims[rb].stuv[0],
+                                           rims[ra].xyz[-1], rims[rb].xyz[0], ctx, atol))
                 dissolved.update((ra, rb))
+                dissolved_pairs.append((ra, rb, crossed))
                 _tunion(tile_of_rim[ra], tile_of_rim[rb])
                 break
 
@@ -1200,6 +1498,31 @@ def _assemble_regions(raw, stitched, ctx, atol, agg,
     components = {}
     for ti in range(n_tiles):
         components.setdefault(_tfind(ti), []).append(ti)
+
+    # The tile loops already supply vertex identity. Keep that topology
+    # through seam dissolution instead of reconstructing it with distance
+    # clustering (which would also join two nearby ordinary components).
+    vertex_parent = list(range(2 * len(rims)))
+
+    def vertex_find(v):
+        while vertex_parent[v] != v:
+            vertex_parent[v] = vertex_parent[vertex_parent[v]]
+            v = vertex_parent[v]
+        return v
+
+    def vertex_union(a, b):
+        a, b = vertex_find(a), vertex_find(b)
+        vertex_parent[max(a, b)] = min(a, b)
+
+    for loops in tiles_loops:
+        for loop in loops:
+            for (a, ar), (b, br) in zip(loop, loop[1:] + loop[:1]):
+                vertex_union(2 * a + int(not ar), 2 * b + int(br))
+    for a, b, crossed in dissolved_pairs:
+        vertex_union(2 * a, 2 * b + int(crossed))
+        vertex_union(2 * a + 1, 2 * b + int(not crossed))
+    for rid, rim in enumerate(rims):
+        rim.endpoint_ids = (vertex_find(2 * rid), vertex_find(2 * rid + 1))
 
     final_rim_branches = []      # SSXBranch, appended after stitched
     final_regions = []
@@ -1276,33 +1599,19 @@ def _assemble_regions(raw, stitched, ctx, atol, agg,
             interior_stuv=tiles_objs[0].interior_stuv,
             certification=_merge_certifications(tiles_objs)))
 
-    # --- (c) interior absorption of stitched overlap branches ---------
-    def _inside_region(stuv_path, region):
-        p12 = 8.0 * max(float(ctx.ptol[0]), float(ctx.ptol[1]))
-        p34 = 8.0 * max(float(ctx.ptol[2]), float(ctx.ptol[3]))
-
-        def _half(pt2, loops, bar):
-            inside = (_point_in_polygon(pt2, loops[0])
-                      and not any(_point_in_polygon(pt2, h)
-                                  for h in loops[1:]))
-            near = min(_dist_point_polyline_2d(pt2, lp)
-                       for lp in loops) <= bar
-            return inside or near
-
-        for x in stuv_path:
-            if not (_half(x[:2], region.uv1_loops, p12)
-                    and _half(x[2:], region.uv2_loops, p34)):
-                return False
-        return True
-
+    # --- (c) remove only represented rims and proved dissolved seams --
+    # A curve inside projected footprints or on an approximate rim chord
+    # can be another component. Exact source-path ownership is required.
+    # `rims` includes dissolved seams, which remain represented by the region.
+    from mmcore.numeric.intersection.ssx._ssx_arc_ownership import source_path_covered
+    rim_paths = [rim.source_path for rim in rims if rim.source_path is not None]
     kept_stitched = []
     for b in stitched:
         absorbed = False
         if b.kind == 'overlap' and final_regions:
-            stuv_path = np.asarray(b.curve[0], dtype=np.float64)
-            if agg.charge_postprocess(max(1, len(stuv_path))):
-                absorbed = any(_inside_region(stuv_path, reg)
-                               for reg in final_regions)
+            owned = getattr(b,'_source_parameter_paths',None)
+            absorbed = bool(owned) and all(source_path_covered(
+                path,rim_paths,agg.charge_postprocess) is True for path in owned)
         if not absorbed:
             kept_stitched.append(b)
 
@@ -1313,8 +1622,6 @@ def _assemble_regions(raw, stitched, ctx, atol, agg,
             reg.boundary = [[(bi + shift, rev) for bi, rev in loop]
                             for loop in reg.boundary]
 
-    # --- (d) multiplicity retirement (engine L28 rule; see helper) ----
-    _retire_multiplicity_if_region_explained(raw, final_regions, ctx, agg)
     return kept_stitched + final_rim_branches, final_regions
 
 
@@ -1331,12 +1638,17 @@ def nurbs_ssx(surf1, surf2, atol=1e-3, **kwargs) -> dict:
     _reject_unknown_kwargs("nurbs_ssx", kwargs, _ALLOWED_KWARGS)
     s1 = _as_surface_tuple(surf1)
     s2 = _as_surface_tuple(surf2)
+    from mmcore.numeric.intersection.ssx._ssx_input import validate_control_data
+    for index, surface in enumerate((s1, s2), 1):
+        validate_control_data(surface.control_points, surface.weights,
+                              context=f'nurbs_ssx surface {index}')
     atol = float(atol)
     rational = _is_rational(s1) or _is_rational(s2)
     ctx = _domain_ctx(s1, s2, atol)
 
     patches1 = decompose_surface(s1, "uv")
     patches2 = decompose_surface(s2, "uv")
+    ctx.source_patches = (patches1, patches2)
 
     def _patch_aabb(patch):
         pts = patch.control_points.reshape(
@@ -1383,7 +1695,10 @@ def nurbs_ssx(surf1, surf2, atol=1e-3, **kwargs) -> dict:
         if REASON_MULTIPLICITY in (
                 (result.get('status', {}) or {}).get('reasons', []) or []):
             raw.mult_rects.append(rect)
-        _collect_pair(raw, result, rect, pair=(i, j))
+        _collect_pair(raw, result, rect, pair=(i, j), sources=(P1, P2),
+                      rational=rational, atol=atol, agg=agg)
+
+    _finish_collecting(raw)
 
     # Interior decomposition cut coordinates per stuv axis (for Task 5's
     # seam-rim classification).

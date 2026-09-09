@@ -186,26 +186,81 @@ def test_toroidal_loop_arclength(atol, swap):
         f"branch is SHORTER than the loop ({length:.5f}): an arc was lost")
 
 
+def _retraced_span_pairs(xyz, atol, closed):
+    """Find nearby parallel spans separated by actual curve travel.
+
+    Index distance changes when an ordinary forward step is subdivided.
+    Cumulative arc distance and segment projection do not. Midpoint probes
+    also detect a two-edge out-and-back whose only vertices are its turns.
+    Closed paths use cyclic travel, so the closure seam is locally adjacent.
+    """
+    points = np.asarray(xyz, dtype=float)
+    if len(points) < 2:
+        return []
+    keep = np.r_[True, np.linalg.norm(np.diff(points, axis=0), axis=1) > 0.]
+    points = points[keep]
+    if len(points) < 2:
+        return []
+    segments = np.diff(points, axis=0)
+    lengths = np.linalg.norm(segments, axis=1)
+    directions = segments/lengths[:, None]
+    distance = np.r_[0., np.cumsum(lengths)]
+    probes = np.concatenate((points[:-1], .5*(points[:-1]+points[1:]), points[-1:]))
+    positions = np.r_[distance[:-1], .5*(distance[:-1]+distance[1:]), distance[-1]]
+    tangents = np.concatenate((directions, directions, directions[-1:]))
+    hits = []
+    for probe, position, tangent in zip(probes, positions, tangents):
+        fraction = np.clip(np.sum((probe-points[:-1])*segments, axis=1)/lengths**2, 0., 1.)
+        projected = points[:-1]+fraction[:, None]*segments
+        separation = np.abs(position-(distance[:-1]+fraction*lengths))
+        if closed:
+            separation = np.minimum(separation, distance[-1]-separation)
+        nearby = np.linalg.norm(projected-probe, axis=1) < 4.*atol
+        nonlocal_span = separation > 8.*atol
+        parallel = np.abs(directions@tangent) > .95
+        for segment in np.flatnonzero(nearby & nonlocal_span & parallel):
+            hits.append((float(position), int(segment)))
+            if len(hits) >= 8:
+                return hits
+    return hits
+
+
+def _subdivide_polyline(points, count):
+    points = np.asarray(points)
+    factors = np.arange(count)/count
+    return np.vstack([*(a+factors[:, None]*(b-a) for a, b in zip(points[:-1], points[1:])),
+                       points[-1]])
+
+
+@pytest.mark.parametrize('closed', [False, True])
+def test_retrace_detector_ignores_forward_densification(closed):
+    angle = np.linspace(0., 2.*np.pi, 17)
+    points = (np.column_stack((np.cos(angle), np.sin(angle), np.zeros(17))) if closed
+              else np.array([[0., 0., 0.], [.3, 0., 0.], [1., 0., 0.]]))
+    if closed:
+        points[-1] = points[0]
+    assert _retraced_span_pairs(points, .02, closed) == []
+    assert _retraced_span_pairs(_subdivide_polyline(points, 32), .02, closed) == []
+
+
+@pytest.mark.parametrize('backtracking', [False, True])
+def test_retrace_detector_rejects_repeated_traversal(backtracking):
+    if backtracking:
+        points = np.array([[0., 0., 0.], [1., 0., 0.], [0., 0., 0.]])
+    else:
+        angle = np.linspace(0., 4.*np.pi, 33)
+        points = np.column_stack((np.cos(angle), np.sin(angle), np.zeros(33)))
+        points[-1] = points[0]
+    assert _retraced_span_pairs(points, .02, True)
+    assert _retraced_span_pairs(_subdivide_polyline(points, 8), .02, True)
+
+
 @pytest.mark.parametrize("atol", [1e-3, 1e-4])
 def test_toroidal_loop_has_no_retrace(atol):
-    """No non-adjacent self-coincidence beyond the closure vertex.
-
-    The atol=1e-4 defect appended a reversed copy of an already-traced
-    span, so interior samples coincided pairwise with earlier ones.
-    """
+    """No spatially repeated span after accounting for adaptive sampling."""
     branch, xyz = _sole_branch(_toroid_1(), _toroid_2(), atol)
-    n = len(xyz)
-    d = np.linalg.norm(xyz[:, None, :] - xyz[None, :, :], axis=2)
-    idx = np.arange(n)
-    non_adjacent = np.abs(idx[:, None] - idx[None, :]) > 3
-    coincident = np.triu(non_adjacent & (d < 4.0 * atol))
-    # A closed branch repeats its first vertex last; that is the only
-    # legitimate non-adjacent coincidence.
-    coincident[0, n - 1] = False
-
-    assert not coincident.any(), (
-        f"retraced span: coincident sample pairs "
-        f"{list(zip(*np.where(coincident)))[:8]}")
+    hits = _retraced_span_pairs(xyz, atol, branch.closed)
+    assert not hits, f"retraced spans (arc position, segment): {hits}"
 
 
 def _surface_point(surf, a, b):
@@ -214,69 +269,99 @@ def _surface_point(surf, a, b):
         dtype=np.float64)
 
 
-def _worst_chord_sagitta(surf1, surf2, stuv, xyz):
-    """Largest distance from the curve to a chord, over all chords.
+def test_sagitta_oracle_measures_intersection_not_surface_midpoint_average():
+    # The SSI is (s-.5, .5, (s-.5)**2). Its endpoint chord has z=.25,
+    # so its exact middle sagitta is .25. Averaging the surface images
+    # at the parameter midpoint would incorrectly return only .125.
+    ku = np.array([0., 0., 0., 1., 1., 1.])
+    kv = np.array([0., 0., 1., 1.])
+    controls = np.array([[[x, t, z] for t in (0., 1.)]
+                         for x, z in zip((-.5, 0., .5), (.25, -.25, .25))])
+    a = NURBSSurfaceTuple(3, 2, ku, kv, controls, np.ones((3, 2)))
+    plane = np.array([[[u-.5, .5, v] for v in (0., 1.)] for u in (0., 1.)])
+    b = NURBSSurfaceTuple(2, 2, kv, kv, plane, np.ones((2, 2)))
+    stuv = np.array([[0., .5, 0., .25], [1., .5, 1., .25]])
+    xyz = np.array([[-.5, .5, .25], [.5, .5, .25]])
+    sag, chord = _worst_chord_sagitta(a, b, stuv, xyz)
+    assert np.isclose(sag, .25, atol=1e-12, rtol=0.)
+    assert chord == 1.
 
-    The curve point at a chord's parametric midpoint is estimated as the
-    midpoint of the two surfaces' images there; each image lies within a
-    sagitta of the curve, so their average is correct to second order.
+
+def _worst_chord_sagitta(surf1, surf2, stuv, xyz, atol=1e-3):
+    """Sample actual SSI points in three normal planes through each chord.
+
+    This oracle solves the global NURBS equations independently of the SSX
+    marcher. The fourth equation pins the physical point to a chord-normal
+    plane, so averaging unrelated points on the two surfaces cannot hide
+    or exaggerate the curve's deviation.
     """
+    from scipy.optimize import root
+    bounds = np.array((*surf1.interval(), *surf2.interval()))
+    domain_error = 64*np.finfo(float).eps*np.maximum(1., np.max(np.abs(bounds), axis=1))
+    residual_limit = max(atol*1e-6,
+                         256*np.finfo(float).eps*max(1., float(np.max(np.abs(xyz)))))
     worst, worst_chord = 0.0, 0.0
     for k in range(len(xyz) - 1):
-        mid = 0.5 * (stuv[k] + stuv[k + 1])
-        curve_pt = 0.5 * (_surface_point(surf1, mid[0], mid[1])
-                          + _surface_point(surf2, mid[2], mid[3]))
         a, b = xyz[k], xyz[k + 1]
         ab = b - a
-        den = float(np.dot(ab, ab))
-        tt = float(np.clip(np.dot(curve_pt - a, ab) / den, 0.0, 1.0)) \
-            if den > 1e-30 else 0.0
-        sag = float(np.linalg.norm(a + tt * ab - curve_pt))
-        if sag > worst:
-            worst, worst_chord = sag, float(np.linalg.norm(ab))
+        length = float(np.linalg.norm(ab))
+        if length <= residual_limit:
+            continue
+        normal = ab/length
+        for fraction in (.25, .5, .75):
+            origin = a+fraction*ab
+
+            def equations(parameters):
+                first = _surface_point(surf1, *parameters[:2])
+                second = _surface_point(surf2, *parameters[2:])
+                return np.r_[first-second, np.dot(first-origin, normal)]
+
+            def jacobian(parameters):
+                first = evaluate_nurbs_surface(surf1, *parameters[:2], d_order=1)
+                second = evaluate_nurbs_surface(surf2, *parameters[2:], d_order=1)
+                ds, dt = np.asarray(first['Su']), np.asarray(first['Sv'])
+                du, dv = np.asarray(second['Su']), np.asarray(second['Sv'])
+                return np.vstack((np.column_stack((ds, dt, -du, -dv)),
+                                  [np.dot(ds, normal), np.dot(dt, normal), 0., 0.]))
+
+            guess = stuv[k]+fraction*(stuv[k+1]-stuv[k])
+            solution = root(equations, guess, jac=jacobian,
+                            options={'xtol': 1e-10, 'maxfev': 80})
+            assert np.all(np.isfinite(solution.x)), (k, fraction, solution.message)
+            residual = float(np.linalg.norm(equations(solution.x)))
+            assert residual <= residual_limit, (k, fraction, residual, solution.message)
+            assert np.all(solution.x >= bounds[:, 0]-domain_error)
+            assert np.all(solution.x <= bounds[:, 1]+domain_error)
+            singular = np.linalg.svd(jacobian(solution.x), compute_uv=False)
+            assert singular[-1] > 256*np.finfo(float).eps*singular[0], (k, fraction)
+            curve_pt = _surface_point(surf1, *solution.x[:2])
+            sag = float(np.linalg.norm(curve_pt-origin))
+            # Exclude a jump to another distant root of the same normal
+            # plane. Nearby continuation is required before judging sagitta.
+            assert sag <= max(length, 4*residual_limit), (k, fraction, sag, length)
+            if sag > worst:
+                worst, worst_chord = sag, length
     return worst, worst_chord
 
 
-@pytest.mark.parametrize("atol", [
-    1e-3,
-    1e-4,
-    pytest.param(1e-5, marks=pytest.mark.xfail(
-        strict=True,
-        reason="KNOWN: the displaced-seed splice short-circuits an arc that "
-               "leaves the cell (v < 0), so no in-cell polyline can follow "
-               "it — measured 4.33x sag_tol. Not a sampling-density defect; "
-               "see the note below. Flip to a plain param when the "
-               "cell-ownership fix lands.")),
-])
+@pytest.mark.parametrize("atol", [1e-3, 1e-4, 1e-5])
 def test_branch_chords_honour_advertised_sagitta(atol):
     """Every delivered chord must sit within `sag_tol = 2*atol` of the curve.
 
     This is the marcher's own contract, and every downstream geometric
-    predicate in units of atol depends on it. The displaced-seed recovery
-    breaks it: it splices the registered crossing onto a march begun
+    predicate in units of atol depends on it. The historical displaced-seed
+    recovery broke it by splicing the registered crossing onto a march begun
     `alpha` of the PARAMETER BOX away, and `alpha` is a bare fraction, so
     the chord stays 0.15099 long at every tolerance while `sag_tol`
-    shrinks.
+    shrank.
 
-    Refining that splice is NOT possible from inside the cell, and this is
-    why the obvious fix does not work: the recovery only fires on a GRAZE,
-    and at a graze the arc between the crossing and the seed leaves the
-    cell box (measured here: the true curve sits at v ~ -0.0039, outside).
-    `_ssx_correct` clamps to [0,1]^4 by construction, so every interpolated
-    interior vertex clamps to the face and stalls at a ~1e-4 residual, far
-    above `strict_root_tol`. A curvature-sized subdivision was implemented
-    and measured across the SSX suite: 49 prepend calls, 0 subdivided, 49
-    fell back. The dip belongs to the NEIGHBOURING cell; the splice trades
-    geometric accuracy for connectivity, and only a cell-ownership change
-    can retire it.
-
-    The allowance above 1.0 covers the second-order curve-point estimate
-    and the marcher's right to spend the budget exactly.
+    The oracle evaluates actual intersection points, allowing them to
+    cross internal patch cuts while remaining in the original knot domains.
+    The historical 1.5 multiplier on the advertised allowance is retained.
     """
-    _, xyz = _sole_branch(_toroid_1(), _toroid_2(), atol)
-    stuv = np.asarray(_sole_branch(_toroid_1(), _toroid_2(), atol)[0].curve[0],
-                      dtype=np.float64)
-    sag, chord = _worst_chord_sagitta(_toroid_1(), _toroid_2(), stuv, xyz)
+    branch, xyz = _sole_branch(_toroid_1(), _toroid_2(), atol)
+    stuv = np.asarray(branch.curve[0], dtype=np.float64)
+    sag, chord = _worst_chord_sagitta(_toroid_1(), _toroid_2(), stuv, xyz, atol)
 
     assert sag <= 1.5 * (2.0 * atol), (
         f"chord of length {chord:.5f} deviates {sag:.3e} from the curve, "

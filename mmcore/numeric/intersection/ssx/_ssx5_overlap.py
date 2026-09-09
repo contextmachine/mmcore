@@ -1,6 +1,6 @@
 """2-D surface-overlap regions for bez_ssx (ledger L28, approved Option C).
 
-A C2 positive-dimensional component — S1 coincides with S2 (within atol)
+A C2 positive-dimensional component — S1 and S2 have the same surface image
 over a 2-D region (Cheng et al. 2023 Fig. 8, the ``#(Δ_B)=∞`` /
 2-dimensional full- or partial-overlap sub-case) — cannot be represented by
 the branch/point schema.  This module assembles the approved structured
@@ -17,7 +17,14 @@ exact-affine certificate correctly fails (ledger L42) — the L42 fallback
 stops the completeness lie at the CSX level, and this assembler is what
 finally REPRESENTS the rim.
 
-Tolerance ladder (review doc §8; also the L25 hinge): a coincidence band
+An algebraic common-image check precedes all sampling. A small residual
+does not establish dimension: even an arbitrarily flat high-order contact
+can intersect a plane in just one line. The supported identity witnesses
+are exact common control planes and identical homogeneous parameterizations
+(including parameter reversal/transposition and global weight scaling).
+Unsupported image equivalences stay unresolved.
+
+Approximation tolerance ladder (review doc §8; also the L25 hinge): a coincidence band
 admits a region only if an interior witness exists at ≥ 4·ptol (per axis,
 in both parameter planes) from every rim loop with residual ≤ atol;
 anything thinner stays curve-only (L27's shared-edge fixture is the
@@ -39,9 +46,107 @@ from mmcore.numeric.intersection.ssx._ssx_substrate import SSXBranch
 __all__ = ["SSXOverlapRegion", "assemble_overlap_regions"]
 
 
+def _exact_surface_injective(surface_h):
+    """Sufficient global injectivity proof for a polynomial Bezier chart.
+
+    A constant projection R is selected numerically, then verified using
+    exact rational arithmetic on the supplied binary coefficients. If
+    ||I - R DS||_infinity < 1 throughout the convex parameter square,
+    integrating the derivative between two parameters proves injectivity.
+    Unsupported nonuniform weights conservatively return False.
+    """
+    from fractions import Fraction
+    from itertools import combinations
+    h = np.asarray(surface_h, dtype=float)
+    if (h.ndim != 3 or h.shape[-1] != 4 or min(h.shape[:2]) < 2
+            or not np.all(np.isfinite(h)) or np.any(h[..., 3] <= 0.)
+            or not np.all(h[..., 3] == h[0, 0, 3])):
+        return False
+    weight = Fraction.from_float(float(h[0, 0, 3]))
+    points = np.asarray([Fraction.from_float(float(x)) / weight
+                         for x in h[..., :3].flat], dtype=object).reshape(h.shape[:2] + (3,))
+    derivatives = [(h.shape[axis]-1) * np.diff(points, axis=axis)
+                   for axis in (0, 1)]
+    midpoint = np.array([[(float(min(d[..., k].flat)) + float(max(d[..., k].flat))) / 2.
+                          for d in derivatives] for k in range(3)])
+    if not np.all(np.isfinite(midpoint)):
+        return False
+    candidates = []
+    for selected in combinations(range(3), 2):
+        try:
+            inverse = np.linalg.inv(midpoint[list(selected)])
+        except np.linalg.LinAlgError:
+            continue
+        projection = np.zeros((2, 3))
+        projection[:, list(selected)] = inverse
+        candidates.append(projection)
+    try:
+        candidates.append(np.linalg.pinv(midpoint))
+    except np.linalg.LinAlgError:
+        pass
+    for projection in candidates:
+        if not np.all(np.isfinite(projection)):
+            continue
+        exact = [[Fraction.from_float(float(x)) for x in row] for row in projection]
+        norms = []
+        for row in range(2):
+            bounds = []
+            for axis, derivative in enumerate(derivatives):
+                values = [int(row == axis) - sum(exact[row][k] * point[k] for k in range(3))
+                          for point in derivative.reshape(-1, 3)]
+                bounds.append(max(abs(min(values)), abs(max(values))))
+            norms.append(sum(bounds))
+        if max(norms) < 1:
+            return True
+    return False
+
+
+def _exact_common_surface(S1_h, S2_h):
+    """Prove an image identity from the supplied binary coefficients.
+
+    Returns the proof kind, or None. Fraction predicates avoid a residual
+    threshold turning a nonzero gap or high-order tangent line into a 2-D
+    coincidence region. This is a sufficient test, not implicitization.
+    """
+    from fractions import Fraction
+    from mmcore.numeric.intersection.csx._planar_overlap import (
+        _exact_points, _sub, _cross, _dot,
+    )
+    a, b = np.asarray(S1_h, dtype=float), np.asarray(S2_h, dtype=float)
+    if (a.ndim != 3 or b.ndim != 3 or a.shape[-1] != 4 or b.shape[-1] != 4
+            or not np.all(np.isfinite(a)) or not np.all(np.isfinite(b))
+            or np.any(a[..., -1] <= 0.) or np.any(b[..., -1] <= 0.)):
+        return None
+    # Equality of all homogeneous coefficients up to one common scale
+    # proves rational chart identity, including for nonplanar patches.
+    for candidate in (b, b[::-1], b[:, ::-1], b[::-1, ::-1],
+                      b.transpose(1, 0, 2), b.transpose(1, 0, 2)[::-1],
+                      b.transpose(1, 0, 2)[:, ::-1],
+                      b.transpose(1, 0, 2)[::-1, ::-1]):
+        if a.shape != candidate.shape:
+            continue
+        wa = Fraction.from_float(float(a[0, 0, -1]))
+        wb = Fraction.from_float(float(candidate[0, 0, -1]))
+        if all(Fraction.from_float(float(x)) * wb == Fraction.from_float(float(y)) * wa
+               for x, y in zip(a.flat, candidate.flat)):
+            return 'homogeneous_chart_identity'
+    points_a, _ = _exact_points(a, True)
+    points_b, _ = _exact_points(b, True)
+    points = points_a + points_b
+    origin = points[0]
+    direction = next((_sub(p, origin) for p in points if p != origin), None)
+    if direction is None:
+        return None
+    normal = next((_cross(direction, _sub(p, origin)) for p in points
+                   if any(_cross(direction, _sub(p, origin)))), None)
+    if normal is not None and all(_dot(normal, _sub(p, origin)) == 0 for p in points):
+        return 'common_control_plane'
+    return None
+
+
 @dataclass
 class SSXOverlapRegion:
-    """C2 positive-dimensional component: S1 ≡ S2 (within atol) over a
+    """C2 positive-dimensional component: S1 ≡ S2 over a
     2-D region (Cheng et al. Fig. 8, #(Δ_B)=∞ / 2-dimensional).
 
     ``boundary`` holds one inner list per closed rim loop; entries
@@ -432,6 +537,7 @@ def assemble_overlap_regions(
     uncertified_spans=(),
     overlap_boxes=(),
     charge=None,
+    identity_surfaces=None,
 ):
     """Assemble certified SSXOverlapRegion entities from rim evidence.
 
@@ -439,10 +545,8 @@ def assemble_overlap_regions(
     returned ``rim_branches`` list), ``rim_branches`` (canonical, properly
     sampled kind='overlap' SSXBranch objects), ``unmatched_branches``
     (pre-existing overlap branches not part of any region rim — curve-only
-    overlaps, kept verbatim), and ``covered`` (True iff every piece of
-    overlap evidence — parametric overlap boxes and uncertified CSX spans —
-    is explained by a certified region, so the caller may retire the
-    structural incompleteness reason).
+    overlaps, kept verbatim), and ``covered`` (False for this sampled reconstruction; exhaustive
+    full-domain rim ownership belongs to the separate exact source tier).
     """
     S1_h = np.asarray(S1_h, dtype=np.float64)
     S2_h = np.asarray(S2_h, dtype=np.float64)
@@ -454,6 +558,16 @@ def assemble_overlap_regions(
 
     empty = {"regions": [], "rim_branches": [],
              "unmatched_branches": existing, "covered": False}
+
+    source1, source2 = ((S1_h, S2_h) if identity_surfaces is None
+                        else identity_surfaces)
+    if not _charge(max(1, int(np.prod(source1.shape[:2]) + np.prod(source2.shape[:2])))):
+        return empty
+    identity = _exact_common_surface(source1, source2)
+    if identity is None:
+        return empty
+    injective_charts = (_exact_surface_injective(source1)
+                        and _exact_surface_injective(source2))
 
     # 8 edges x (coarse + dense) inversions, each a bounded GN solve.
     if not _charge(8 * 33 + 8 * 17):
@@ -559,6 +673,8 @@ def assemble_overlap_regions(
             normal_agreement=agreement,
             interior_stuv=np.asarray(witness, dtype=np.float64),
             certification={
+                "image_identity": identity,
+                "injective_charts": injective_charts,
                 "boundary_resid_max": resid_max / max(atol, 1e-300),
                 "interior_resid": w_resid / max(atol, 1e-300),
                 "n_samples": int(n_samples),
@@ -571,8 +687,8 @@ def assemble_overlap_regions(
 
     # Canonical rim branches: every rim referenced by a region loop, in
     # first-reference order; their sampled paths REPLACE the L27 2-point
-    # chords (the §8 sampling upgrade).  Existing overlap branches that
-    # match a rim are absorbed; the rest stay verbatim (curve-only).
+    # chords (the §8 sampling upgrade).  Existing overlap branches retain
+    # their independent source ownership until identity is established.
     rim_index = {ri: k for k, ri in enumerate(referenced)}
     rim_branches = [
         SSXBranch(curve=(rims[ri]["stuv"].copy(), rims[ri]["xyz"].copy()),
@@ -584,63 +700,23 @@ def assemble_overlap_regions(
                             for (ri, rev) in L["chain"]]
                            for L in region_loops]
 
-    unmatched = []
-    for b in existing:
-        bxyz = np.asarray(b.curve[1], dtype=np.float64)
-        absorbed = any(
-            all(_dist_point_polyline(p, rims[ri]["xyz"]) <= 2.0 * atol
-                for p in bxyz)
-            for ri in referenced)
-        if not absorbed:
-            unmatched.append(b)
+    # These rims are numerical approximations. Even exactly matching
+    # displayed parameter chords do not prove source-arc identity. Keep
+    # already discovered branches until actual source provenance can
+    # establish that this region representation owns them.
+    unmatched = existing
 
     # Evidence coverage: every overlap box and every uncertified CSX span
     # must be explained by some certified region before the caller may
     # retire the structural reason.
-    covered = True
-    all_rim_xyz = [rims[ri]["xyz"] for ri in referenced]
-    p_bar12 = 8.0 * max(float(ptol4[0]), float(ptol4[1]))
-    p_bar34 = 8.0 * max(float(ptol4[2]), float(ptol4[3]))
-
-    def _half_explained(pt2, loops, bar):
-        in_region = (_point_in_polygon(pt2, loops[0])
-                     and not any(_point_in_polygon(pt2, h)
-                                 for h in loops[1:]))
-        near_rim = min(_dist_point_polyline_2d(pt2, lp)
-                       for lp in loops) <= bar
-        return in_region or near_rim
-
-    for box in overlap_boxes or ():
-        b = np.asarray(box, dtype=np.float64)
-        center = 0.5 * (b[:, 0] + b[:, 1])
-        st, uv = center[:2], center[2:]
-        explained = False
-        for _loops, region in regions:
-            # BOTH parameter planes must be explained (adversarial-review
-            # confirmed finding, 2026-07-12): a box on a DIFFERENT S2
-            # sheet sharing an S1 footprint (folded/self-overlapping S2)
-            # must not count as covered by the sheet the region actually
-            # represents — same two-sided rule as `_site_in_regions`.
-            if (_half_explained(st, region.uv1_loops, p_bar12)
-                    and _half_explained(uv, region.uv2_loops, p_bar34)):
-                explained = True
-                break
-        if not explained:
-            covered = False
-            break
-    if covered:
-        for curve_ctrl, (t_lo, t_hi), span_rational in (
-                uncertified_spans or ()):
-            for t in np.linspace(t_lo, t_hi, 9):
-                p = eval_curve(np.asarray(curve_ctrl, dtype=np.float64),
-                               float(t), rational=span_rational)
-                if min(_dist_point_polyline(
-                        np.asarray(p, dtype=np.float64), rx)
-                       for rx in all_rim_xyz) > 2.0 * atol:
-                    covered = False
-                    break
-            if not covered:
-                break
+    # Coincident images establish a region, not exhaustion of the lifted
+    # zero set: self-intersecting charts can have off-diagonal components.
+    # Common planarity and injectivity alone do not enumerate intersections
+    # of two curved chart boundaries. Even identical injective charts need
+    # an exact full-domain rim-ownership proof for their returned region.
+    # Sampling and point inversion do not supply that proof; the separate
+    # exact source region tier owns exhaustive region claims.
+    covered = False
 
     return {"regions": [r for _loops, r in regions],
             "rim_branches": rim_branches,

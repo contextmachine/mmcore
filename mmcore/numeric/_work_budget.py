@@ -65,6 +65,7 @@ REASON_POSTPROCESS_CAP = "postprocess_cap"  # max_postprocess_work reached
 REASON_DEPTH_LIMIT = "depth_limit"          # max_depth ceiling left a crossing-bearing cell unresolved
 # Structural family — raising budgets cannot help:
 REASON_PARAMETER_FIBER = "parameter_fiber"  # positive-dimensional preimage of a boundary point (collapsed edge)
+REASON_PARAMETER_REPRESENTATION = "parameter_representation"  # global float parameters cannot preserve a local solution
 REASON_OVERLAP_REGION = "overlap_region_unsupported"  # 2-D coincidence region detected; retired by L28's SSXOverlapRegion
 REASON_TANGENTIAL_ZONE = "unresolved_tangential_zone"  # truncated Δ/Φ tangency enumeration or Φ-loop path not certified
 REASON_MULTIPLICITY = "unresolved_multiplicity"  # rank-deficient Δ-root / crossing cluster whose local dimension is unproven

@@ -26,6 +26,7 @@ from mmcore.numeric._work_budget import (
     REASON_POSTPROCESS_CAP,
     REASON_DEPTH_LIMIT,
     REASON_PARAMETER_FIBER,
+    REASON_PARAMETER_REPRESENTATION,
     REASON_OVERLAP_REGION,
     REASON_TANGENTIAL_ZONE,
     REASON_MULTIPLICITY,
@@ -201,7 +202,7 @@ def test_reason_vocabulary_is_stable():
 
     expected = {
         "work_budget", "output_cap", "postprocess_cap", "depth_limit",
-        "parameter_fiber", "overlap_region_unsupported",
+        "parameter_fiber", "parameter_representation", "overlap_region_unsupported",
         "unresolved_tangential_zone", "unresolved_multiplicity",
         "trace_unverified", "trace_point_cap", "unresolved_singular_set",
     }
@@ -221,6 +222,7 @@ def test_reason_vocabulary_is_stable():
     assert REASON_POSTPROCESS_CAP == "postprocess_cap"
     assert REASON_DEPTH_LIMIT == "depth_limit"
     assert REASON_PARAMETER_FIBER == "parameter_fiber"
+    assert REASON_PARAMETER_REPRESENTATION == "parameter_representation"
     assert REASON_OVERLAP_REGION == "overlap_region_unsupported"
     assert REASON_TANGENTIAL_ZONE == "unresolved_tangential_zone"
     assert REASON_MULTIPLICITY == "unresolved_multiplicity"
@@ -243,7 +245,7 @@ def test_structural_reasons_set_covers_every_structural_reason():
     src = path.read_text()
     # Cheap textual check: importing the harness pulls heavy fixtures.
     for reason in ("trace_point_cap", "unresolved_singular_set",
-                   "trace_unverified"):
+                   "trace_unverified", "parameter_representation"):
         assert f"'{reason}'" in src.split("STRUCTURAL_REASONS")[1][:400], reason
 
 
