@@ -205,6 +205,7 @@ from mmcore.numeric.intersection._root_box_certificate import (
     root_existence_certificate as _root_existence_certificate,
     affine_residual_is_zero as _affine_residual_is_zero,
     root_boxes_have_same_root as _root_boxes_have_same_root,
+    root_box_enclosure as _root_box_enclosure,
 )
 
 
@@ -237,6 +238,31 @@ def _certify_csx_root_existence(entries, C, S, G, radii, rational, source_scale)
 
 def _in_csx_root_box(root, box):
     return all(lo <= x <= hi for x, (lo, hi) in zip(root, box))
+
+
+def _certify_csx_owned_cell(net, cell_box, known, source_scale=None, charge=None,
+                            coefficient_error=None):
+    """Prove a cell contains no root other than an already published root.
+
+    The cell need not contain that root or fit its existing isolating box.
+    Source existence in the known enclosure and injectivity on their whole
+    product-box union exclude every unreported root. None denotes denied
+    work; False denotes an unproved cell. Neither result discards geometry.
+    """
+    units = max(1,(4*net.size+127)//128)
+    for entry in known:
+        enclosure = entry.get('parameter_root_box')
+        if enclosure is None or not entry.get('root_existence_certification'):
+            continue
+        if charge is not None and not charge(units):
+            return None
+        # The shared helper proves union injectivity; this use supplies
+        # existence only for the known root, not for the current cell.
+        if _root_boxes_have_same_root(net,enclosure,cell_box,source_scale,coefficient_error):
+            entry['_unique_box'] = tuple((min(a[0],b[0]),max(a[1],b[1]))
+                                          for a,b in zip(enclosure,cell_box))
+            return True
+    return False
 
 
 def _csx_residual_source_scale(C, S, rational):
@@ -664,26 +690,17 @@ def _certify_affine_csx_overlap(C, S, a, b, rational):
 def _tolerance_csx_overlap_certificate(C, S, atol, rational, ptol_t,
                                         strict_context, n_samples=65,
                                         on_dense=None):
-    """Theorem-first curve-on-surface overlap certification (ledger L59).
+    """Modeling-tolerance curve-on-surface span classification.
 
-    USER DECISION 2026-07-12 (rationale in the ledger): two polynomial/
-    rational arcs coinciding on any open sub-arc lie on the same algebraic
-    curve, so a maximal overlap can only terminate at a DOMAIN boundary of
-    an operand.  Numerics therefore only (1) arms on cheap endpoint
-    evidence, (2) verifies that the span's ends are domain-pinned — the
-    curve's t-ends on-surface, or points whose surface projection exits
-    the uv-domain — and (3) samples interior witnesses with a crossing
-    flip guard; the theorem, not floating point, carries the interior.
-    Tolerance-coincidence IS coincidence: within-atol membership counts,
-    and the certification field says 'exact' vs 'tolerance'.
+    Endpoint evidence, domain-pinned projections and sampled interior
+    witnesses classify within-atol spans. A sampled normal-side sign flip
+    refuses promotion, but finite sampling cannot guarantee separation of
+    every exact crossing. The legacy 'exact' label here describes the
+    sampled residual tier, not an exact polynomial identity certificate.
+    Exact-topology callers bypass this helper and use source identities.
 
-    Returns a list of overlap dicts (possibly several spans: improper
-    reparameterizations and domain clipping legitimately produce more
-    than one), or None when nothing is armed/certifiable.  The flip guard
-    preserves the never-merge invariant: a transverse (normal-side) sign
-    flip between consecutive gap samples is crossing structure and
-    refuses promotion of that span; sub-atol valley chains fail the
-    membership march before ever reaching a pinned second end.
+    Returns overlap dictionaries (possibly multiple clipped spans), or
+    None when no modeling span can be classified.
     """
     diag = float(np.linalg.norm(
         np.max(S.reshape(-1, S.shape[-1]), axis=0)
@@ -1447,6 +1464,9 @@ def _phase2_isolated_search(
     exact_topology=False,
     unresolved_root_boxes=None,
     obligation_diagnostics=None,
+    source_residual=None,
+    source_exact_root=None,
+    source_exact_root_work=0,
 ):
     """Phase 2: find isolated intersections via subdivision + Newton + cutout.
 
@@ -1462,8 +1482,11 @@ def _phase2_isolated_search(
     _, Pw = extract_weights(C_sub, rational=rational)
     _, Sw = extract_weights(S, rational=rational)
     strict_root_tol = _strict_csx_root_tol(C_orig, S_orig, rational)
-    G_original = _residual_vec_net(C_orig, S_orig, rational)
-    source_scale = _csx_residual_source_scale(C_orig, S_orig, rational)
+    G_original = (_residual_vec_net(C_orig, S_orig, rational)
+                  if source_residual is None else source_residual[0])
+    source_scale = (_csx_residual_source_scale(C_orig, S_orig, rational)
+                    if source_residual is None else None)
+    coefficient_error = None if source_residual is None else source_residual[1]
 
     # Start with known points from Phase 1 so pre-Newton dedup can skip them
     isolated = known_points if known_points is not None else []
@@ -1482,6 +1505,34 @@ def _phase2_isolated_search(
 
     stack = [(F_sub, G_sub, C_sub, Pw.copy(), Sw.copy(),
               t_lo, t_hi, 0.0, 1.0, 0.0, 1.0, 0)]
+    terminal_boxes = []
+    unresolved_start = len(unresolved_root_boxes) if unresolved_root_boxes is not None else 0
+
+    def charge_union(amount):
+        nonlocal cells
+        if cells+amount > max_cells:
+            return False
+        cells += amount
+        return True
+
+    def exact_source_candidate(root, box, cell_box):
+        # Endpoints are proposals, never tolerance-based replacements.
+        # Only the source predicate can establish one, and it must belong
+        # to both the certified uniqueness box and the owned search cell.
+        from itertools import product
+        choices = []
+        for x, (lo, hi), (cell_lo, cell_hi) in zip(root, box, cell_box):
+            values = [x]
+            for endpoint in (0., 1.):
+                if lo <= endpoint <= hi and cell_lo <= endpoint <= cell_hi and endpoint != x:
+                    values.append(endpoint)
+            choices.append(values)
+        for candidate in product(*choices):
+            if not charge_union(source_exact_root_work):
+                return None, True
+            if source_exact_root(candidate) is True:
+                return candidate, False
+        return None, False
 
     while stack:
         if cells >= max_cells:
@@ -1500,7 +1551,10 @@ def _phase2_isolated_search(
 
         F_cell, G_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth = stack.pop()
         residual_error = _csx_residual_roundoff_bound(
-            G_original, depth=depth, source_scale=source_scale)
+            G_original, depth=(depth if source_residual is None else 6*(depth+1)),
+            source_scale=source_scale)
+        if coefficient_error is not None:
+            residual_error = np.nextafter(residual_error+coefficient_error, np.inf)
 
         # Vector-residual sign prune: one component of G = C·w_S − S·w_C
         # whose coefficient hull excludes 0 proves no zero in the cell.
@@ -1539,10 +1593,14 @@ def _phase2_isolated_search(
         for _e in isolated:
             if exact_topology:
                 box = _e.get('_unique_box')
-                if box is not None and all(
+                enclosure = _e.get('parameter_root_box')
+                if (box is not None and enclosure is not None
+                        and _e.get('root_existence_certification')
+                        and all(lo <= a <= b <= hi for (a,b),(lo,hi)
+                                in zip(enclosure,box)) and all(
                         blo <= lo and hi <= bhi
                         for (lo, hi), (blo, bhi) in zip(
-                            ((t0, t1), (u0, u1), (v0, v1)), box)):
+                            ((t0, t1), (u0, u1), (v0, v1)), box))):
                     _near_known = True
                     break
                 continue
@@ -1551,6 +1609,16 @@ def _phase2_isolated_search(
                     and v0 >= _e["v"] - 2.0 * ptol_v and v1 <= _e["v"] + 2.0 * ptol_v):
                 _near_known = True
                 break
+        if exact_topology and not _near_known and depth >= max_depth:
+            ownership = _certify_csx_owned_cell(
+                G_original,((t0,t1),(u0,u1),(v0,v1)),isolated,source_scale,
+                charge=charge_union, coefficient_error=coefficient_error)
+            if ownership is None:
+                exhausted,cause = True,cause or 'cells'
+                if obligation_diagnostics is not None:
+                    obligation_diagnostics['unresolved_obligations_complete'] = False
+                break
+            _near_known = ownership
         if _near_known:
             continue
 
@@ -1647,6 +1715,7 @@ def _phase2_isolated_search(
         if residual_ok and (in_cell or not exact_topology):
             pt = eval_curve(C_orig, t_sol, rational=rational)
             root = (float(t_sol), float(u_sol), float(v_sol))
+            cutout_center = root
             radii = (ptol_t, ptol_u, ptol_v)
             unique_box = None
             existence_certificate = None
@@ -1656,10 +1725,30 @@ def _phase2_isolated_search(
                 radii = tuple(min(tol, span) for tol, span in zip(
                     radii, (t_span, u_span, v_span)))
                 unique_box = _unique_csx_root_box(
-                    G_original, root, radii, source_scale)
+                    G_original, root, radii, source_scale, coefficient_error)
                 if unique_box is not None:
-                    existence_certificate = _root_existence_certificate(
-                        C_orig, S_orig, root, unique_box, G_original, rational, source_scale)
+                    if source_residual is None:
+                        existence_certificate = _root_existence_certificate(
+                            C_orig, S_orig, root, unique_box, G_original, rational, source_scale)
+                    else:
+                        if source_exact_root is not None:
+                            source_candidate, denied = exact_source_candidate(
+                                root, unique_box, ((t0,t1),(u0,u1),(v0,v1)))
+                            if denied:
+                                exhausted, cause = True, 'cells'
+                                if obligation_diagnostics is not None:
+                                    obligation_diagnostics['unresolved_obligations_complete'] = False
+                                break
+                            if source_candidate is not None:
+                                existence_certificate = 'exact_parameter_identity'
+                                root = source_candidate
+                                pt = eval_curve(C_orig,root[0],rational=rational)
+                        if existence_certificate is None:
+                            source_enclosure = _root_box_enclosure(
+                                G_original, unique_box, coefficient_error=coefficient_error)
+                            if source_enclosure is not None:
+                                existence_certificate = 'source_krawczyk_inclusion'
+                                inherited_root_box = source_enclosure
                     if existence_certificate is None:
                         for known in isolated:
                             root_enclosure = known.get('parameter_root_box')
@@ -1671,6 +1760,22 @@ def _phase2_isolated_search(
                                 inherited_root_box = root_enclosure
                                 break
                 if unique_box is not None and existence_certificate is None:
+                    ownership = _certify_csx_owned_cell(
+                        G_original, unique_box, isolated, source_scale, charge=charge_union,
+                        coefficient_error=coefficient_error)
+                    if ownership is None:
+                        exhausted, cause = True, 'cells'
+                        if obligation_diagnostics is not None:
+                            obligation_diagnostics['unresolved_obligations_complete'] = False
+                        break
+                    if ownership:
+                        # The candidate need not establish another root:
+                        # union injectivity proves this whole reservation
+                        # contains no root besides the published source root.
+                        stack.extend(_cutout_3d(
+                            F_cell, G_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,
+                            *root, *radii, rational))
+                        continue
                     # This region is reserved as unresolved, not consumed
                     # as a root. Search its complement within the budget.
                     if unresolved_root_boxes is not None:
@@ -1695,7 +1800,8 @@ def _phase2_isolated_search(
                                          in zip(e['parameter_root_box'], unique_box))) or
                                 (e.get('_unique_box') is not None
                                  and _root_boxes_have_same_root(
-                                     G_original, e['_unique_box'], unique_box, source_scale))]
+                                     G_original, e['_unique_box'], unique_box, source_scale,
+                                     coefficient_error))]
                     if matching:
                         matching[0]['_unique_box'] = unique_box
                         matching[0]['root_existence_certification'] = existence_certificate
@@ -1704,6 +1810,13 @@ def _phase2_isolated_search(
                             isolated[:] = [e for e in isolated if e is not redundant]
             if exact_topology and unique_box is not None:
                 is_new = not matching
+            elif exact_topology:
+                # A Newton proposal without an ownership certificate
+                # consumes no cell: subdivision below still searches its
+                # entire domain. Publishing it here would later fabricate
+                # an unresolved reservation even after that search proves
+                # the domain empty or owned by another certified root.
+                is_new = False
             else:
                 is_new = not _is_duplicate(isolated, t_sol, u_sol, v_sol, pt,
                                            atol, ptol_t, ptol_u, ptol_v,
@@ -1713,7 +1826,7 @@ def _phase2_isolated_search(
                 # lies in — _is_duplicate protects against a double add
                 # when the root's home cell converges to it later.
                 entry = {
-                    "t": float(t_sol), "u": float(u_sol), "v": float(v_sol),
+                    "t": root[0], "u": root[1], "v": root[2],
                     "point": pt,
                 }
                 if unique_box is not None:
@@ -1734,7 +1847,7 @@ def _phase2_isolated_search(
                 # alike — the cutout is what guarantees progress.
                 sub_cells = _cutout_3d(
                     F_cell, G_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,
-                    float(t_sol), float(u_sol), float(v_sol),
+                    *cutout_center,
                     *radii, rational,
                 )
                 stack.extend(sub_cells)
@@ -1765,10 +1878,16 @@ def _phase2_isolated_search(
             # allowance cannot buy more depth.  Reporting it as one made SSX
             # hard-stop the whole search and blame `work_budget` at 1.2%
             # ledger utilization (harness case 11 at atol<=1e-5).
-            exhausted = True
-            cause = cause or "depth"
-            if obligation_diagnostics is not None:
-                obligation_diagnostics['unresolved_obligations_complete'] = False
+            if exact_topology:
+                # DFS can encounter this cell before the owning root is
+                # discovered elsewhere. Retain the obligation and retry
+                # against the final source-certified root census.
+                terminal_boxes.append(((t0,t1),(u0,u1),(v0,v1)))
+            else:
+                exhausted = True
+                cause = cause or "depth"
+                if obligation_diagnostics is not None:
+                    obligation_diagnostics['unresolved_obligations_complete'] = False
             continue
 
         # Subdivide along the axis with the largest span
@@ -1813,6 +1932,43 @@ def _phase2_isolated_search(
             stack.append((F_L, G_L, seg_c.copy(), pw.copy(), sw_L, t0, t1, u0, u1, v0, v_split, depth+1))
             stack.append((F_R, G_R, seg_c.copy(), pw.copy(), sw_R, t0, t1, u0, u1, v_split, v1, depth+1))
 
+    for terminal_box in terminal_boxes:
+        ownership = _certify_csx_owned_cell(
+            G_original,terminal_box,isolated,source_scale,charge=charge_union,
+            coefficient_error=coefficient_error)
+        if ownership is not True:
+            exhausted = True
+            cause = cause or ('cells' if ownership is None else 'depth')
+            if obligation_diagnostics is not None:
+                obligation_diagnostics['unresolved_obligations_complete'] = False
+            if ownership is None:
+                break
+
+    if exact_topology and unresolved_root_boxes is not None:
+        # DFS may establish the owning root after an earlier failed
+        # existence proposal reserved its neighborhood. Retire only the
+        # reservations covered by that later source root's union proof.
+        pending = []
+        reservations = unresolved_root_boxes[unresolved_start:]
+        for index, reservation in enumerate(reservations):
+            box = tuple(reservation[key] for key in ('t_range', 'u_range', 'v_range'))
+            ownership = _certify_csx_owned_cell(
+                G_original, box, isolated, source_scale, charge=charge_union,
+                coefficient_error=coefficient_error)
+            if ownership is not True:
+                pending.append(reservation)
+            if ownership is None:
+                pending.extend(reservations[index+1:])
+                exhausted, cause = True, 'cells'
+                if obligation_diagnostics is not None:
+                    obligation_diagnostics['unresolved_obligations_complete'] = False
+                break
+        unresolved_root_boxes[unresolved_start:] = pending
+        if (reservations and not pending and cause == 'resolution'
+                and obligation_diagnostics is not None
+                and obligation_diagnostics.get('unresolved_obligations_complete', False)):
+            exhausted, cause = False, None
+
     # Return only NEW results (exclude the pre-loaded known points)
     return isolated, exhausted, cells, cause
 
@@ -1835,6 +1991,64 @@ from mmcore.numeric.intersection._sq_dist_classify import (
 _NON_AFFINE_OVERLAP_FALLBACK_CELLS = 4_000
 
 
+def _source_residual_csx(C, S, source_residual, source_exact_root, source_exact_root_work, atol, rational,
+                         max_depth, max_cells, max_results):
+    """Search the entire source residual cube; C/S supply proposals only.
+
+    No rounded-geometry boundary census or overlap witness can remove any
+    part of this product domain. Source coefficient enclosures are carried
+    into every exclusion, injectivity, ownership, and existence decision.
+    """
+    try:
+        net, error = source_residual
+        # Native Bernstein split functions require writable buffers; the
+        # caller may legitimately share an immutable cached source net.
+        net = np.array(net, dtype=float, copy=True, order='C')
+        error = np.broadcast_to(np.asarray(error, dtype=float), (3,)).copy()
+    except (ValueError, TypeError) as exc:
+        raise ValueError('source_residual must be (net, scalar or 3-vector error)') from exc
+    if (net.ndim != 4 or net.shape[-1] != 3 or any(n < 1 for n in net.shape)
+            or not np.all(np.isfinite(net)) or not np.all(np.isfinite(error))
+            or np.any(error < 0.)):
+        raise ValueError('source_residual requires a finite (nt,nu,nv,3) net and nonnegative error')
+    if source_exact_root is not None and not callable(source_exact_root):
+        raise ValueError('source_exact_root must be callable')
+    if int(source_exact_root_work) != source_exact_root_work or source_exact_root_work < 0:
+        raise ValueError('source_exact_root_work must be a nonnegative integer')
+    if max_cells <= 0 or max_results <= 0:
+        return dict(isolated=[], overlaps=[], parameter_fibers=[],
+                    budget_exhausted=True, cells_processed=0,
+                    truncation_cause='preflight', boundary_topology_complete=False,
+                    unresolved_obligations_complete=False)
+    radii = _compute_param_tols_csx(C, S, atol, rational)
+    if max_depth is None:
+        max_depth = _derived_max_depth(*radii)
+    unresolved, diagnostics = [], {}
+    # Squared distance is not an exclusion or topology premise on this
+    # route. A constant placeholder supports the shared subdivision stack.
+    isolated, exhausted, used, cause = _phase2_isolated_search(
+        np.zeros((1, 1, 1)), net, C, S, C, S, 0., 1., atol, rational, *radii,
+        max_depth=int(max_depth), max_cells=int(max_cells), max_results=int(max_results),
+        exact_topology=True, unresolved_root_boxes=unresolved,
+        obligation_diagnostics=diagnostics, source_residual=(net, error),
+        source_exact_root=source_exact_root, source_exact_root_work=int(source_exact_root_work))
+    for entry in isolated:
+        entry.pop('_existence_established', None)
+        box = entry.pop('_unique_box', None)
+        if box is not None:
+            entry['parameter_uniqueness_box'] = box
+        entry['point_certification'] = 'proposal_geometry'
+    result = dict(isolated=isolated, overlaps=[], parameter_fibers=[],
+                  budget_exhausted=bool(exhausted), cells_processed=int(used),
+                  truncation_cause=cause if exhausted else None,
+                  boundary_topology_complete=not (exhausted or unresolved),
+                  unresolved_obligations_complete=bool(diagnostics.get(
+                      'unresolved_obligations_complete', False)))
+    if unresolved:
+        result['unresolved_parameter_boxes'] = unresolved
+    return result
+
+
 def bez_csx(
     C,
     S,
@@ -1848,6 +2062,9 @@ def bez_csx(
     max_cells=100_000,
     max_results=4_096,
     tolerance_tier=True,
+    source_residual=None,
+    source_exact_root=None,
+    source_exact_root_work=0,
 ) -> dict:
     """Bezier curve-surface intersection via two-phase architecture.
 
@@ -1877,8 +2094,26 @@ def bez_csx(
         this cap prevents an unrecognized set from turning dedup quadratic.
     tolerance_tier : bool
         Allow residual-certified curve/surface overlaps within ``atol``.
+        This modeling mode may merge isolated events at its parameter
+        resolution; complete status is not an exhaustive exact-root census.
         Set False when a caller needs only exact intersection topology;
         exact affine overlaps and isolated-root search remain enabled.
+    source_residual : tuple, optional
+        Expert source certificate ``(net, coefficient_error)``. The finite
+        ``(nt,nu,nv,3)`` Bernstein net is over this call's unit parameter
+        cube; a scalar or three-vector nonnegative error bounds every
+        coefficient of the original exact source residual. This selects a
+        full product search using only these source enclosures for proofs.
+        C/S supply numerical proposals; returned XYZ requires validation
+        against the original source geometry by the caller.
+    source_exact_root : callable, optional
+        With source_residual, an externally charged exact-source identity
+        predicate on a candidate (t,u,v). Only True establishes a root;
+        False/None leave existence to source interval Krawczyk inclusion.
+    source_exact_root_work : int
+        Work units prepaid from this call's shared allowance before each
+        exact-source callback invocation. The callback must not charge
+        those units again. Zero supports an externally prepaid callback.
 
     Returns
     -------
@@ -1889,6 +2124,11 @@ def bez_csx(
     """
     C = np.asarray(C, dtype=np.float64)
     S = np.asarray(S, dtype=np.float64)
+
+    if source_residual is not None:
+        return _source_residual_csx(
+            C, S, source_residual, source_exact_root, source_exact_root_work, atol, rational,
+            max_depth, max_cells, max_results)
 
     if rational:
         c_pts = C[:, :-1] / C[:, -1:]
@@ -2441,7 +2681,8 @@ def bez_csx(
         # certificate — exact continuums verify at roundoff scale, while
         # sub-atol-valley root pairs FAIL strict (their valley floors sit
         # far above roundoff), so distinct zeros connected by sub-atol
-        # valleys are never merged (the CSX invariant).
+        # sampled valleys are refused; the public modeling tier does not
+        # promise separation of every sub-resolution exact event.
         entries = sorted(
             ((float(e["t"]), float(e["u"]), float(e["v"]))
              for e in isolated), key=lambda x: x[0])

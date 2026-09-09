@@ -68,16 +68,23 @@ def _common_plane_projection(first, second, rational):
     return None
 
 
-def root_box_contains_zero(net, box, source_scale=None):
-    """Sufficient Krawczyk existence test for a square residual system."""
+def root_box_enclosure(net, box, source_scale=None, coefficient_error=None):
+    """Return a source-proved Krawczyk enclosure, or None.
+
+    The image encloses every root in the input box. Strict image inclusion
+    establishes existence independently of the representative supplied by
+    any numerical corrector.
+    """
     from mmcore.numeric.bern import bernstein_eval_nd
     n = len(box)
     if net.shape[-1] != n or any(hi <= lo for lo, hi in box):
-        return False
+        return None
     restricted = net
     for axis, (lo, hi) in enumerate(box):
         restricted = restrict_net_axis_v(restricted, axis, lo, hi, 0., 1.)
     error = residual_roundoff_bound(net, depth=2*n, source_scale=source_scale)
+    if coefficient_error is not None:
+        error = np.nextafter(error+np.asarray(coefficient_error), np.inf)
     axes = tuple(range(n))
     magnitude = np.max(np.abs(restricted), axis=axes)
     eps = np.finfo(float).eps
@@ -85,7 +92,7 @@ def root_box_contains_zero(net, box, source_scale=None):
     for axis in axes:
         degree = restricted.shape[axis]-1
         if degree == 0:
-            return False
+            return None
         derivative = bernstein_partial_derivative_coeffs(restricted, axis=axis)
         derivative_error = degree*(2.*error+4.*eps*magnitude)
         lower.append(np.nextafter(derivative.min(axis=axes)-derivative_error, -np.inf))
@@ -95,9 +102,9 @@ def root_box_contains_zero(net, box, source_scale=None):
     try:
         inverse = np.linalg.inv(midpoint)
     except np.linalg.LinAlgError:
-        return False
+        return None
     if not np.all(np.isfinite(inverse)):
-        return False
+        return None
     value = bernstein_eval_nd(restricted, np.full(n, .5))
     gamma = (2*n+2)*eps/(1.-(2*n+2)*eps)
     absolute_inverse = np.abs(inverse)
@@ -105,7 +112,25 @@ def root_box_contains_zero(net, box, source_scale=None):
     linear_radius = .5*np.sum(np.abs(np.eye(n)-inverse@midpoint)+absolute_inverse@radius+arithmetic, axis=1)
     correction = (np.abs(inverse@value)+absolute_inverse@error
                   + gamma*absolute_inverse@(np.abs(value)+error))
-    return bool(np.all(np.nextafter(correction+linear_radius, np.inf) < .5))
+    image_radius = np.nextafter(correction+linear_radius, np.inf)
+    if not np.all(image_radius < .5):
+        return None
+    result = []
+    for (lo, hi), radius in zip(box, image_radius):
+        local_lo = max(0., np.nextafter(.5-radius, -np.inf))
+        local_hi = min(1., np.nextafter(.5+radius, np.inf))
+        span_lo, span_hi = np.nextafter(hi-lo, -np.inf), np.nextafter(hi-lo, np.inf)
+        lower = np.nextafter(lo+np.nextafter(span_lo*local_lo, -np.inf), -np.inf)
+        upper = np.nextafter(lo+np.nextafter(span_hi*local_hi, np.inf), np.inf)
+        # Intersecting the Krawczyk image with its original existence box
+        # is safe: the same root is independently known to belong to both.
+        result.append((max(lo, lower), min(hi, upper)))
+    return tuple(result)
+
+
+def root_box_contains_zero(net, box, source_scale=None, coefficient_error=None):
+    """Sufficient Krawczyk existence test for a square residual system."""
+    return root_box_enclosure(net, box, source_scale, coefficient_error) is not None
 
 
 def root_existence_certificate(first, second, parameters, box, net,
@@ -203,7 +228,7 @@ def jacobian_is_injective(net, axes, source_error):
     return False
 
 
-def unique_root_box(net, root, radii, source_scale=None):
+def unique_root_box(net, root, radii, source_scale=None, coefficient_error=None):
     """Return a clipped box containing at most one root, or None."""
     box = tuple((max(0., x-r), min(1., x+r)) for x, r in zip(root, radii))
     if any(hi <= lo for lo, hi in box):
@@ -211,17 +236,21 @@ def unique_root_box(net, root, radii, source_scale=None):
     restricted = net
     for axis, (lo, hi) in enumerate(box):
         restricted = restrict_net_axis_v(restricted, axis, lo, hi, 0., 1.)
-    error = residual_roundoff_bound(net, source_scale=source_scale)
+    error = residual_roundoff_bound(net, depth=2*len(box), source_scale=source_scale)
+    if coefficient_error is not None:
+        error = np.nextafter(error+np.asarray(coefficient_error), np.inf)
     return box if jacobian_is_injective(restricted, tuple(range(len(box))), error) else None
 
 
-def root_boxes_have_same_root(net, first, second, source_scale=None):
+def root_boxes_have_same_root(net, first, second, source_scale=None, coefficient_error=None):
     """Prove two boxes with independently established roots share that root."""
     box = tuple((min(a[0], b[0]), max(a[1], b[1])) for a, b in zip(first, second))
     restricted = net
     for axis, (lo, hi) in enumerate(box):
         restricted = restrict_net_axis_v(restricted, axis, lo, hi, 0., 1.)
     error = residual_roundoff_bound(net, depth=2*len(box), source_scale=source_scale)
+    if coefficient_error is not None:
+        error = np.nextafter(error+np.asarray(coefficient_error), np.inf)
     return jacobian_is_injective(restricted, tuple(range(len(box))), error)
 
 
