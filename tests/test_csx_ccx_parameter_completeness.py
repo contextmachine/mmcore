@@ -340,3 +340,95 @@ def test_generic_ccx_cancellation_does_not_use_positive_squared_coefficients():
     assert len(result['isolated']) == 2
     assert any(abs(p['u']-.5) < 1e-12 and abs(p['v']-.5) < 1e-12
                for p in result['isolated'])
+
+
+def test_residual_error_prices_subnormal_restriction_rounding():
+    from fractions import Fraction
+    from mmcore.numeric._bezier_common import restrict_net_axis_v
+    from mmcore.numeric.intersection._root_box_certificate import residual_roundoff_bound
+    quantum = np.nextafter(0., 1.)
+    original = (np.array([-15.,6.,-3.,5.,-8.])*quantum)[:,None]
+    restricted = original
+    for _ in range(2):
+        restricted = restrict_net_axis_v(restricted,0,.25,.75,0.,1.)
+    # Exact source restriction, in units of the minimum subnormal. The
+    # rounded coefficient chain differs by >one quantum on IEEE binary64.
+    exact = [Fraction(n,4096) for n in (-2373,285,1227,1421,475)]
+    actual = [Fraction(float(x/quantum)) for x in restricted[:,0]]
+    error = Fraction(float(residual_roundoff_bound(original,depth=2)[0]/quantum))
+    assert all(abs(a-b) <= error for a,b in zip(actual,exact))
+
+
+def test_ccx_terminal_cell_is_not_retired_by_a_neighbor_root_box(monkeypatch):
+    from mmcore.numeric.intersection.ccx import _bez_ccx4 as engine
+    from mmcore.numeric.bern_sq_dist import curve_curve_squared_net_homog
+    from mmcore.numeric._bezier_common import restrict_net_axis, restrict_net_axis_v
+    first_root, second_root = 1/4, 25/64
+    a = np.array([[0.,0.,0.],[.5,0.,0.],[1.,0.,0.]])
+    constant = first_root*second_root
+    b = np.array([[0.,constant,0.], [.5,constant-(first_root+second_root)/2,0.],
+                  [1.,(1-first_root)*(1-second_root),0.]])
+    lo,hi,ptol = 9/32,13/32,1/8
+    f = curve_curve_squared_net_homog(a,b,rational=False)
+    for axis in (0,1):
+        f = restrict_net_axis(f,axis,lo,hi,0.,1.)
+    # A legitimate unbounded-corrector outcome: the neighboring exact root
+    # is only quarter-ptol outside this cell, but its unique ptol box stops
+    # before the second exact root inside the cell.
+    monkeypatch.setattr(engine,'_strict_polish_ccx',lambda *args,**kwargs:
+                        (first_root,first_root,np.array([first_root,0.,0.])))
+    unresolved = []
+    engine._phase2_ccx(f,restrict_net_axis_v(a,0,lo,hi,0.,1.),
+        restrict_net_axis_v(b,0,lo,hi,0.,1.),a,b,lo,hi,lo,hi,
+        1e-3,False,ptol,ptol,max_cells=1,unresolved_root_boxes=unresolved)
+    assert any(entry['u_range'][0] <= lo <= hi <= entry['u_range'][1]
+               and entry['v_range'][0] <= lo <= hi <= entry['v_range'][1]
+               for entry in unresolved)
+
+
+@pytest.mark.parametrize('gap', [2.**-12, 2.**-16, 2.**-20])
+def test_public_ccx_close_exact_roots_are_both_reported_or_explicitly_unresolved(gap):
+    from mmcore.numeric.intersection.ccx._bez_ccx4 import bez_ccx
+    a, b = .5-gap, .5+gap
+    first = np.array([[0., 0., 0.], [.5, 0., 0.], [1., 0., 0.]])
+    second = np.array([[0., a*b, 0.], [.5, a*b-(a+b)/2, 0.],
+                       [1., (1-a)*(1-b), 0.]])
+    result = bez_ccx(first, second, rational=False, tolerance_tier=True,
+                     atol=1e-3, max_cells=2000)
+    if result['boundary_topology_complete']:
+        assert len(result['isolated']) == 2, result
+    else:
+        assert result['unresolved_parameter_boxes'], result
+        for parameter in (a, b):
+            assert any(region['u_range'][0] <= parameter <= region['u_range'][1]
+                       and region['v_range'][0] <= parameter <= region['v_range'][1]
+                       for region in result['unresolved_parameter_boxes'])
+
+
+def test_csx_outside_cell_newton_attractor_does_not_fill_the_root_cap():
+    # An internal rational torus cut previously published128 ulp-shifting
+    # copies of one root, reaching the result cap after372 cells. Only the
+    # owning cell had an inclusion/uniqueness certificate; other cells'
+    # Newton steps escaped to the same attractor.
+    curve = np.array([
+        [-10.756181314852755, 3.2596056084375, 1.2400707512130236, .7876354212500001],
+        [-10.674397832575652, 3.563267004067383, 1.7370884900398287, .7876354212500001],
+        [-10.874499919244897, 4.132524045219727, 2.1809156029127887, .8214196398144532]])
+    surface = np.array([
+        [[-11.981252845887175, 4.288537511491327, 2.2804584452496592, .8998900126953125],
+         [-11.975688890182756, 4.28203629932164, 2.3207775648627753, .8973157558789062],
+         [-11.972864765572158, 4.276789833722144, 2.360503587965267, .894884513330078]],
+        [[-7.1711691211693855, 5.708935660907645, 2.0803292106544533, .6363183298046875],
+         [-7.176383485245175, 5.685515419288931, 2.105549173406339, .6344980553710938],
+         [-7.183689597867961, 5.662664752409694, 2.1302942313649704, .6327789072949219]],
+        [[-13.82743994428743, 10.019282529064718, 2.0599346715270204, .8998900126953125],
+         [-13.808892103256161, 9.972478069076828, 2.101804693208697, .8973157558789062],
+         [-13.792864973892426, 9.926248187564829, 2.143107791806496, .894884513330078]]])
+    result = bez_csx(curve, surface, atol=1e-4, rational=True,
+                     tolerance_tier=False, max_cells=100000, max_results=128)
+    assert result['boundary_topology_complete'], result
+    root, = result['isolated']
+    assert root['t'] == pytest.approx(.9858904767688111)
+    assert root['parameter_root_box']
+    assert root['parameter_uniqueness_box']
+    assert result['cells_processed'] < 100000

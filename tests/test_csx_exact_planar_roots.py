@@ -133,3 +133,16 @@ def test_planar_roots_preflight_coefficient_work_before_fraction_conversion(monk
     assert not result['boundary_topology_complete']
     assert result['cells_processed'] <= 100
     assert result['truncation_cause'] == 'preflight'
+
+
+def test_finite_homogeneous_controls_with_unrepresentable_xyz_are_partial():
+    from mmcore.numeric.intersection.csx._planar_roots import exact_planar_bilinear_roots
+    weight = 1e-300
+    curve = np.array([[1e300, 0., -weight, weight],
+                       [1e300, 1e300, weight, weight]])
+    surface = np.array([[[x, y, 0., weight] for y in (0., 2e300)]
+                         for x in (0., 2e300)])
+    result = exact_planar_bilinear_roots(curve, surface, rational=True, max_cells=200)
+    assert not result['boundary_topology_complete'], result
+    assert result['isolated'] == []
+    assert result['truncation_cause'] == 'resolution'

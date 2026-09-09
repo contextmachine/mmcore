@@ -1423,6 +1423,12 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
 
         seg1, seg2, F_cell, pw, qw, u0, u1, v0, v1, depth = stack.pop()
         #print(f"CCX: {cells} cells: {( ( u0, u1), (v0, v1), depth)}")
+        # The public modeling tier also preserves exact-root obligations.
+        # A rounded distance/derivative gate may only delete a cell after
+        # the original-source residual has excluded every exact zero.
+        residual_cell = restrict_net_axis_v(root_net, 0, u0, u1, 0., 1.)
+        residual_cell = restrict_net_axis_v(residual_cell, 1, v0, v1, 0., 1.)
+        zero_free = residual_hull_excludes_zero(residual_cell, residual_error)
         # AABB prune: cheapest possible check — control point bounding boxes
         from mmcore.numeric._aabb import aabb, aabb_intersect
         if rational:
@@ -1433,7 +1439,7 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
             pts2 = seg2
         bb1 = np.array(aabb(pts1)); bb1[0] -= atol; bb1[1] += atol
         bb2 = np.array(aabb(pts2)); bb2[0] -= atol; bb2[1] += atol
-        if tol_pool is not None and not aabb_intersect(bb1, bb2):
+        if tol_pool is not None and zero_free and not aabb_intersect(bb1, bb2):
             continue
         cell_box = ((u0, u1), (v0, v1))
         if any(entry.get('root_existence_certification')
@@ -1456,7 +1462,7 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
         if tol_pool is not None:
             atol_prune = float(np.sqrt(
                 atol * atol + env_F / (w_sc ** 2)))
-        if tol_pool is not None:
+        if tol_pool is not None and zero_free:
             if _check_min_of_net(F_cell, atol_prune, w_sc):
                 continue
             if _check_lipschitz(F_cell, atol_prune, w_sc):
@@ -1465,7 +1471,7 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
         # Derivative sign pruning
         Fv = F_cell[..., np.newaxis]
         can_have_stationary = True
-        for ax in (range(2) if tol_pool is not None else ()):
+        for ax in (range(2) if tol_pool is not None and zero_free else ()):
             dF = bernstein_partial_derivative_coeffs(Fv, axis=ax)
             coeffs = dF[..., 0]
             # The cell includes its boundary: a zero derivative on a
@@ -1488,9 +1494,6 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
         # Restrict the ORIGINAL unsquared residual, rather than rebuilding
         # it from already-rounded curve pieces. Its source error remains
         # fixed even when residual cancellation shrinks the current hull.
-        residual_cell = restrict_net_axis_v(root_net, 0, u0, u1, 0., 1.)
-        residual_cell = restrict_net_axis_v(residual_cell, 1, v0, v1, 0., 1.)
-        zero_free = residual_hull_excludes_zero(residual_cell, residual_error)
         if zero_free and tol_pool is None:
             continue
 
@@ -1574,6 +1577,25 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
                     }
                     attach_certificate(entry, box, certificate, known)
                     isolated.append(entry)
+                if (unresolved_root_boxes is not None and box is not None
+                        and certificate is not None):
+                    # The unbounded corrector may return a root just
+                    # outside this terminal cell. Proving its own ptol
+                    # box unique does not resolve a sliver of the cell
+                    # lying outside that box; enclose both before retiring
+                    # the complete terminal product.
+                    covering_radii = (max(ptol_u, abs(u_sol-u0), abs(u1-u_sol)),
+                                      max(ptol_v, abs(v_sol-v0), abs(v1-v_sol)))
+                    covering_box = unique_root_box(
+                        root_net, (u_sol, v_sol), covering_radii, root_source)
+                    if (covering_box is None or not all(
+                            a <= lo <= hi <= b for (lo, hi), (a, b)
+                            in zip(cell_box, covering_box))):
+                        unresolved_root_boxes.append({
+                            'u_range': (u0, u1), 'v_range': (v0, v1),
+                            'candidate': (float(u_sol), float(v_sol)),
+                            'reason': 'terminal_cell_uniqueness',
+                        })
             elif tol_pool is not None:
                 # L62 terminal tolerance candidate: polish the MINIMIZER
                 # (not a root) and measure it against the top-level net.
@@ -1595,7 +1617,7 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
                                 (m[0], m[1], float(mu), float(mv)))
                         else:
                             exhausted = True
-            elif unresolved_root_boxes is not None and not zero_free:
+            if polished is None and unresolved_root_boxes is not None and not zero_free:
                 unresolved_root_boxes.append({
                     'u_range': (u0, u1), 'v_range': (v0, v1),
                     'reason': 'unresolved_terminal_cell',
@@ -1634,7 +1656,7 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
                         }
                         attach_certificate(entry, box, certificate, known)
                         isolated.append(entry)
-                    if box is None and unresolved_root_boxes is not None:
+                    if box is None and unresolved_root_boxes is not None and tol_pool is None:
                         # A ptol-sized box below the certificate's arithmetic
                         # resolution cannot make progress by repeating tiny
                         # cuts around ulp-shifting candidates. Reserve this
@@ -1647,7 +1669,7 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
                     # An unproved neighborhood remains explicitly reserved
                     # in exact mode. With a proof, the same product cutout
                     # applies to both new roots and known boundary roots.
-                    if box is not None or unresolved_root_boxes is not None:
+                    if box is not None or (unresolved_root_boxes is not None and tol_pool is None):
                         sub_cells = _cutout_2d(
                             F_cell, seg1, seg2, pw, qw, u0, u1, v0, v1, depth,
                             float(u_sol), float(v_sol), ptol_u, ptol_v, rational,
@@ -1827,7 +1849,7 @@ def bez_ccx(
 
     isolated = []
     overlaps = []
-    unresolved_root_boxes = [] if not tolerance_tier else None
+    unresolved_root_boxes = []
 
     # ===================================================================
     # PHASE 1: Boundary analysis + overlap (initial patch only)
@@ -2161,6 +2183,21 @@ def bez_ccx(
         return accepted, undecided
 
     def _finalize(topology_complete=True):
+        # A singular curve/line root need not admit a square Jacobian
+        # certificate. Its exact GCD/Sturm census can resolve those root
+        # obligations independently of the completed modeling search.
+        if tolerance_tier and unresolved_root_boxes and cells.remaining > 0:
+            from mmcore.numeric.intersection.ccx._curve_line_exact import exact_curve_line_ccx
+            exact_census = exact_curve_line_ccx(
+                C1_orig, C2_orig, rational, max_cells=cells.remaining,
+                max_results=max_results, atol=atol)
+            if exact_census is not None:
+                cells.spend(exact_census.get('cells_processed', 0))
+                if exact_census.get('boundary_topology_complete'):
+                    isolated[:] = [entry for entry in isolated
+                                   if entry.get('certification') == 'tolerance']
+                    isolated.extend(exact_census['isolated'])
+                    unresolved_root_boxes.clear()
         # Typed L47 outcome, mirroring CSX's L42 export: when the overlap-
         # class structure could not be certified AND the bounded fallback
         # could not discretize it, name the span instead of billing the

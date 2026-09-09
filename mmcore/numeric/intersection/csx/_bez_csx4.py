@@ -1629,17 +1629,22 @@ def _phase2_isolated_search(
                 C_orig, S_orig, t_sol, u_sol, v_sol,
                 rational, strict_root_tol)
 
-        # Small FP slack on the in-cell test: Newton can converge to a root
-        # at the cell boundary that lands ~1 ULP outside the FP-computed
-        # bound; without slack such a root is mis-classified as "outside".
-        _fp_slack = 1e-12
+        # Exact ownership uses the closed representable cell. A fixed
+        # slack can exceed a narrow cell's entire width and repeatedly
+        # cut around an attractor which lies outside its product domain.
+        _fp_slack = 0. if exact_topology else 1e-12
         in_cell = (
             t0 - _fp_slack <= t_sol <= t1 + _fp_slack
             and u0 - _fp_slack <= u_sol <= u1 + _fp_slack
             and v0 - _fp_slack <= v_sol <= v1 + _fp_slack
         )
 
-        if residual_ok:
+        # An outside-cell Newton attractor is only a proposal. Publishing
+        # it here bypasses the owned-box identity certificate below and
+        # can fill max_results with ulp-shifting copies of one known root.
+        # Its owning cell is responsible for existence and enumeration;
+        # this cell continues searching its own parameter product.
+        if residual_ok and (in_cell or not exact_topology):
             pt = eval_curve(C_orig, t_sol, rational=rational)
             root = (float(t_sol), float(u_sol), float(v_sol))
             radii = (ptol_t, ptol_u, ptol_v)

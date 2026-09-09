@@ -43,12 +43,12 @@ def _outward_interval(interval):
     return float(lower), float(upper)
 
 
-def _parameter_root_box(interval, points, weights, surface_points, axes):
+def _exact_parameter_root_box(interval, points, weights, surface_points, axes):
     """Exact affine inverse enclosure; general convex charts retain full UV."""
     a, c_end, b_end, opposite = surface_points
     b, c = _sub(b_end, a), _sub(c_end, a)
     if any(opposite[i]-a[i]-b[i]-c[i] for i in range(3)):
-        return (_outward_interval(interval), (0., 1.), (0., 1.))
+        return (interval, (Fraction(0), Fraction(1)), (Fraction(0), Fraction(1)))
     i, j = axes
     determinant = b[i]*c[j]-b[j]*c[i]
     u_coeff = [w*((p[i]-a[i])*c[j]-(p[j]-a[j])*c[i])/determinant
@@ -57,13 +57,18 @@ def _parameter_root_box(interval, points, weights, surface_points, axes):
                for p, w in zip(points, weights)]
     wlo, whi = _range(_power(weights), *interval)
     wlo, whi = max(wlo, min(weights)), min(whi, max(weights))
-    box = [_outward_interval(interval)]
+    box = [interval]
     for coefficients in (u_coeff, v_coeff):
         lower, upper = _range(_power(coefficients), *interval)
         values = (lower/wlo, lower/whi, upper/wlo, upper/whi)
-        box.append(_outward_interval((max(Fraction(0), min(values)),
-                                       min(Fraction(1), max(values)))))
+        box.append((max(Fraction(0), min(values)),
+                    min(Fraction(1), max(values))))
     return tuple(box)
+
+
+def _parameter_root_box(interval, points, weights, surface_points, axes):
+    return tuple(_outward_interval(bounds) for bounds in _exact_parameter_root_box(
+        interval, points, weights, surface_points, axes))
 
 
 def _bilinear_inverse(point, surface, axes):
@@ -138,8 +143,23 @@ def exact_planar_bilinear_roots(C, S, rational=False, max_cells=100_000,
     curve_data, surface_data = _exact_points(curve, rational), _exact_points(surface, rational)
     if curve_data is None or surface_data is None:
         return None
-    points, weights = curve_data
-    surface_points, surface_weights = surface_data
+    result = _exact_planar_bilinear_roots_data(
+        *curve_data, *surface_data, max_cells=max_cells,
+        max_results=max_results, atol=atol, construction_work=construction_work)
+    if result is not None:
+        for root in result['isolated']:
+            root.pop('exact_parameter_root_box', None)
+    return result
+
+
+def _exact_planar_bilinear_roots_data(points, weights, surface_points, surface_weights,
+                                     *, max_cells=100_000, max_results=4096,
+                                     atol=1e-3, construction_work=0):
+    """Private exact-coefficient engine; callers must prepay construction.
+
+    All coordinates and weights are Fraction values, including restrictions
+    of original sources which cannot be represented by binary floats.
+    """
     if any(weight != surface_weights[0] for weight in surface_weights):
         return None
     chart = _convex_chart(surface_points)
@@ -170,7 +190,10 @@ def exact_planar_bilinear_roots(C, S, rational=False, max_cells=100_000,
         halfspaces = [_power([
             weight*orientation*_cross2(edge, _sub(tuple(point[i] for i in axes), quad[index]))
             for point, weight in zip(points, weights)]) for index, edge in enumerate(edges)]
-        cartesian_surface = surface[..., :3]/surface[..., 3:] if rational else surface
+        try:
+            cartesian_surface = np.array(surface_points, dtype=float).reshape(2, 2, 3)
+        except OverflowError:
+            cartesian_surface = np.full((2, 2, 3), np.inf)
         for interval in sorted(intervals):
             inside = True
             for halfspace in halfspaces:
@@ -188,7 +211,19 @@ def exact_planar_bilinear_roots(C, S, rational=False, max_cells=100_000,
                 point = np.array([float(x) for x in exact_point])
             except OverflowError:
                 point = np.full(3, np.inf)
-            uv = _bilinear_inverse(point, cartesian_surface, axes)
+            a, c_end, b_end, opposite = surface_points
+            b, c = _sub(b_end, a), _sub(c_end, a)
+            if not any(opposite[i]-a[i]-b[i]-c[i] for i in range(3)):
+                # Exact affine inversion also avoids losing a very narrow
+                # source rectangle when its float vertices round together.
+                i, j = axes
+                determinant = b[i]*c[j]-b[j]*c[i]
+                target = _sub(exact_point, a)
+                uv = tuple(float(max(Fraction(0), min(Fraction(1), value))) for value in (
+                    (target[i]*c[j]-target[j]*c[i])/determinant,
+                    (b[i]*target[j]-b[j]*target[i])/determinant))
+            else:
+                uv = _bilinear_inverse(point, cartesian_surface, axes)
             exact_surface_point = (_exact_surface_point(
                 surface_points, *(Fraction.from_float(x) for x in uv))
                 if uv is not None else None)
@@ -199,7 +234,7 @@ def exact_planar_bilinear_roots(C, S, rational=False, max_cells=100_000,
                 distance_squared = max(distance_squared, *(
                     sum((a-b)**2 for a, b in zip(rounded_point, exact_value))
                     for exact_value in (exact_point, exact_surface_point)))
-            if (distance_squared is None
+            if (distance_squared is None or not np.all(np.isfinite(point))
                     or distance_squared > Fraction.from_float(float(atol))**2
                     or any(entry['t'] == t for entry in result['isolated'])):
                 result.update(budget_exhausted=True, boundary_topology_complete=False,
@@ -219,6 +254,8 @@ def exact_planar_bilinear_roots(C, S, rational=False, max_cells=100_000,
                 'parameter_root_certification': 'exact_sturm_isolation',
                 'exact_t_interval': tuple((str(x.numerator), str(x.denominator)) for x in interval),
                 'parameter_root_box': _parameter_root_box(
+                    interval, points, weights, surface_points, axes),
+                'exact_parameter_root_box': _exact_parameter_root_box(
                     interval, points, weights, surface_points, axes),
             }
             if len(repeated_factor) == 1:

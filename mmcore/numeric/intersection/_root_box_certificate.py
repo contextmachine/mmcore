@@ -134,8 +134,14 @@ def residual_roundoff_bound(net, depth=0, source_scale=None):
     axes = tuple(range(net.ndim-1))
     operations = 1 + 6*sum(n-1 for n in net.shape[:-1])*(int(depth)+1)
     error = (operations*eps/(1.0-operations*eps))*np.max(np.abs(net), axis=axes)
+    # Relative gamma bounds assume normal arithmetic. Price one minimum
+    # subnormal quantum per counted operation as a conservative additive
+    # rounding allowance; a single final nextafter cannot cover a chain.
+    quantum = float(np.nextafter(0., 1.))
+    error += operations*quantum
     if source_scale is not None:
         error += (3.0*eps/(1.0-3.0*eps))*source_scale
+        error += 3.0*quantum
     return np.nextafter(error, np.inf)
 
 
