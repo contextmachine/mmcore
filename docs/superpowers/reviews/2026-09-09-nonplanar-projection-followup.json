@@ -1,0 +1,26 @@
+{
+  "description": "Two exact polynomial curved graphs with a circular parameter intersection under an invertible integer world transform.",
+  "original_discovery_failure": "Without exact projected coordinate constraints, transformed input returned no branch with a60000work partial; identity returned one complete loop.",
+  "projected_only_coverage": {
+    "branches": 2,
+    "complete": true,
+    "max_world_reference_distance": 0.00191369939412392,
+    "angular_travel": [
+      7.068583470577035,
+      1.5707963267948963
+    ],
+    "total_angular_travel": 8.639379797371932,
+    "worst_angle": 5.898923119814233
+  },
+  "corrected_diagnosis": "Far open endpoints did not prove a missing physical arc.16384dense reference samples show maxworlddistance0.0019137 atatol.001. Totalangulartravel8.63938 exceeds2pi; three known-two-port owners each emitted two opposite copies when exits could not be identified with their already known partner.",
+  "changes": [
+    "Exact source-row nullspaces recover common affine world projections without a numeric rank test.",
+    "Equivalent projected source-face keys select a common source existence/uniqueness identity test.",
+    "A known-two-port arc may only accept its proved partner exit; refused identity retains unresolved ownership."
+  ],
+  "validation": {
+    "command": "pytest tests/test_ssx_known_port_ownership.py tests/test_ssx_nonplanar_projection_invariance.py tests/test_ssx_affine_constraints.py -q",
+    "result": "31passed5.47s",
+    "independent_review": "Exact projection and source-face proof reviewed; generic known-port guard retains failures conservatively."
+  }
+}

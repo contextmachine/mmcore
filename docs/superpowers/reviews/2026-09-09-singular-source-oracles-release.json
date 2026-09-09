@@ -1,0 +1,172 @@
+{
+  "method": "Reconstructed current fixture source arrays are byte-identical to independently exact-polynomial/CAS-audited sources. No CAS recomputation or ordinary zero-set coverage inference is made.",
+  "test_file_sha256": "633f18f8e9c68992a164f13937452624799a267890f740fbf163239ed738edce",
+  "cases": [
+    {
+      "helper": "_closed_tangent_loop",
+      "arguments": [],
+      "source_sha256": "583e0ff2d39885f3de86e5eddc42e13efb2368d5ab77071a0a0c6ab87cb3469a",
+      "matches_prior_exact_oracle": true,
+      "no_regular_tangent_contact": true,
+      "oracle": "2026-09-09-singular-source-oracles-current.json"
+    },
+    {
+      "helper": "_double_touch_asym",
+      "arguments": [],
+      "source_sha256": "336e6d059538a01d808145515d65da47a164a752f0e3b143ab6ed5a663955cf6",
+      "matches_prior_exact_oracle": true,
+      "no_regular_tangent_contact": true,
+      "oracle": "2026-09-09-singular-source-oracles-current.json"
+    },
+    {
+      "helper": "_line_plus_touch",
+      "arguments": [
+        0.2
+      ],
+      "source_sha256": "5733fa0d5ba3f3ec2a75f60eb3d0bd2c7580635bdac4657ae7a5a9b2fd865626",
+      "matches_prior_exact_oracle": true,
+      "no_regular_tangent_contact": true,
+      "oracle": "2026-09-09-singular-source-oracles-current.json"
+    },
+    {
+      "helper": "_line_plus_touch",
+      "arguments": [
+        0.495
+      ],
+      "source_sha256": "3402537ed9e762a057d715798d62021b70aefbb55c098ea6a8d7158a2321fd30",
+      "matches_prior_exact_oracle": true,
+      "no_regular_tangent_contact": true,
+      "oracle": "2026-09-09-singular-source-oracles-current.json"
+    },
+    {
+      "helper": "_line_plus_touch",
+      "arguments": [
+        0.49
+      ],
+      "source_sha256": "c3085f4e50e76c5d4a82fff2325382ca229163447d1b4671e25a1ef0a9be30bb",
+      "matches_prior_exact_oracle": true,
+      "no_regular_tangent_contact": true,
+      "oracle": "2026-09-09-singular-source-oracles-current.json"
+    },
+    {
+      "helper": "_mexican_hat",
+      "arguments": [],
+      "source_sha256": "239e797dc676ab26d8d8493b2e6f0cbaa75c2455cd655410b5e83e9675059420",
+      "matches_prior_exact_oracle": true,
+      "no_regular_tangent_contact": true,
+      "oracle": "2026-09-09-singular-source-oracles-current.json"
+    },
+    {
+      "helper": "_offcenter_touch_plus_loop",
+      "arguments": [],
+      "source_sha256": "a8e5bae24a0b81a4a76e3202639f21c935f83c03e633f96c5b1bc67b550dda61",
+      "matches_prior_exact_oracle": true,
+      "no_regular_tangent_contact": true,
+      "oracle": "2026-09-09-singular-source-oracles-current.json"
+    },
+    {
+      "helper": "_offlattice_tangent_ring",
+      "arguments": [],
+      "source_sha256": "1dfb9562ed26d85b2e5e747724c36ee5d66b8a09881cabfb8301795ad8de63c5",
+      "matches_prior_exact_oracle": true,
+      "no_regular_tangent_contact": true,
+      "oracle": "2026-09-09-singular-source-oracles-current.json"
+    },
+    {
+      "helper": "_touch_plus_loop",
+      "arguments": [
+        0.001
+      ],
+      "source_sha256": "a58e7aeb8c75ed5b19ff95835bddc78d304b981b4b6198093dda4fa359655ef7",
+      "matches_prior_exact_oracle": true,
+      "no_regular_tangent_contact": true,
+      "oracle": "2026-09-09-singular-source-oracles-current.json"
+    },
+    {
+      "helper": "_touch_plus_loop",
+      "arguments": [
+        0.005
+      ],
+      "source_sha256": "f6542f932064e90cdc63c70ea2566db6a1c70ded8aa513618bd9d018f8e53398",
+      "matches_prior_exact_oracle": true,
+      "no_regular_tangent_contact": true,
+      "oracle": "2026-09-09-singular-source-oracles-current.json"
+    },
+    {
+      "helper": "_touch_plus_loop",
+      "arguments": [
+        0.008
+      ],
+      "source_sha256": "05f7e780ff187e984afc4ea1bf217c6e106e7ca4eb18967e0fb248b7a2fb5a39",
+      "matches_prior_exact_oracle": true,
+      "no_regular_tangent_contact": true,
+      "oracle": "2026-09-09-singular-source-oracles-current.json"
+    },
+    {
+      "helper": "_touch_plus_loop",
+      "arguments": [
+        0.04
+      ],
+      "source_sha256": "4d1d9f7c01f12e3155f5194fce1430b560c08bff782daf353753bc18009de7db",
+      "matches_prior_exact_oracle": true,
+      "no_regular_tangent_contact": true,
+      "oracle": "2026-09-09-singular-source-oracles-current.json"
+    },
+    {
+      "helper": "_touch_plus_loop_offlattice",
+      "arguments": [],
+      "source_sha256": "79b59f11ac54cda2c031341ddc76983ccddfb863858b0832ae9e485ed9dee220",
+      "matches_prior_exact_oracle": true,
+      "no_regular_tangent_contact": true,
+      "oracle": "2026-09-09-singular-source-oracles-current.json"
+    },
+    {
+      "name": "rational_paraboloid",
+      "source_sha256": "b15314913b1653b6b2e1a8853ff3456bea3ca83bed474a2c28c3e3973f92c3d2",
+      "matches_prior_exact_oracle": true,
+      "no_regular_tangent_contact": true,
+      "scope": "all parameters",
+      "oracle": "2026-09-09-singular-extra-source-oracles.json"
+    },
+    {
+      "name": "skew",
+      "source_sha256": "023bc09a29863d9a81c58a2d3fde3fd930479a6a104037b256ea7abd554df265",
+      "matches_prior_exact_oracle": true,
+      "no_regular_tangent_contact": true,
+      "scope": "s != 0",
+      "oracle": "2026-09-09-singular-extra-source-oracles.json"
+    },
+    {
+      "name": "repeat",
+      "source_sha256": "dfe76a3175b126fa56938283f84d4a02d8dbe57ae675b64e6150a159e2113cb3",
+      "matches_prior_exact_oracle": true,
+      "no_regular_tangent_contact": true,
+      "scope": "all parameters",
+      "oracle": "2026-09-09-singular-extra-source-oracles.json"
+    },
+    {
+      "name": "scaled10",
+      "source_sha256": "c22b0aa5815f5f99757b8f87e793c6ecd3f9105b99f3a89da72e2beaebddd934",
+      "matches_prior_exact_oracle": true,
+      "no_regular_tangent_contact": true,
+      "scope": "all parameters",
+      "oracle": "2026-09-09-singular-extra-source-oracles.json"
+    },
+    {
+      "name": "scaled100",
+      "source_sha256": "4e95959d90b8c78d0c72378ad91cc24b094f31043b0766851dfc4e06a8869c77",
+      "matches_prior_exact_oracle": true,
+      "no_regular_tangent_contact": true,
+      "scope": "all parameters",
+      "oracle": "2026-09-09-singular-extra-source-oracles.json"
+    },
+    {
+      "name": "aniso",
+      "source_sha256": "e5a8354809b79ccaf4639523e86af674f96be3eeb4ce23431ec512240b3081d0",
+      "matches_prior_exact_oracle": true,
+      "no_regular_tangent_contact": true,
+      "scope": "all parameters",
+      "oracle": "2026-09-09-singular-extra-source-oracles.json"
+    }
+  ]
+}

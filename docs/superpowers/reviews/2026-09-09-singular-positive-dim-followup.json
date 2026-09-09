@@ -1,0 +1,399 @@
+{
+  "source_hashes": {
+    "mmcore/numeric/intersection/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "mmcore/numeric/intersection/_adapter_status.py": "ede7cfb6735ae088a4d2b2f5ebc71574ac6069d1ea4d2f285b85068061326a3f",
+    "mmcore/numeric/intersection/_deflate.py": "f5dd8843c035d522d1a2efb40a1928b24974a08672e00e72eccaf9539380b2ca",
+    "mmcore/numeric/intersection/_exact_univariate.py": "f5ffcc108eecdd3f74dc5cdc89ba6794b5ad817e9f9a88747fa9a524ddf4f907",
+    "mmcore/numeric/intersection/_interval_cutout.py": "4c08050dbf5bebf0eea40ef5c3ab71fa0a537c6664d69088b43fdf859bb1c781",
+    "mmcore/numeric/intersection/_parameter_mapping.py": "fd05269cb9acd8e5c138fb30a968346adf220d2d35f6c21dfee8f3f9fff3ea40",
+    "mmcore/numeric/intersection/_root_box_certificate.py": "0de0e53355697bf41caf2583e18b34a3f1d374edcdc26d439e3fbb383dc829bb",
+    "mmcore/numeric/intersection/_sq_dist_classify.py": "a1feaefc3814f4577485ba222f46cd5203c2f67c29477b68e93b145221bd831e",
+    "mmcore/numeric/intersection/ccx/__init__.py": "86d89322aaeb52f90480b8e69af452e896bb040302e536b644f6fb82d8216857",
+    "mmcore/numeric/intersection/ccx/_bez_ccx4.py": "93cd73e1a82f3524126144a34ba0f9dd0e8590d280cb6ca2c1972e1f01b9ed78",
+    "mmcore/numeric/intersection/ccx/_bez_overlap.py": "293ff10c7b96188dc44a0ae0f0a86df438c46425330ea17fc38a06dfdff775f8",
+    "mmcore/numeric/intersection/ccx/_curve_line_exact.py": "6bb4b6e97c71a11fdaebb54cda8c6928245cdb444208e61f056191de9a16b4c6",
+    "mmcore/numeric/intersection/ccx/_linear_exact.py": "ccacb3fbf93d315bd21ad4f0d16cf0a983d42ce044c69916b26aebc800ef00f1",
+    "mmcore/numeric/intersection/ccx/_nccx4.py": "47fc45e42a4d40037f8cecc9392fb00d5e788adf1d9ac2f02da464fdc737141c",
+    "mmcore/numeric/intersection/ccx/_utils.py": "aa1232ac299c55841b5c178350743abbba68b19fa1296c4dfb24544fb99abca3",
+    "mmcore/numeric/intersection/ccx/ccx.py": "bebd556a89f1762723ec29aa514272bcc24f6e27c10ece8bd51c2d3395bf616d",
+    "mmcore/numeric/intersection/ccx/segment.py": "afdf5fc23bb41cfa0698ca01c07669620dccf9cdc932c3bacfaaceadd97e3117",
+    "mmcore/numeric/intersection/csx/__init__.py": "c167863cb62ff0e6da66e73f06aafd1ac53d0ed4783944702bf50240d40f72d7",
+    "mmcore/numeric/intersection/csx/_bez_csx4.py": "5f3e1697a3c38cd8a019478383836a098c3ee2ac418bc645709eb71f7335fd5d",
+    "mmcore/numeric/intersection/csx/_ncsx4.py": "5f12c1e5c996faca37af8d9f43beff9e0d6de35fdca6d2053b496226773cc4bd",
+    "mmcore/numeric/intersection/csx/_planar_overlap.py": "7e195ed310d830a18893867e39d6d51ffbd69f1861f7348aefe9c19e0f3080e0",
+    "mmcore/numeric/intersection/csx/_planar_roots.py": "05722fbc580d00d393150cd1d9818903e07554cfdff2a14e9aafbe7c66cbfe95",
+    "mmcore/numeric/intersection/separability/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "mmcore/numeric/intersection/separability/spatial.py": "f28e5de2a6ba96b4d303355a8e4ce56413aa795c7c9aa3af7e1c8fe2812d47d2",
+    "mmcore/numeric/intersection/separability/spherical.py": "87dbac9c16fc44a82fad3328dc8d86846792c1690ebab56594729148f43d820d",
+    "mmcore/numeric/intersection/ssx/__init__.py": "31157515adc98ba3ee0e47065e3473b463bc425cdc77b79fc337b68cb4f6cc96",
+    "mmcore/numeric/intersection/ssx/_bez_ssx5.py": "58a62c2ef349d9c3cb353622ecb3c2e672fdfdfe6b829b20f5af67b7521c98cb",
+    "mmcore/numeric/intersection/ssx/_detect_intersections.py": "1921d4a27db1246dbbd76b81b77c275a6581042fa090842f88aa283d90667bd4",
+    "mmcore/numeric/intersection/ssx/_nssx5.py": "b2821e4d8e590dc962c5080ba0927db9747bb90c3b7e22a99606b4346113aba7",
+    "mmcore/numeric/intersection/ssx/_ssx5_overlap.py": "c57854d3101400e5deb578f3413ca1d5648c8d07fe935ac668aa5f70421edcba",
+    "mmcore/numeric/intersection/ssx/_ssx5_singular.py": "a19a17d463fcc8e2f53ce9270c8cd26a1dcb8bc2457b2dbc5581b9f9a53d9930",
+    "mmcore/numeric/intersection/ssx/_ssx_affine_constraints.py": "ea60c89659f8dd99c242c93f24c48bd8d1e1615218e7c3ca17d6ae3f4a331f2a",
+    "mmcore/numeric/intersection/ssx/_ssx_affine_path.py": "7cc2ecc97c3a9e7e64a7a629fdf244490e1a2cde4232aea3420d1f83aae71e68",
+    "mmcore/numeric/intersection/ssx/_ssx_arc_ownership.py": "976c35d79331f20ed310894cb15868324ffc8f8ed40158fce9ae13ab2ff9fabb",
+    "mmcore/numeric/intersection/ssx/_ssx_boundary_fibers.py": "fe4c270919f2d41475181eb5f9937d77db68b1d3b79139dc2e31a1d86d0a2cdc",
+    "mmcore/numeric/intersection/ssx/_ssx_boundary_identity.py": "e49424776f63ceaa048b469048204f5a399ce1c88a3cc76d62dd78e3297d5f76",
+    "mmcore/numeric/intersection/ssx/_ssx_boundary_strata.py": "2bb598ae518a7921865eb64d0bb3198951441572851f50df2cb39fa45d62b7ad",
+    "mmcore/numeric/intersection/ssx/_ssx_cofactor_bounds.py": "cda4411563f76a3ae794e5337cfc739370a687ce9ffb130a97721edaf299c37f",
+    "mmcore/numeric/intersection/ssx/_ssx_exact_region.py": "858aa793cf921671b6a3e00a9c49b93e5899710936f2befc1a08c53e2a17b40d",
+    "mmcore/numeric/intersection/ssx/_ssx_extrusion.py": "1872bf047534b597f0b7378e53787a5b1e9a673e95378caa720421ffdddafbee",
+    "mmcore/numeric/intersection/ssx/_ssx_face_residual.py": "7edced0cb93e2a7f16e83464531ad85767e5e4ccda7cc314e9d5eaf57b2d79c3",
+    "mmcore/numeric/intersection/ssx/_ssx_input.py": "2059de043fdd73377a44b5aa960df14baa5ffad7ef4b7639d2af16fbfc2b680d",
+    "mmcore/numeric/intersection/ssx/_ssx_opposed_strata.py": "1b648caa74dd3744d45b95185ae5e42f2c96de0d8095ea4cb41c4e27856b5494",
+    "mmcore/numeric/intersection/ssx/_ssx_planar_cut.py": "9c91746a9e3c6a4539518fe110f0afbbcbb61bbe0a55b2961195a6d668c94686",
+    "mmcore/numeric/intersection/ssx/_ssx_polyline.py": "e05ad057f22a11ef638ce29fbae5cbc94d68da9ea78ca19738d9c343400b5c9d",
+    "mmcore/numeric/intersection/ssx/_ssx_positive_dimensional.py": "7601c0787a0683c970073f7c89608b3f6df5b8d318e657a2b8e4eb81357f5b13",
+    "mmcore/numeric/intersection/ssx/_ssx_quadratic_constraints.py": "fbb8c6b6bcbd9f0b7447c3b0f71401b7503a4032dfa0b6fccc7cefb1e1f12412",
+    "mmcore/numeric/intersection/ssx/_ssx_residual_contract.py": "fd27210795d41be99592afe2f4ff18f43416e68d6739ea24e197eb9e2f8ea156",
+    "mmcore/numeric/intersection/ssx/_ssx_root_identity.py": "80e5b2f74e54c34af6db9a4768ef8b09bfb2b2b1c9b2912eb1606681570efd9d",
+    "mmcore/numeric/intersection/ssx/_ssx_singular_candidate.py": "9406ba60a38b31a20748319803bf6f1a162cc68e0db03501b634c310692dba04",
+    "mmcore/numeric/intersection/ssx/_ssx_source_cut_cache.py": "2c02c0fcad699371d7c14d21ab69168c455ce8fa70c9b1c5558ecdb716ea6465",
+    "mmcore/numeric/intersection/ssx/_ssx_source_residual.py": "c6d2b4e1b407e12cd44a559252c98052bde2c9a343cfdd24d6a7b05aa1c6ab29",
+    "mmcore/numeric/intersection/ssx/_ssx_substrate.py": "255b86f1a9eb13631d6295d0f0bbc26b410a0d94f110bc1e050c663f06006d8c",
+    "mmcore/numeric/intersection/ssx/refine.py": "087945b4405732fbd1d197c4fd0d9e978c11e2af5f8b34edee57f47266a6c839",
+    "mmcore/numeric/intersection/ssx/trace_inter_segm.py": "9eaab76a9cc34f6bdc1e853ecd441a954f5fa451aaafdd1c53115974726974a7",
+    "tests/test_bez_ssx5_singular.py": "2ed02a42c73fb3db1446e737e3ace4af5c3966b663d3d22fd8017593c2c23040"
+  },
+  "source_changed": [],
+  "results": [
+    {
+      "node": "test_overlap_region_case12_partial_overlap",
+      "seconds": 0.0027606250951066613,
+      "complete": false,
+      "reasons": [
+        "overlap_region_unsupported"
+      ],
+      "work": {
+        "cells_processed": 947,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 1,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 24,
+          "positive_dimensional_owner": 923
+        }
+      },
+      "branches": 0,
+      "regions": 0,
+      "unresolved_regions": [
+        {
+          "stuv_min": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "stuv_max": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "reason": "overlap_region_unsupported",
+          "exact_dimension": 2,
+          "proof": "exact_convex_rational_bilinear_region",
+          "exact_image_polygon": [
+            [
+              "7791047073443125/281474976710656",
+              "-6616713992537879/140737488355328",
+              "0"
+            ],
+            [
+              "8571124383510989/281474976710656",
+              "-8865744455555015/281474976710656",
+              "0"
+            ],
+            [
+              "6645770961191445/562949953421312",
+              "-8865744455555015/281474976710656",
+              "0"
+            ],
+            [
+              "6645770961191445/562949953421312",
+              "-3625710012704721/70368744177664",
+              "0"
+            ]
+          ],
+          "unresolved_obligation": "paired_region_representation"
+        }
+      ]
+    },
+    {
+      "node": "test_overlap_region_full_containment",
+      "seconds": 0.0006982919294387102,
+      "complete": false,
+      "reasons": [
+        "overlap_region_unsupported"
+      ],
+      "work": {
+        "cells_processed": 1066,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 1,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 24,
+          "positive_dimensional_owner": 1042
+        }
+      },
+      "branches": 0,
+      "regions": 0,
+      "unresolved_regions": [
+        {
+          "stuv_min": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "stuv_max": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "reason": "overlap_region_unsupported",
+          "exact_dimension": 2,
+          "proof": "exact_convex_rational_bilinear_region",
+          "exact_image_polygon": [
+            [
+              "3152519739159347/4503599627370496",
+              "3152519739159347/2251799813685248",
+              "0"
+            ],
+            [
+              "5404319552844595/9007199254740992",
+              "1/2",
+              "0"
+            ],
+            [
+              "3/2",
+              "2476979795053773/4503599627370496",
+              "0"
+            ],
+            [
+              "6530219459687219/4503599627370496",
+              "3/2",
+              "0"
+            ]
+          ],
+          "unresolved_obligation": "paired_region_representation"
+        }
+      ]
+    },
+    {
+      "node": "test_overlap_region_identical_patches",
+      "seconds": 0.0005520000122487545,
+      "complete": false,
+      "reasons": [
+        "overlap_region_unsupported"
+      ],
+      "work": {
+        "cells_processed": 958,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 1,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 24,
+          "positive_dimensional_owner": 934
+        }
+      },
+      "branches": 0,
+      "regions": 0,
+      "unresolved_regions": [
+        {
+          "stuv_min": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "stuv_max": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "reason": "overlap_region_unsupported",
+          "exact_dimension": 2,
+          "proof": "exact_convex_rational_bilinear_region",
+          "exact_image_polygon": [
+            [
+              "0",
+              "0",
+              "0"
+            ],
+            [
+              "4728779608739021/2251799813685248",
+              "-3602879701896397/18014398509481984",
+              "0"
+            ],
+            [
+              "6530219459687219/2251799813685248",
+              "5854679515581645/2251799813685248",
+              "0"
+            ],
+            [
+              "5404319552844595/18014398509481984",
+              "2476979795053773/1125899906842624",
+              "0"
+            ]
+          ],
+          "unresolved_obligation": "paired_region_representation"
+        }
+      ]
+    },
+    {
+      "node": "test_overlap_region_rational_twin_case12",
+      "seconds": 0.0009991249535232782,
+      "complete": false,
+      "reasons": [
+        "overlap_region_unsupported"
+      ],
+      "work": {
+        "cells_processed": 1539,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 1,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 32,
+          "positive_dimensional_owner": 1507
+        }
+      },
+      "branches": 0,
+      "regions": 0,
+      "unresolved_regions": [
+        {
+          "stuv_min": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "stuv_max": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "reason": "overlap_region_unsupported",
+          "exact_dimension": 2,
+          "proof": "exact_convex_rational_bilinear_region",
+          "exact_image_polygon": [
+            [
+              "7791047073443125/281474976710656",
+              "-6616713992537879/140737488355328",
+              "0"
+            ],
+            [
+              "187179793996672913358671910532767/6146968098756835513336235819008",
+              "-8865744455555015/281474976710656",
+              "0"
+            ],
+            [
+              "112388538637394482779696757657429/9520208108355834849689857949696",
+              "-8865744455555015/281474976710656",
+              "0"
+            ],
+            [
+              "20223680936743788928461914118977740133832199739/1713107524744776641884362158413401936759881728",
+              "-353067611360241751328205124018693227309454566167/6852430098979106567537448633653607747039526912",
+              "0"
+            ],
+            [
+              "12144402691537780789653267096772276078079807555/1028728039147646326327376937441090451592445952",
+              "-53004634308531923328626339596564916911642002809/1028728039147646326327376937441090451592445952",
+              "0"
+            ]
+          ],
+          "unresolved_obligation": "paired_region_representation"
+        }
+      ]
+    },
+    {
+      "node": "test_overlap_region_opposed_orientation",
+      "seconds": 0.0005640001036226749,
+      "complete": false,
+      "reasons": [
+        "overlap_region_unsupported"
+      ],
+      "work": {
+        "cells_processed": 922,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 1,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 24,
+          "positive_dimensional_owner": 898
+        }
+      },
+      "branches": 0,
+      "regions": 0,
+      "unresolved_regions": [
+        {
+          "stuv_min": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "stuv_max": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "reason": "overlap_region_unsupported",
+          "exact_dimension": 2,
+          "proof": "exact_convex_rational_bilinear_region",
+          "exact_image_polygon": [
+            [
+              "7791047073443125/281474976710656",
+              "-6616713992537879/140737488355328",
+              "0"
+            ],
+            [
+              "8571124383510989/281474976710656",
+              "-8865744455555015/281474976710656",
+              "0"
+            ],
+            [
+              "6645770961191445/562949953421312",
+              "-8865744455555015/281474976710656",
+              "0"
+            ],
+            [
+              "6645770961191445/562949953421312",
+              "-3625710012704721/70368744177664",
+              "0"
+            ]
+          ],
+          "unresolved_obligation": "paired_region_representation"
+        }
+      ]
+    }
+  ],
+  "note": "The five existing geometry assertions are deliberately not changed. This probe captures the exact owner result before those assertions, which still expect an unsupported paired UV region."
+}

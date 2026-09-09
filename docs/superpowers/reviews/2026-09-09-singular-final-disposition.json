@@ -1,0 +1,397 @@
+{
+  "baseline_counts": {
+    "pass": 86,
+    "fail": 28,
+    "timeout": 3
+  },
+  "baseline_watchdog_seconds": 30,
+  "comparison_previous": {
+    "pass": 77,
+    "fail": 38,
+    "timeout": 2,
+    "watchdog_seconds": 60
+  },
+  "note": "Snapshots have different watchdogs and evolving source hashes. Follow-up passes do not constitute a rerun of the entire current tree. A failed contact premise does not prove ordinary nearby geometry complete.",
+  "focused_followup": "2026-09-09-singular-fix-verification.json: 138 passed in 7.25 s, with no source/test hash changes during the focused run; includes 0D source reduction, transactional root refinement, exact seam tangency and generic witness fault injection.",
+  "source_oracles": [
+    "2026-09-09-singular-source-oracles-current.json",
+    "2026-09-09-singular-extra-source-oracles.json"
+  ],
+  "results": [
+    {
+      "index": 1,
+      "node": "tests/test_bez_ssx5_singular.py::test_case11_default_nested_csx_budget_preserves_closed_loop",
+      "status": "fail",
+      "seconds": 4.076372416107915,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": false,
+      "category": "real_regular_loop_partial_fixed",
+      "finding": "Three open fragments/depth partial under60k instead of complete loop; independently assigned to substrate agent.",
+      "disposition": "Arbitrary derived default depth 13 removed; explicit caps remain. Source census and enclosure identity/refinement repairs preserve the complete closed loop under the same 60000-work cap. Actual default-depth closed-loop regression passes in the focused follow-up; benchmark recorded separately by raw agent."
+    },
+    {
+      "index": 13,
+      "node": "tests/test_bez_ssx5_singular.py::test_two_isolated_tangent_points_same_cell",
+      "status": "fail",
+      "seconds": 5.337573208031245,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": false,
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "disposition": "Existing geometry assertions retained; exact nearby regular topology/performance remains independently assessable."
+    },
+    {
+      "index": 14,
+      "node": "tests/test_bez_ssx5_singular.py::test_tangent_point_with_coexisting_transversal_ring",
+      "status": "fail",
+      "seconds": 8.87409854202997,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": false,
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "disposition": "Existing geometry assertions retained; exact nearby regular topology/performance remains independently assessable."
+    },
+    {
+      "index": 17,
+      "node": "tests/test_bez_ssx5_singular.py::test_tangent_point_plus_tiny_loop",
+      "status": "fail",
+      "seconds": 8.792130375048146,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": false,
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "disposition": "Existing geometry assertions retained; exact nearby regular topology/performance remains independently assessable."
+    },
+    {
+      "index": 18,
+      "node": "tests/test_bez_ssx5_singular.py::test_touch_plus_loop_small_eps_no_phantom_tangential",
+      "status": "fail",
+      "seconds": 8.065547749982215,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": false,
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "disposition": "Existing geometry assertions retained; exact nearby regular topology/performance remains independently assessable."
+    },
+    {
+      "index": 19,
+      "node": "tests/test_bez_ssx5_singular.py::test_touch_plus_loop_controls_stay_clean[0.005]",
+      "status": "fail",
+      "seconds": 6.352713999920525,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": false,
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "disposition": "Existing geometry assertions retained; exact nearby regular topology/performance remains independently assessable."
+    },
+    {
+      "index": 20,
+      "node": "tests/test_bez_ssx5_singular.py::test_touch_plus_loop_controls_stay_clean[0.008]",
+      "status": "fail",
+      "seconds": 10.022277791053057,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": false,
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "disposition": "Existing geometry assertions retained; exact nearby regular topology/performance remains independently assessable."
+    },
+    {
+      "index": 21,
+      "node": "tests/test_bez_ssx5_singular.py::test_tangent_line_with_coexisting_isolated_touch",
+      "status": "timeout",
+      "seconds": 30.0132682089461,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": false,
+      "category": "invalid_contact_premise_and_unresolved_runtime",
+      "finding": "Exact unit-basis source proof rules out the asserted tangent line/contact or loop. Both 30s and90s per-test watchdogs expire.",
+      "disposition": "Unresolved ordinary near-root coverage/performance; not excused as a passing test."
+    },
+    {
+      "index": 22,
+      "node": "tests/test_bez_ssx5_singular.py::test_offcurve_touch_near_tangent_line_blind_band[0.01]",
+      "status": "fail",
+      "seconds": 6.454240040970035,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": false,
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "disposition": "Existing geometry assertions retained; exact nearby regular topology/performance remains independently assessable."
+    },
+    {
+      "index": 23,
+      "node": "tests/test_bez_ssx5_singular.py::test_offcurve_touch_near_tangent_line_blind_band[0.005]",
+      "status": "fail",
+      "seconds": 7.80708225001581,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": false,
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "disposition": "Existing geometry assertions retained; exact nearby regular topology/performance remains independently assessable."
+    },
+    {
+      "index": 24,
+      "node": "tests/test_bez_ssx5_singular.py::test_closed_tangent_loop_via_phi_marcher",
+      "status": "timeout",
+      "seconds": 30.01144704199396,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": false,
+      "category": "invalid_contact_premise_and_unresolved_runtime",
+      "finding": "Exact unit-basis source proof rules out the asserted tangent line/contact or loop. Both 30s and90s per-test watchdogs expire.",
+      "disposition": "Unresolved ordinary near-root coverage/performance; not excused as a passing test."
+    },
+    {
+      "index": 25,
+      "node": "tests/test_bez_ssx5_singular.py::test_param_far_touch_near_overlap_not_subsumed",
+      "status": "fail",
+      "seconds": 4.036769457976334,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": false,
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "disposition": "Existing geometry assertions retained; exact nearby regular topology/performance remains independently assessable."
+    },
+    {
+      "index": 33,
+      "node": "tests/test_bez_ssx5_singular.py::test_offlattice_touch_plus_loop_found",
+      "status": "fail",
+      "seconds": 4.692545625031926,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": false,
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "disposition": "Existing geometry assertions retained; exact nearby regular topology/performance remains independently assessable."
+    },
+    {
+      "index": 38,
+      "node": "tests/test_bez_ssx5_singular.py::test_rational_weights_tangent_point_found",
+      "status": "fail",
+      "seconds": 8.324394332943484,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": false,
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "disposition": "Existing geometry assertions retained; exact nearby regular topology/performance remains independently assessable."
+    },
+    {
+      "index": 39,
+      "node": "tests/test_bez_ssx5_singular.py::test_rational_transversal_sanity_matches_polynomial",
+      "status": "fail",
+      "seconds": 0.9365732920123264,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": false,
+      "category": "real_branch_loss_fixed",
+      "finding": "Missing exact homogeneous constant world-coordinate equations prevented contraction u=s=.5 and lost the ordinary line.",
+      "disposition": "Constraints-only constant extraction added; existing full geometry test passes in the 138-test focused follow-up."
+    },
+    {
+      "index": 41,
+      "node": "tests/test_bez_ssx5_singular.py::test_offlattice_tangent_point_plus_loop",
+      "status": "fail",
+      "seconds": 4.513160875067115,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": false,
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "disposition": "Existing geometry assertions retained; exact nearby regular topology/performance remains independently assessable."
+    },
+    {
+      "index": 42,
+      "node": "tests/test_bez_ssx5_singular.py::test_repeated_calls_bit_identical",
+      "status": "fail",
+      "seconds": 18.307186875026673,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": false,
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "disposition": "Existing geometry assertions retained; exact nearby regular topology/performance remains independently assessable."
+    },
+    {
+      "index": 43,
+      "node": "tests/test_bez_ssx5_singular.py::test_aniso_tangent_point_plus_thin_loop",
+      "status": "fail",
+      "seconds": 3.6851109580602497,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": false,
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "disposition": "Existing geometry assertions retained; exact nearby regular topology/performance remains independently assessable."
+    },
+    {
+      "index": 44,
+      "node": "tests/test_bez_ssx5_singular.py::test_cone_apex_no_phantom_tangent_point",
+      "status": "fail",
+      "seconds": 8.418895249953493,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": false,
+      "category": "real_nonimmersed_fiber_search_gap_fixed",
+      "finding": "Cone exact zero set is a generator plus collapsed source edge; current general search reaches work/output caps without generator or C1 metadata.",
+      "disposition": "Exact factor-specific linear elimination now proves full generator and collapsed parameter fiber. Represented cusp_curve samples retain full4D source correspondence and exact incident branch link. Unchanged legacy cone test and independent parameter/homogeneous controls pass; reviewed proof."
+    },
+    {
+      "index": 48,
+      "node": "tests/test_bez_ssx5_singular.py::test_touch_detection_scale_covariant[10.0]",
+      "status": "fail",
+      "seconds": 7.2434645420871675,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": false,
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "disposition": "Existing geometry assertions retained; exact nearby regular topology/performance remains independently assessable."
+    },
+    {
+      "index": 49,
+      "node": "tests/test_bez_ssx5_singular.py::test_touch_detection_scale_covariant[100.0]",
+      "status": "fail",
+      "seconds": 7.251067208941095,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": false,
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "disposition": "Existing geometry assertions retained; exact nearby regular topology/performance remains independently assessable."
+    },
+    {
+      "index": 58,
+      "node": "tests/test_bez_ssx5_singular.py::test_case14_tangent_generator_is_homogeneous_scale_invariant",
+      "status": "timeout",
+      "seconds": 30.008576416992582,
+      "source_snapshot": "7c66f8b85372db79c7a92e5322b109e7ca7a135ef3afb7d63e9bfd4d4fc9804b",
+      "source_changed_during_test": true,
+      "category": "watchdog_timing_only",
+      "finding": "Fresh90s individual diagnostic passes in29.807s.",
+      "disposition": "Geometry assertions unchanged."
+    },
+    {
+      "index": 59,
+      "node": "tests/test_bez_ssx5_singular.py::test_case13_rational_tangency_terminates_with_explicit_partial_status",
+      "status": "fail",
+      "seconds": 5.924388249986805,
+      "source_snapshot": "dfa6d3201115ffeaf46e5edf23fc1166901cdfe03731cb8be739c13f7f3ea762",
+      "source_changed_during_test": false,
+      "category": "unproved_singular_existence_expectation",
+      "finding": "Legacy assertion calls a residual-small, nearly parallel numerical witness certified. It supplies no original-source singular-root existence proof.",
+      "disposition": "Current typed partial retains pending source region without publishing an unproved tangent point. Exact existence or absence remains unproved; do not classify this as source-empty."
+    },
+    {
+      "index": 63,
+      "node": "tests/test_bez_ssx5_singular.py::test_zero_postprocess_budget_skips_all_postassembly_scans",
+      "status": "fail",
+      "seconds": 0.830064499983564,
+      "source_snapshot": "dfa6d3201115ffeaf46e5edf23fc1166901cdfe03731cb8be739c13f7f3ea762",
+      "source_changed_during_test": false,
+      "category": "obsolete_fault_injection_corrected",
+      "finding": "Exact shared-edge tier completes without postassembly work and bypasses the intended failure point.",
+      "disposition": "Retargeted ordinary step-bounded plane crossing; full length-one geometry survives zero postprocess budget and reports its cap."
+    },
+    {
+      "index": 95,
+      "node": "tests/test_bez_ssx5_singular.py::test_overlap_region_case12_partial_overlap",
+      "status": "fail",
+      "seconds": 3.9616506659658626,
+      "source_snapshot": "212efc736416b6f7395f1647b82071c80c0bf581877f28b9d9333e3111f7df05",
+      "source_changed_during_test": false,
+      "category": "real_unsupported_planar_region",
+      "finding": "Region geometry is retained but exact nonaffine convex-bilinear preimage exhaustiveness is unsupported; result partial.",
+      "disposition": "No completeness assertion relaxed. Exact full-region tier currently supports uniform-weight affine planar charts."
+    },
+    {
+      "index": 96,
+      "node": "tests/test_bez_ssx5_singular.py::test_overlap_region_full_containment",
+      "status": "fail",
+      "seconds": 2.4446559579810128,
+      "source_snapshot": "212efc736416b6f7395f1647b82071c80c0bf581877f28b9d9333e3111f7df05",
+      "source_changed_during_test": false,
+      "category": "real_unsupported_planar_region",
+      "finding": "Region geometry is retained but exact nonaffine convex-bilinear preimage exhaustiveness is unsupported; result partial.",
+      "disposition": "No completeness assertion relaxed. Exact full-region tier currently supports uniform-weight affine planar charts."
+    },
+    {
+      "index": 97,
+      "node": "tests/test_bez_ssx5_singular.py::test_overlap_region_identical_patches",
+      "status": "fail",
+      "seconds": 25.67501429200638,
+      "source_snapshot": "212efc736416b6f7395f1647b82071c80c0bf581877f28b9d9333e3111f7df05",
+      "source_changed_during_test": false,
+      "category": "real_unsupported_planar_region",
+      "finding": "Region geometry is retained but exact nonaffine convex-bilinear preimage exhaustiveness is unsupported; result partial.",
+      "disposition": "No completeness assertion relaxed. Exact full-region tier currently supports uniform-weight affine planar charts."
+    },
+    {
+      "index": 99,
+      "node": "tests/test_bez_ssx5_singular.py::test_overlap_region_rational_twin_case12",
+      "status": "fail",
+      "seconds": 18.295641375007108,
+      "source_snapshot": "212efc736416b6f7395f1647b82071c80c0bf581877f28b9d9333e3111f7df05",
+      "source_changed_during_test": false,
+      "category": "real_unsupported_planar_region",
+      "finding": "Rational nonuniform-weight planar pair returns no overlap region.",
+      "disposition": "No completeness assertion relaxed. Exact full-region tier currently supports uniform-weight affine planar charts."
+    },
+    {
+      "index": 100,
+      "node": "tests/test_bez_ssx5_singular.py::test_overlap_region_opposed_orientation",
+      "status": "fail",
+      "seconds": 3.7445708330487832,
+      "source_snapshot": "212efc736416b6f7395f1647b82071c80c0bf581877f28b9d9333e3111f7df05",
+      "source_changed_during_test": false,
+      "category": "real_unsupported_planar_region",
+      "finding": "Region geometry is retained but exact nonaffine convex-bilinear preimage exhaustiveness is unsupported; result partial.",
+      "disposition": "No completeness assertion relaxed. Exact full-region tier currently supports uniform-weight affine planar charts."
+    },
+    {
+      "index": 111,
+      "node": "tests/test_bez_ssx5_singular.py::test_interior_pinch_cut_face_fibers_are_surfaced",
+      "status": "fail",
+      "seconds": 9.518646084005013,
+      "source_snapshot": "212efc736416b6f7395f1647b82071c80c0bf581877f28b9d9333e3111f7df05",
+      "source_changed_during_test": false,
+      "category": "real_nonimmersed_fiber_search_gap",
+      "finding": "Interior pinch has collapsed s=.5 fiber plus two exact quadratic t-root rulings. Parameter fiber is named, but C1 metadata and complete represented geometry are unresolved.",
+      "disposition": "Exact cone factor-then-linear reduction is now implemented and verified; this pinch retains nonlinear residuals and remains outside that supported class."
+    },
+    {
+      "index": 113,
+      "node": "tests/test_bez_ssx5_singular.py::test_positive_dim_sigma_truncation_is_structural_not_work_budget",
+      "status": "fail",
+      "seconds": 12.549433915992267,
+      "source_snapshot": "212efc736416b6f7395f1647b82071c80c0bf581877f28b9d9333e3111f7df05",
+      "source_changed_during_test": false,
+      "category": "real_nonimmersed_fiber_search_gap",
+      "finding": "Interior pinch has collapsed s=.5 fiber plus two exact quadratic t-root rulings. Parameter fiber is named, but C1 metadata and complete represented geometry are unresolved.",
+      "disposition": "Exact cone factor-then-linear reduction is now implemented and verified; this pinch retains nonlinear residuals and remains outside that supported class."
+    }
+  ],
+  "cone_followup": "2026-09-09-cone-factor-followup.json: complete0.00395s1428work0CSX; prior250000work0branches",
+  "analytic_followup": {
+    "artifact": "2026-09-09-analytic-matrix-final.json",
+    "counts": {
+      "pass": 63,
+      "timeout": 0,
+      "silent_failure": 0
+    },
+    "note": "All 63 independent whole-geometry checks pass after source-enclosure refinement and default depth removal. Two source manifests; case 32 records a concurrent source change. This is not a single frozen source snapshot."
+  },
+  "analytic_frozen_followup": {
+    "artifact": "2026-09-09-analytic-matrix-frozen.json",
+    "pass": 63,
+    "timeout": 0,
+    "silent_failure": 0,
+    "source_manifests": 1,
+    "source_changed_during_test": []
+  },
+  "latest_targeted_followups": {
+    "artifact": "2026-09-09-singular-final-current.json",
+    "section": "followups",
+    "note": "Three obsolete mock gates, five positive-dimensional owners, and four source-boundaryfiber repairs are tracked without changing either earlier full-run snapshot. Final frozen full suite pending."
+  },
+  "release_followup": {
+    "artifact": "2026-09-09-singular-release-disposition.json",
+    "full_run": "2026-09-09-singular-final-frozen.json",
+    "counts": {
+      "pass": 91,
+      "fail": 21,
+      "timeout": 5
+    },
+    "unchanged_source_manifests": 1,
+    "note": "Authoritative full frozen rerun; earlier snapshot fields retained as history."
+  }
+}

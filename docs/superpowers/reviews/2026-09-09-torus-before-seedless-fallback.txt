@@ -1,0 +1,121 @@
+FFF
+=================================== FAILURES ===================================
+___________________ test_toroidal_loop_is_closed[s1s2-0.01] ____________________
+
+atol = 0.01, swap = False
+
+    @pytest.mark.parametrize("atol", [1e-2, 1e-3, 1e-4])
+    @pytest.mark.parametrize("swap", [False, True], ids=["s1s2", "s2s1"])
+    def test_toroidal_loop_is_closed(atol, swap):
+        """One CLOSED loop, at every atol and in either argument order.
+    
+        Before the fix this returned closed=False at atol=1e-3 (s1,s2 only)
+        and at atol=1e-4 (both orders).
+        """
+        s1, s2 = _toroid_1(), _toroid_2()
+        a, b = (s2, s1) if swap else (s1, s2)
+>       branch, xyz = _sole_branch(a, b, atol)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_nssx5_toroidal_loop.py:162: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+a = NURBSSurfaceTuple(order_u=3, order_v=3, knot_u=array([ 0.        ,  0.        ,  0.        ,  7.85398163,  7.85398163,...0.5       , 0.70710678, 0.5       , 0.70710678],
+       [1.        , 0.70710678, 1.        , 0.70710678, 1.        ]]))
+b = NURBSSurfaceTuple(order_u=3, order_v=3, knot_u=array([ 0.       ,  0.       ,  0.       ,  5.6635867,  5.6635867,
+    ...0.5       , 0.70710678, 0.5       , 0.70710678],
+       [1.        , 0.70710678, 1.        , 0.70710678, 1.        ]]))
+atol = 0.01
+
+    def _sole_branch(a, b, atol):
+        res = nurbs_ssx(a, b, atol=atol)
+        branches = res['branches']
+>       assert len(branches) == 1, (
+            f"expected the single closed loop, got {len(branches)} branches")
+E       AssertionError: expected the single closed loop, got 4 branches
+E       assert 4 == 1
+E        +  where 4 = len([SSXBranch(curve=(array([[26.31290657,  1.77859715,  4.9163971 ,  4.24769002],\n       [26.36378886,  1.75644442,  4.86...56  ,   2.91970346]])), closed=False, overlap=False, kind='transversal', curve_xyz=None, curve_st=None, curve_uv=None)])
+
+tests/test_nssx5_toroidal_loop.py:143: AssertionError
+___________________ test_toroidal_loop_is_closed[s1s2-0.001] ___________________
+
+atol = 0.001, swap = False
+
+    @pytest.mark.parametrize("atol", [1e-2, 1e-3, 1e-4])
+    @pytest.mark.parametrize("swap", [False, True], ids=["s1s2", "s2s1"])
+    def test_toroidal_loop_is_closed(atol, swap):
+        """One CLOSED loop, at every atol and in either argument order.
+    
+        Before the fix this returned closed=False at atol=1e-3 (s1,s2 only)
+        and at atol=1e-4 (both orders).
+        """
+        s1, s2 = _toroid_1(), _toroid_2()
+        a, b = (s2, s1) if swap else (s1, s2)
+>       branch, xyz = _sole_branch(a, b, atol)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_nssx5_toroidal_loop.py:162: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+a = NURBSSurfaceTuple(order_u=3, order_v=3, knot_u=array([ 0.        ,  0.        ,  0.        ,  7.85398163,  7.85398163,...0.5       , 0.70710678, 0.5       , 0.70710678],
+       [1.        , 0.70710678, 1.        , 0.70710678, 1.        ]]))
+b = NURBSSurfaceTuple(order_u=3, order_v=3, knot_u=array([ 0.       ,  0.       ,  0.       ,  5.6635867,  5.6635867,
+    ...0.5       , 0.70710678, 0.5       , 0.70710678],
+       [1.        , 0.70710678, 1.        , 0.70710678, 1.        ]]))
+atol = 0.001
+
+    def _sole_branch(a, b, atol):
+        res = nurbs_ssx(a, b, atol=atol)
+        branches = res['branches']
+>       assert len(branches) == 1, (
+            f"expected the single closed loop, got {len(branches)} branches")
+E       AssertionError: expected the single closed loop, got 5 branches
+E       assert 5 == 1
+E        +  where 5 = len([SSXBranch(curve=(array([[25.8771321 ,  1.92377783,  5.6635867 ,  4.63780281],\n       [25.87715128,  1.92377306,  5.66...8706,   2.96188865]])), closed=False, overlap=False, kind='transversal', curve_xyz=None, curve_st=None, curve_uv=None)])
+
+tests/test_nssx5_toroidal_loop.py:143: AssertionError
+__________________ test_toroidal_loop_is_closed[s1s2-0.0001] ___________________
+
+atol = 0.0001, swap = False
+
+    @pytest.mark.parametrize("atol", [1e-2, 1e-3, 1e-4])
+    @pytest.mark.parametrize("swap", [False, True], ids=["s1s2", "s2s1"])
+    def test_toroidal_loop_is_closed(atol, swap):
+        """One CLOSED loop, at every atol and in either argument order.
+    
+        Before the fix this returned closed=False at atol=1e-3 (s1,s2 only)
+        and at atol=1e-4 (both orders).
+        """
+        s1, s2 = _toroid_1(), _toroid_2()
+        a, b = (s2, s1) if swap else (s1, s2)
+>       branch, xyz = _sole_branch(a, b, atol)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_nssx5_toroidal_loop.py:162: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+a = NURBSSurfaceTuple(order_u=3, order_v=3, knot_u=array([ 0.        ,  0.        ,  0.        ,  7.85398163,  7.85398163,...0.5       , 0.70710678, 0.5       , 0.70710678],
+       [1.        , 0.70710678, 1.        , 0.70710678, 1.        ]]))
+b = NURBSSurfaceTuple(order_u=3, order_v=3, knot_u=array([ 0.       ,  0.       ,  0.       ,  5.6635867,  5.6635867,
+    ...0.5       , 0.70710678, 0.5       , 0.70710678],
+       [1.        , 0.70710678, 1.        , 0.70710678, 1.        ]]))
+atol = 0.0001
+
+    def _sole_branch(a, b, atol):
+        res = nurbs_ssx(a, b, atol=atol)
+        branches = res['branches']
+>       assert len(branches) == 1, (
+            f"expected the single closed loop, got {len(branches)} branches")
+E       AssertionError: expected the single closed loop, got 7 branches
+E       assert 7 == 1
+E        +  where 7 = len([SSXBranch(curve=(array([[26.31290657,  1.77859715,  4.9163971 ,  4.24769002],\n       [26.36378886,  1.75644442,  4.86...   2.96188865]])), closed=False, overlap=False, kind='transversal', curve_xyz=None, curve_st=None, curve_uv=None), ...])
+
+tests/test_nssx5_toroidal_loop.py:143: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_nssx5_toroidal_loop.py::test_toroidal_loop_is_closed[s1s2-0.01]
+FAILED tests/test_nssx5_toroidal_loop.py::test_toroidal_loop_is_closed[s1s2-0.001]
+FAILED tests/test_nssx5_toroidal_loop.py::test_toroidal_loop_is_closed[s1s2-0.0001]
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/Users/sthv/PycharmProjects/mmcore/.worktrees/ssx-completeness/mmcore/numeric/_bezier_common.py:155: KeyboardInterrupt
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+3 failed in 239.12s (0:03:59)

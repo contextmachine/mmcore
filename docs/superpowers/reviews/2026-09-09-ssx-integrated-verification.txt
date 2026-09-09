@@ -1,0 +1,37 @@
+........................................................................ [ 14%]
+........................................................................ [ 28%]
+........................................................................ [ 42%]
+........................................................................ [ 56%]
+........................................................................ [ 71%]
+........................................................................ [ 85%]
+.................F...................................................... [ 99%]
+...                                                                      [100%]
+=================================== FAILURES ===================================
+______ test_bez_ssx_similarity_invariance[c4-rational-arc-_rational_pair] ______
+
+pair_name = 'rational-arc', make_pair = <function _rational_pair at 0x10ba77a00>
+c = array([-5000.,  3000., 10000.]), k = 0.01
+
+    @pytest.mark.parametrize("pair_name,make_pair", PAIRS)
+    @pytest.mark.parametrize("c,k", TRANSFORMS, ids=[f"c{i}" for i in range(len(TRANSFORMS))])
+    def test_bez_ssx_similarity_invariance(pair_name, make_pair, c, k):
+        atol = 1e-3
+        s1, s2, rational = make_pair()
+        ref = bez_ssx(s1, s2, atol, rational=rational)
+        assert ref["complete"], (pair_name, ref["status"]["reasons"])
+    
+        t1 = _apply_world_transform(s1, c, k, rational)
+        t2 = _apply_world_transform(s2, c, k, rational)
+        res = bez_ssx(t1, t2, atol * k, rational=rational)
+    
+>       assert _topology_signature(res) == _topology_signature(ref), (pair_name, c, k, res["status"])
+E       AssertionError: ('rational-arc', array([-5000.,  3000., 10000.]), 0.01, {'reasons': ['depth_limit', 'parameter_representation', 'work_..., 'boundary_obligation_partition': 1810, ...}, 'cells_processed': 250000, 'csx_calls': 383, 'max_cells': 250000, ...}})
+E       assert (False, ('dep...'), (), 0, ()) == (True, (), ((...lse),), 0, ())
+E         
+E         At index 0 diff: False != True
+E         Use -v to get more diff
+
+tests/test_bez_ssx5_invariance.py:328: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_bez_ssx5_invariance.py::test_bez_ssx_similarity_invariance[c4-rational-arc-_rational_pair]
+1 failed, 506 passed in 278.67s (0:04:38)

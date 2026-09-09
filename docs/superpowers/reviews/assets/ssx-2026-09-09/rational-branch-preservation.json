@@ -1,0 +1,50 @@
+{
+  "epsilon": 8e-06,
+  "atol": 1e-05,
+  "expected_x": [
+    -0.001999988000091999,
+    0.001999988000091999
+  ],
+  "observed_x": [
+    -0.0019999880000929927,
+    0.001999988000093215
+  ],
+  "complete": true,
+  "status": {
+    "reasons": [],
+    "work": {
+      "cells_processed": 3946,
+      "csx_calls": 35,
+      "max_cells": 15000,
+      "max_csx_calls": 10000,
+      "output_items": 2,
+      "max_output_items": 1024,
+      "postprocess_work": 12,
+      "max_postprocess_work": 15000,
+      "cell_counts": {
+        "affine_region_identity": 40,
+        "quadratic_constraints": 54,
+        "boundary_strata": 40,
+        "extrusion_certificate": 40,
+        "precompute": 36,
+        "affine_constants": 2,
+        "affine_constraints": 388,
+        "cofactor_bounds": 416,
+        "source_residual": 104,
+        "source_fiber": 8,
+        "source_cut": 2346,
+        "path_representation": 140,
+        "source_face_residual": 10,
+        "csx": 2,
+        "root_identity": 78,
+        "singular_source": 36,
+        "ssx": 39,
+        "source_cut_filter": 27,
+        "boundary_event_partition": 80,
+        "straight_path": 14,
+        "arc_chord": 43,
+        "c3": 3
+      }
+    }
+  }
+}

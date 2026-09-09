@@ -1,0 +1,1693 @@
+{
+  "baseline_commit": "76735f9",
+  "recorded_date": "2026-09-09",
+  "construction": "S(u,v)=(u,v,product of explicitly prescribed line or circle factors), intersected with z=0.",
+  "oracle": "Complete zeros follow algebraically; continuous coverage uses exact point-to-polyline distance plus a Lipschitz arc-spacing bound; full segment soundness, per-component length, closure and angular travel independently check output.",
+  "solver_limits": "Public solver defaults, with an independent 25-second process watchdog for CLI cases.",
+  "baseline_test_totals": {
+    "passed": 20,
+    "failed": 7
+  },
+  "findings": [
+    "One-circle geometry closes to roundoff but Bezier closed metadata is false for identity, swap, u/v reversal and transposition.",
+    "Exact u knot insertion replaces two transverse lines at 127/256 and 129/256 with one false overlap at x=1/2,z=-1/65536; both raw Bezier halves are already wrong before NURBS assembly.",
+    "Disjoint and nested circle products return complete=false with trace_unverified despite covered analytic components.",
+    "Nearby concentric circles exceeded the external 25-second watchdog; no conclusion about eventual solver termination was drawn."
+  ],
+  "runs": [
+    {
+      "source": "analytic-baseline.json",
+      "reports": [
+        {
+          "case": "one_line",
+          "atol": 0.001,
+          "complete": true,
+          "reasons": [],
+          "work": {
+            "cells_processed": 418,
+            "csx_calls": 8,
+            "max_cells": 250000,
+            "max_csx_calls": 10000,
+            "output_items": 1,
+            "max_output_items": 1024,
+            "postprocess_work": 14,
+            "max_postprocess_work": 250000,
+            "cell_counts": {
+              "precompute": 2,
+              "csx": 386,
+              "ssx": 1,
+              "branch_trace": 9,
+              "branch_trace_verify": 10,
+              "c3": 10
+            }
+          },
+          "branch_count": 1,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "line",
+              "parameters": [
+                0.375
+              ],
+              "branches": 1,
+              "coverage_lower": 3.876239792332244e-17,
+              "coverage_upper": 0.00025000000000003877,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 0,
+              "vertices": 10,
+              "length": 1.0,
+              "closed": false,
+              "soundness_upper": 3.642919299551295e-17
+            }
+          ],
+          "failures": [],
+          "silent_failure": false,
+          "passed": true,
+          "variant": "identity",
+          "elapsed_s": 0.5371835000114515
+        },
+        {
+          "case": "two_lines",
+          "atol": 0.001,
+          "complete": true,
+          "reasons": [],
+          "work": {
+            "cells_processed": 905,
+            "csx_calls": 8,
+            "max_cells": 250000,
+            "max_csx_calls": 10000,
+            "output_items": 2,
+            "max_output_items": 1024,
+            "postprocess_work": 78,
+            "max_postprocess_work": 250000,
+            "cell_counts": {
+              "precompute": 5,
+              "csx": 598,
+              "ssx": 229,
+              "branch_trace": 23,
+              "branch_trace_verify": 27,
+              "c3": 23
+            }
+          },
+          "branch_count": 2,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "line",
+              "parameters": [
+                0.25
+              ],
+              "branches": 1,
+              "coverage_lower": 5.710280489188731e-17,
+              "coverage_upper": 0.0002500000000000571,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            },
+            {
+              "component": 1,
+              "kind": "line",
+              "parameters": [
+                0.75
+              ],
+              "branches": 1,
+              "coverage_lower": 2.4924854689430122e-17,
+              "coverage_upper": 0.00025000000000002494,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 1,
+              "vertices": 12,
+              "length": 1.0,
+              "closed": false,
+              "soundness_upper": 2.0816681711721685e-17
+            },
+            {
+              "branch": 1,
+              "component": 0,
+              "vertices": 11,
+              "length": 1.0,
+              "closed": false,
+              "soundness_upper": 5.561946577567963e-17
+            }
+          ],
+          "failures": [],
+          "silent_failure": false,
+          "passed": true,
+          "variant": "identity",
+          "elapsed_s": 1.0116092499811202
+        },
+        {
+          "case": "four_lines",
+          "atol": 0.001,
+          "complete": true,
+          "reasons": [],
+          "work": {
+            "cells_processed": 2012,
+            "csx_calls": 8,
+            "max_cells": 250000,
+            "max_csx_calls": 10000,
+            "output_items": 4,
+            "max_output_items": 1024,
+            "postprocess_work": 250,
+            "max_postprocess_work": 250000,
+            "cell_counts": {
+              "precompute": 13,
+              "csx": 734,
+              "ssx": 1125,
+              "branch_trace": 43,
+              "branch_trace_verify": 49,
+              "c3": 48
+            }
+          },
+          "branch_count": 4,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "line",
+              "parameters": [
+                0.125
+              ],
+              "branches": 1,
+              "coverage_lower": 7.470909128314164e-15,
+              "coverage_upper": 0.0002500000000074709,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            },
+            {
+              "component": 1,
+              "kind": "line",
+              "parameters": [
+                0.375
+              ],
+              "branches": 1,
+              "coverage_lower": 3.3295921164259855e-16,
+              "coverage_upper": 0.00025000000000033296,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            },
+            {
+              "component": 2,
+              "kind": "line",
+              "parameters": [
+                0.625
+              ],
+              "branches": 1,
+              "coverage_lower": 3.330401470843894e-16,
+              "coverage_upper": 0.00025000000000033307,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            },
+            {
+              "component": 3,
+              "kind": "line",
+              "parameters": [
+                0.875
+              ],
+              "branches": 1,
+              "coverage_lower": 7.581692506055526e-15,
+              "coverage_upper": 0.0002500000000075817,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 2,
+              "vertices": 12,
+              "length": 1.0,
+              "closed": false,
+              "soundness_upper": 3.330698396652873e-16
+            },
+            {
+              "branch": 1,
+              "component": 3,
+              "vertices": 11,
+              "length": 1.0,
+              "closed": false,
+              "soundness_upper": 7.581679823995295e-15
+            },
+            {
+              "branch": 2,
+              "component": 1,
+              "vertices": 11,
+              "length": 1.0,
+              "closed": false,
+              "soundness_upper": 3.3308969591851696e-16
+            },
+            {
+              "branch": 3,
+              "component": 0,
+              "vertices": 11,
+              "length": 1.0,
+              "closed": false,
+              "soundness_upper": 7.470909420550809e-15
+            }
+          ],
+          "failures": [],
+          "silent_failure": false,
+          "passed": true,
+          "variant": "identity",
+          "elapsed_s": 1.8560877910349518
+        },
+        {
+          "case": "nearby_lines",
+          "atol": 0.001,
+          "complete": true,
+          "reasons": [],
+          "work": {
+            "cells_processed": 3651,
+            "csx_calls": 8,
+            "max_cells": 250000,
+            "max_csx_calls": 10000,
+            "output_items": 2,
+            "max_output_items": 1024,
+            "postprocess_work": 90,
+            "max_postprocess_work": 250000,
+            "cell_counts": {
+              "precompute": 5,
+              "csx": 598,
+              "ssx": 2965,
+              "branch_trace": 26,
+              "branch_trace_verify": 30,
+              "c3": 27
+            }
+          },
+          "branch_count": 2,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "line",
+              "parameters": [
+                0.46875
+              ],
+              "branches": 1,
+              "coverage_lower": 7.791866631438263e-16,
+              "coverage_upper": 0.00025000000000077917,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            },
+            {
+              "component": 1,
+              "kind": "line",
+              "parameters": [
+                0.53125
+              ],
+              "branches": 1,
+              "coverage_lower": 7.776907042077319e-16,
+              "coverage_upper": 0.0002500000000007777,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 1,
+              "vertices": 15,
+              "length": 1.0,
+              "closed": false,
+              "soundness_upper": 7.795519910962974e-16
+            },
+            {
+              "branch": 1,
+              "component": 0,
+              "vertices": 11,
+              "length": 1.0,
+              "closed": false,
+              "soundness_upper": 7.793623821400834e-16
+            }
+          ],
+          "failures": [],
+          "silent_failure": false,
+          "passed": true,
+          "variant": "identity",
+          "elapsed_s": 1.9488959580194205
+        },
+        {
+          "case": "one_circle",
+          "atol": 0.001,
+          "complete": true,
+          "reasons": [],
+          "work": {
+            "cells_processed": 808,
+            "csx_calls": 12,
+            "max_cells": 250000,
+            "max_csx_calls": 10000,
+            "output_items": 6,
+            "max_output_items": 1024,
+            "postprocess_work": 392,
+            "max_postprocess_work": 250000,
+            "cell_counts": {
+              "precompute": 11,
+              "csx": 310,
+              "ssx": 213,
+              "branch_trace": 97,
+              "branch_trace_verify": 82,
+              "c3": 95
+            }
+          },
+          "branch_count": 1,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "circle",
+              "parameters": [
+                0.5,
+                0.5,
+                0.25
+              ],
+              "branches": 1,
+              "coverage_lower": 0.0017247351139227337,
+              "coverage_upper": 0.001974702702527905,
+              "expected_length": 1.5707963267948966,
+              "output_length": 1.5699220814374555
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 0,
+              "vertices": 64,
+              "length": 1.5699220814374555,
+              "closed": false,
+              "soundness_upper": 0.0017247727162511273
+            }
+          ],
+          "failures": [
+            "branch 0 is an open fragment of a closed component"
+          ],
+          "silent_failure": true,
+          "passed": false,
+          "variant": "identity",
+          "elapsed_s": 1.0548303748946637
+        },
+        {
+          "case": "two_circles",
+          "atol": 0.001,
+          "complete": false,
+          "reasons": [
+            "trace_unverified"
+          ],
+          "work": {
+            "cells_processed": 24478,
+            "csx_calls": 412,
+            "max_cells": 250000,
+            "max_csx_calls": 10000,
+            "output_items": 72,
+            "max_output_items": 1024,
+            "postprocess_work": 9625,
+            "max_postprocess_work": 250000,
+            "cell_counts": {
+              "precompute": 79,
+              "csx": 22122,
+              "ssx": 945,
+              "branch_trace": 716,
+              "branch_trace_verify": 404,
+              "c3": 212
+            }
+          },
+          "branch_count": 2,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "circle",
+              "parameters": [
+                0.25,
+                0.5,
+                0.1875
+              ],
+              "branches": 1,
+              "coverage_lower": 0.001406075109599575,
+              "coverage_upper": 0.0016559896715631246,
+              "expected_length": 1.1780972450961724,
+              "output_length": 1.1774176213304335
+            },
+            {
+              "component": 1,
+              "kind": "circle",
+              "parameters": [
+                0.75,
+                0.5,
+                0.1875
+              ],
+              "branches": 1,
+              "coverage_lower": 0.0013965418468839712,
+              "coverage_upper": 0.0016464564088475206,
+              "expected_length": 1.1780972450961724,
+              "output_length": 1.177385458472085
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 0,
+              "vertices": 66,
+              "length": 1.1774176213304335,
+              "closed": false,
+              "soundness_upper": 0.0014060825168026592
+            },
+            {
+              "branch": 1,
+              "component": 1,
+              "vertices": 64,
+              "length": 1.177385458472085,
+              "closed": false,
+              "soundness_upper": 0.0013966076658513127
+            }
+          ],
+          "failures": [
+            "branch 0 is an open fragment of a closed component",
+            "branch 1 is an open fragment of a closed component"
+          ],
+          "silent_failure": false,
+          "passed": false,
+          "variant": "identity",
+          "elapsed_s": 6.279064957983792
+        },
+        {
+          "case": "nested_circles",
+          "atol": 0.001,
+          "complete": false,
+          "reasons": [
+            "trace_unverified"
+          ],
+          "work": {
+            "cells_processed": 79029,
+            "csx_calls": 2380,
+            "max_cells": 250000,
+            "max_csx_calls": 10000,
+            "output_items": 241,
+            "max_output_items": 1024,
+            "postprocess_work": 43299,
+            "max_postprocess_work": 250000,
+            "cell_counts": {
+              "precompute": 79,
+              "csx": 72865,
+              "ssx": 2489,
+              "branch_trace": 2151,
+              "branch_trace_verify": 1119,
+              "c3": 326
+            }
+          },
+          "branch_count": 2,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "circle",
+              "parameters": [
+                0.5,
+                0.5,
+                0.1875
+              ],
+              "branches": 1,
+              "coverage_lower": 0.0007170589359811949,
+              "coverage_upper": 0.0009669734979447445,
+              "expected_length": 1.1780972450961724,
+              "output_length": 1.1773436092047413
+            },
+            {
+              "component": 1,
+              "kind": "circle",
+              "parameters": [
+                0.5,
+                0.5,
+                0.375
+              ],
+              "branches": 1,
+              "coverage_lower": 0.0012407349734547505,
+              "coverage_upper": 0.0014907025620599218,
+              "expected_length": 2.356194490192345,
+              "output_length": 2.3556532084373107
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 1,
+              "vertices": 124,
+              "length": 2.3556532084373107,
+              "closed": false,
+              "soundness_upper": 0.001240785081037421
+            },
+            {
+              "branch": 1,
+              "component": 0,
+              "vertices": 58,
+              "length": 1.1773436092047413,
+              "closed": false,
+              "soundness_upper": 0.0007170620757676327
+            }
+          ],
+          "failures": [
+            "branch 0 is an open fragment of a closed component",
+            "branch 1 is an open fragment of a closed component"
+          ],
+          "silent_failure": false,
+          "passed": false,
+          "variant": "identity",
+          "elapsed_s": 16.825453332974575
+        },
+        {
+          "case": "nearby_circles",
+          "variant": "identity",
+          "timeout_s": 25.0,
+          "passed": false
+        }
+      ]
+    },
+    {
+      "source": "analytic-invariance-baseline.json",
+      "reports": [
+        {
+          "case": "two_lines",
+          "atol": 0.001,
+          "complete": true,
+          "reasons": [],
+          "work": {
+            "cells_processed": 905,
+            "csx_calls": 8,
+            "max_cells": 250000,
+            "max_csx_calls": 10000,
+            "output_items": 2,
+            "max_output_items": 1024,
+            "postprocess_work": 78,
+            "max_postprocess_work": 250000,
+            "cell_counts": {
+              "precompute": 5,
+              "csx": 598,
+              "ssx": 229,
+              "branch_trace": 23,
+              "branch_trace_verify": 27,
+              "c3": 23
+            }
+          },
+          "branch_count": 2,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "line",
+              "parameters": [
+                0.25
+              ],
+              "branches": 1,
+              "coverage_lower": 1.2412670766236366e-16,
+              "coverage_upper": 0.00025000000000012415,
+              "expected_length": 1.0,
+              "output_length": 0.9999999999999999
+            },
+            {
+              "component": 1,
+              "kind": "line",
+              "parameters": [
+                0.75
+              ],
+              "branches": 1,
+              "coverage_lower": 2.220446049250313e-16,
+              "coverage_upper": 0.00025000000000022205,
+              "expected_length": 1.0,
+              "output_length": 0.9999999999999999
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 1,
+              "vertices": 12,
+              "length": 0.9999999999999999,
+              "closed": false,
+              "soundness_upper": 2.220446049250313e-16
+            },
+            {
+              "branch": 1,
+              "component": 0,
+              "vertices": 11,
+              "length": 0.9999999999999999,
+              "closed": false,
+              "soundness_upper": 8.326672684688674e-17
+            }
+          ],
+          "failures": [],
+          "silent_failure": false,
+          "passed": true,
+          "variant": "swap",
+          "elapsed_s": 1.0013140410883352
+        },
+        {
+          "case": "two_lines",
+          "atol": 0.001,
+          "complete": true,
+          "reasons": [],
+          "work": {
+            "cells_processed": 896,
+            "csx_calls": 8,
+            "max_cells": 250000,
+            "max_csx_calls": 10000,
+            "output_items": 2,
+            "max_output_items": 1024,
+            "postprocess_work": 74,
+            "max_postprocess_work": 250000,
+            "cell_counts": {
+              "precompute": 5,
+              "csx": 598,
+              "ssx": 229,
+              "branch_trace": 20,
+              "branch_trace_verify": 22,
+              "c3": 22
+            }
+          },
+          "branch_count": 2,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "line",
+              "parameters": [
+                0.25
+              ],
+              "branches": 1,
+              "coverage_lower": 2.4736369866973337e-17,
+              "coverage_upper": 0.0002500000000000247,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            },
+            {
+              "component": 1,
+              "kind": "line",
+              "parameters": [
+                0.75
+              ],
+              "branches": 1,
+              "coverage_lower": 2.236015502001588e-16,
+              "coverage_upper": 0.0002500000000002236,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 0,
+              "vertices": 11,
+              "length": 1.0,
+              "closed": false,
+              "soundness_upper": 2.0816681711721685e-17
+            },
+            {
+              "branch": 1,
+              "component": 1,
+              "vertices": 11,
+              "length": 1.0,
+              "closed": false,
+              "soundness_upper": 2.2399438456538504e-16
+            }
+          ],
+          "failures": [],
+          "silent_failure": false,
+          "passed": true,
+          "variant": "reverse_u",
+          "elapsed_s": 1.013853917014785
+        },
+        {
+          "case": "two_lines",
+          "atol": 0.001,
+          "complete": true,
+          "reasons": [],
+          "work": {
+            "cells_processed": 896,
+            "csx_calls": 8,
+            "max_cells": 250000,
+            "max_csx_calls": 10000,
+            "output_items": 2,
+            "max_output_items": 1024,
+            "postprocess_work": 74,
+            "max_postprocess_work": 250000,
+            "cell_counts": {
+              "precompute": 5,
+              "csx": 598,
+              "ssx": 229,
+              "branch_trace": 20,
+              "branch_trace_verify": 22,
+              "c3": 22
+            }
+          },
+          "branch_count": 2,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "line",
+              "parameters": [
+                0.25
+              ],
+              "branches": 1,
+              "coverage_lower": 5.875401026465046e-17,
+              "coverage_upper": 0.00025000000000005877,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            },
+            {
+              "component": 1,
+              "kind": "line",
+              "parameters": [
+                0.75
+              ],
+              "branches": 1,
+              "coverage_lower": 2.4974084612837535e-17,
+              "coverage_upper": 0.000250000000000025,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 1,
+              "vertices": 11,
+              "length": 1.0,
+              "closed": false,
+              "soundness_upper": 2.0816681711721685e-17
+            },
+            {
+              "branch": 1,
+              "component": 0,
+              "vertices": 11,
+              "length": 1.0,
+              "closed": false,
+              "soundness_upper": 5.721958498152797e-17
+            }
+          ],
+          "failures": [],
+          "silent_failure": false,
+          "passed": true,
+          "variant": "reverse_v",
+          "elapsed_s": 1.011525082984008
+        },
+        {
+          "case": "two_lines",
+          "atol": 0.001,
+          "complete": true,
+          "reasons": [],
+          "work": {
+            "cells_processed": 1273,
+            "csx_calls": 8,
+            "max_cells": 250000,
+            "max_csx_calls": 10000,
+            "output_items": 2,
+            "max_output_items": 1024,
+            "postprocess_work": 78,
+            "max_postprocess_work": 250000,
+            "cell_counts": {
+              "precompute": 5,
+              "csx": 598,
+              "ssx": 597,
+              "branch_trace": 23,
+              "branch_trace_verify": 27,
+              "c3": 23
+            }
+          },
+          "branch_count": 2,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "line",
+              "parameters": [
+                0.25
+              ],
+              "branches": 1,
+              "coverage_lower": 5.844634753797238e-17,
+              "coverage_upper": 0.00025000000000005844,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            },
+            {
+              "component": 1,
+              "kind": "line",
+              "parameters": [
+                0.75
+              ],
+              "branches": 1,
+              "coverage_lower": 1.9608456636249796e-17,
+              "coverage_upper": 0.00025000000000001963,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 1,
+              "vertices": 12,
+              "length": 1.0,
+              "closed": false,
+              "soundness_upper": 1.3877787807814457e-17
+            },
+            {
+              "branch": 1,
+              "component": 0,
+              "vertices": 11,
+              "length": 1.0,
+              "closed": false,
+              "soundness_upper": 5.680070923839237e-17
+            }
+          ],
+          "failures": [],
+          "silent_failure": false,
+          "passed": true,
+          "variant": "transpose",
+          "elapsed_s": 1.6668620420387015
+        },
+        {
+          "case": "two_lines",
+          "atol": 0.001,
+          "complete": true,
+          "reasons": [],
+          "work": {
+            "cells_processed": 1044,
+            "csx_calls": 16,
+            "max_cells": 500000,
+            "max_csx_calls": 20000,
+            "output_items": 2,
+            "max_output_items": 2048,
+            "postprocess_work": 6,
+            "max_postprocess_work": 500000,
+            "cell_counts": {
+              "precompute": 10,
+              "csx": 896,
+              "ssx": 74,
+              "branch_trace": 20,
+              "branch_trace_verify": 22,
+              "c3": 22
+            }
+          },
+          "branch_count": 2,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "line",
+              "parameters": [
+                0.25
+              ],
+              "branches": 1,
+              "coverage_lower": 1.4304896245381992e-17,
+              "coverage_upper": 0.0002500000000000143,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            },
+            {
+              "component": 1,
+              "kind": "line",
+              "parameters": [
+                0.75
+              ],
+              "branches": 1,
+              "coverage_lower": 2.2402169206835147e-16,
+              "coverage_upper": 0.000250000000000224,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 0,
+              "vertices": 11,
+              "length": 1.0,
+              "closed": false,
+              "soundness_upper": 3.469446951953614e-18
+            },
+            {
+              "branch": 1,
+              "component": 1,
+              "vertices": 11,
+              "length": 1.0,
+              "closed": false,
+              "soundness_upper": 2.2422936607558627e-16
+            }
+          ],
+          "failures": [],
+          "silent_failure": false,
+          "passed": true,
+          "variant": "split_u",
+          "elapsed_s": 0.7660396250430495
+        },
+        {
+          "case": "two_lines",
+          "atol": 0.001,
+          "complete": true,
+          "reasons": [],
+          "work": {
+            "cells_processed": 1980,
+            "csx_calls": 32,
+            "max_cells": 1000000,
+            "max_csx_calls": 40000,
+            "output_items": 4,
+            "max_output_items": 4096,
+            "postprocess_work": 40,
+            "max_postprocess_work": 1000000,
+            "cell_counts": {
+              "precompute": 20,
+              "csx": 1784,
+              "ssx": 132,
+              "branch_trace": 20,
+              "branch_trace_verify": 24
+            }
+          },
+          "branch_count": 2,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "line",
+              "parameters": [
+                0.25
+              ],
+              "branches": 1,
+              "coverage_lower": 8.508738659829659e-17,
+              "coverage_upper": 0.0002500000000000851,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            },
+            {
+              "component": 1,
+              "kind": "line",
+              "parameters": [
+                0.75
+              ],
+              "branches": 1,
+              "coverage_lower": 1.4119401464231426e-17,
+              "coverage_upper": 0.0002500000000000141,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 0,
+              "vertices": 11,
+              "length": 1.0,
+              "closed": false,
+              "soundness_upper": 8.402671758898469e-17
+            },
+            {
+              "branch": 1,
+              "component": 1,
+              "vertices": 11,
+              "length": 1.0,
+              "closed": false,
+              "soundness_upper": 2.6020852139652106e-18
+            }
+          ],
+          "failures": [],
+          "silent_failure": false,
+          "passed": true,
+          "variant": "split_uv",
+          "elapsed_s": 1.0343690830050036
+        },
+        {
+          "case": "one_circle",
+          "atol": 0.001,
+          "complete": true,
+          "reasons": [],
+          "work": {
+            "cells_processed": 807,
+            "csx_calls": 12,
+            "max_cells": 250000,
+            "max_csx_calls": 10000,
+            "output_items": 6,
+            "max_output_items": 1024,
+            "postprocess_work": 392,
+            "max_postprocess_work": 250000,
+            "cell_counts": {
+              "precompute": 11,
+              "csx": 310,
+              "ssx": 213,
+              "branch_trace": 97,
+              "branch_trace_verify": 82,
+              "c3": 94
+            }
+          },
+          "branch_count": 1,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "circle",
+              "parameters": [
+                0.5,
+                0.5,
+                0.25
+              ],
+              "branches": 1,
+              "coverage_lower": 0.0017247360825672748,
+              "coverage_upper": 0.001974703671172446,
+              "expected_length": 1.5707963267948966,
+              "output_length": 1.5699220811060426
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 0,
+              "vertices": 64,
+              "length": 1.5699220811060426,
+              "closed": false,
+              "soundness_upper": 0.0017247736894476784
+            }
+          ],
+          "failures": [
+            "branch 0 is an open fragment of a closed component"
+          ],
+          "silent_failure": true,
+          "passed": false,
+          "variant": "swap",
+          "elapsed_s": 1.0675565410638228
+        },
+        {
+          "case": "one_circle",
+          "atol": 0.001,
+          "complete": true,
+          "reasons": [],
+          "work": {
+            "cells_processed": 808,
+            "csx_calls": 12,
+            "max_cells": 250000,
+            "max_csx_calls": 10000,
+            "output_items": 6,
+            "max_output_items": 1024,
+            "postprocess_work": 392,
+            "max_postprocess_work": 250000,
+            "cell_counts": {
+              "precompute": 11,
+              "csx": 310,
+              "ssx": 213,
+              "branch_trace": 97,
+              "branch_trace_verify": 82,
+              "c3": 95
+            }
+          },
+          "branch_count": 1,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "circle",
+              "parameters": [
+                0.5,
+                0.5,
+                0.25
+              ],
+              "branches": 1,
+              "coverage_lower": 0.0017247348825897343,
+              "coverage_upper": 0.0019747024711949056,
+              "expected_length": 1.5707963267948966,
+              "output_length": 1.5699220814342412
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 0,
+              "vertices": 64,
+              "length": 1.5699220814342412,
+              "closed": false,
+              "soundness_upper": 0.001724772483831044
+            }
+          ],
+          "failures": [
+            "branch 0 is an open fragment of a closed component"
+          ],
+          "silent_failure": true,
+          "passed": false,
+          "variant": "reverse_u",
+          "elapsed_s": 1.0605856250040233
+        },
+        {
+          "case": "one_circle",
+          "atol": 0.001,
+          "complete": true,
+          "reasons": [],
+          "work": {
+            "cells_processed": 805,
+            "csx_calls": 12,
+            "max_cells": 250000,
+            "max_csx_calls": 10000,
+            "output_items": 6,
+            "max_output_items": 1024,
+            "postprocess_work": 392,
+            "max_postprocess_work": 250000,
+            "cell_counts": {
+              "precompute": 11,
+              "csx": 310,
+              "ssx": 213,
+              "branch_trace": 98,
+              "branch_trace_verify": 84,
+              "c3": 89
+            }
+          },
+          "branch_count": 1,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "circle",
+              "parameters": [
+                0.5,
+                0.5,
+                0.25
+              ],
+              "branches": 1,
+              "coverage_lower": 0.001734867002296825,
+              "coverage_upper": 0.001984834590901996,
+              "expected_length": 1.5707963267948966,
+              "output_length": 1.5699269384366525
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 0,
+              "vertices": 64,
+              "length": 1.5699269384366525,
+              "closed": false,
+              "soundness_upper": 0.0017348710700101078
+            }
+          ],
+          "failures": [
+            "branch 0 is an open fragment of a closed component"
+          ],
+          "silent_failure": true,
+          "passed": false,
+          "variant": "reverse_v",
+          "elapsed_s": 1.0575368750141934
+        },
+        {
+          "case": "one_circle",
+          "atol": 0.001,
+          "complete": true,
+          "reasons": [],
+          "work": {
+            "cells_processed": 1294,
+            "csx_calls": 12,
+            "max_cells": 250000,
+            "max_csx_calls": 10000,
+            "output_items": 4,
+            "max_output_items": 1024,
+            "postprocess_work": 198,
+            "max_postprocess_work": 250000,
+            "cell_counts": {
+              "precompute": 11,
+              "csx": 792,
+              "ssx": 277,
+              "branch_trace": 64,
+              "branch_trace_verify": 64,
+              "c3": 86
+            }
+          },
+          "branch_count": 1,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "circle",
+              "parameters": [
+                0.5,
+                0.5,
+                0.25
+              ],
+              "branches": 1,
+              "coverage_lower": 0.0009671256597951891,
+              "coverage_upper": 0.0012170932484003604,
+              "expected_length": 1.5707963267948966,
+              "output_length": 1.569992169083653
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 0,
+              "vertices": 62,
+              "length": 1.569992169083653,
+              "closed": false,
+              "soundness_upper": 0.0009671256597953704
+            }
+          ],
+          "failures": [
+            "branch 0 is an open fragment of a closed component"
+          ],
+          "silent_failure": true,
+          "passed": false,
+          "variant": "transpose",
+          "elapsed_s": 1.3065033339662477
+        },
+        {
+          "case": "one_circle",
+          "atol": 0.001,
+          "complete": true,
+          "reasons": [],
+          "work": {
+            "cells_processed": 1090,
+            "csx_calls": 16,
+            "max_cells": 500000,
+            "max_csx_calls": 20000,
+            "output_items": 2,
+            "max_output_items": 2048,
+            "postprocess_work": 38,
+            "max_postprocess_work": 500000,
+            "cell_counts": {
+              "precompute": 22,
+              "csx": 646,
+              "ssx": 218,
+              "branch_trace": 66,
+              "branch_trace_verify": 68,
+              "c3": 70
+            }
+          },
+          "branch_count": 1,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "circle",
+              "parameters": [
+                0.5,
+                0.5,
+                0.25
+              ],
+              "branches": 1,
+              "coverage_lower": 0.001590070956505291,
+              "coverage_upper": 0.0018400385451104624,
+              "expected_length": 1.5707963267948966,
+              "output_length": 1.5699589531821236
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 0,
+              "vertices": 63,
+              "length": 1.5699589531821236,
+              "closed": true,
+              "soundness_upper": 0.0015900753440246385
+            }
+          ],
+          "failures": [],
+          "silent_failure": false,
+          "passed": true,
+          "variant": "split_u",
+          "elapsed_s": 1.1115894590038806
+        },
+        {
+          "case": "one_circle",
+          "atol": 0.001,
+          "complete": true,
+          "reasons": [],
+          "work": {
+            "cells_processed": 2160,
+            "csx_calls": 32,
+            "max_cells": 1000000,
+            "max_csx_calls": 40000,
+            "output_items": 4,
+            "max_output_items": 4096,
+            "postprocess_work": 124,
+            "max_postprocess_work": 1000000,
+            "cell_counts": {
+              "precompute": 44,
+              "csx": 1776,
+              "ssx": 148,
+              "branch_trace": 64,
+              "branch_trace_verify": 64,
+              "c3": 64
+            }
+          },
+          "branch_count": 1,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "circle",
+              "parameters": [
+                0.5,
+                0.5,
+                0.25
+              ],
+              "branches": 1,
+              "coverage_lower": 0.0009560522833232313,
+              "coverage_upper": 0.0012060198719284025,
+              "expected_length": 1.5707963267948966,
+              "output_length": 1.569994880437134
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 0,
+              "vertices": 61,
+              "length": 1.569994880437134,
+              "closed": true,
+              "soundness_upper": 0.0009560830125569519
+            }
+          ],
+          "failures": [],
+          "silent_failure": false,
+          "passed": true,
+          "variant": "split_uv",
+          "elapsed_s": 1.1183379160938784
+        }
+      ]
+    },
+    {
+      "source": "analytic-tight-lines.json",
+      "reports": [
+        {
+          "case": "tight_lines",
+          "atol": 0.001,
+          "complete": true,
+          "reasons": [],
+          "work": {
+            "cells_processed": 8792,
+            "csx_calls": 8,
+            "max_cells": 250000,
+            "max_csx_calls": 10000,
+            "output_items": 2,
+            "max_output_items": 1024,
+            "postprocess_work": 106,
+            "max_postprocess_work": 250000,
+            "cell_counts": {
+              "precompute": 5,
+              "csx": 606,
+              "ssx": 8085,
+              "branch_trace": 30,
+              "branch_trace_verify": 34,
+              "c3": 32
+            }
+          },
+          "branch_count": 2,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "line",
+              "parameters": [
+                0.49609375
+              ],
+              "branches": 1,
+              "coverage_lower": 2.2196243818391134e-16,
+              "coverage_upper": 0.00025000000000022194,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            },
+            {
+              "component": 1,
+              "kind": "line",
+              "parameters": [
+                0.50390625
+              ],
+              "branches": 1,
+              "coverage_lower": 4.446758276437789e-16,
+              "coverage_upper": 0.0002500000000004447,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 1,
+              "vertices": 19,
+              "length": 1.0,
+              "closed": false,
+              "endpoint_gap": 1.0,
+              "soundness_upper": 4.444613977925643e-16
+            },
+            {
+              "branch": 1,
+              "component": 0,
+              "vertices": 11,
+              "length": 1.0,
+              "closed": false,
+              "endpoint_gap": 1.0,
+              "soundness_upper": 2.2204655800013186e-16
+            }
+          ],
+          "failures": [],
+          "silent_failure": false,
+          "passed": true,
+          "variant": "identity",
+          "elapsed_s": 4.593843458103947
+        },
+        {
+          "case": "tight_lines",
+          "atol": 0.001,
+          "complete": true,
+          "reasons": [],
+          "work": {
+            "cells_processed": 8792,
+            "csx_calls": 8,
+            "max_cells": 250000,
+            "max_csx_calls": 10000,
+            "output_items": 2,
+            "max_output_items": 1024,
+            "postprocess_work": 106,
+            "max_postprocess_work": 250000,
+            "cell_counts": {
+              "precompute": 5,
+              "csx": 606,
+              "ssx": 8085,
+              "branch_trace": 30,
+              "branch_trace_verify": 34,
+              "c3": 32
+            }
+          },
+          "branch_count": 2,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "line",
+              "parameters": [
+                0.49609375
+              ],
+              "branches": 1,
+              "coverage_lower": 1.6647736529858982e-16,
+              "coverage_upper": 0.0002500000000001665,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            },
+            {
+              "component": 1,
+              "kind": "line",
+              "parameters": [
+                0.50390625
+              ],
+              "branches": 1,
+              "coverage_lower": 5.543468018633643e-16,
+              "coverage_upper": 0.00025000000000055436,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 1,
+              "vertices": 19,
+              "length": 1.0,
+              "closed": false,
+              "endpoint_gap": 1.0,
+              "soundness_upper": 5.551115123125783e-16
+            },
+            {
+              "branch": 1,
+              "component": 0,
+              "vertices": 11,
+              "length": 1.0,
+              "closed": false,
+              "endpoint_gap": 1.0,
+              "soundness_upper": 1.6653345369377348e-16
+            }
+          ],
+          "failures": [],
+          "silent_failure": false,
+          "passed": true,
+          "variant": "swap",
+          "elapsed_s": 4.604216750012711
+        },
+        {
+          "case": "tight_lines",
+          "atol": 0.001,
+          "complete": true,
+          "reasons": [],
+          "work": {
+            "cells_processed": 9394,
+            "csx_calls": 16,
+            "max_cells": 500000,
+            "max_csx_calls": 20000,
+            "output_items": 4,
+            "max_output_items": 2048,
+            "postprocess_work": 3,
+            "max_postprocess_work": 500000,
+            "cell_counts": {
+              "precompute": 10,
+              "csx": 1252,
+              "ssx": 8090,
+              "branch_trace": 20,
+              "branch_trace_verify": 22
+            }
+          },
+          "branch_count": 1,
+          "point_count": 0,
+          "singularity_count": 0,
+          "components": [
+            {
+              "component": 0,
+              "kind": "line",
+              "parameters": [
+                0.49609375
+              ],
+              "branches": 1,
+              "coverage_lower": 0.003906279802208702,
+              "coverage_upper": 0.004156279802208702,
+              "expected_length": 1.0,
+              "output_length": 1.0
+            },
+            {
+              "component": 1,
+              "kind": "line",
+              "parameters": [
+                0.50390625
+              ],
+              "branches": 0,
+              "coverage_lower": null,
+              "coverage_upper": null,
+              "expected_length": 1.0,
+              "output_length": 0
+            }
+          ],
+          "branches": [
+            {
+              "branch": 0,
+              "component": 0,
+              "vertices": 2,
+              "length": 1.0,
+              "closed": false,
+              "endpoint_gap": 1.0,
+              "soundness_upper": 0.003906279802208702
+            }
+          ],
+          "failures": [
+            "component 0 lacks certified continuous coverage",
+            "component 1 lacks certified continuous coverage",
+            "component 1 has 0 output branches instead of one",
+            "component 1 length indicates loss or retrace"
+          ],
+          "silent_failure": true,
+          "passed": false,
+          "variant": "split_u",
+          "elapsed_s": 4.792305832961574
+        }
+      ]
+    }
+  ],
+  "near_unit_weight_probe_split_comparison": {
+    "input": "Quadratic x=[-1,0,1], z=[1,-1,1], extruded y=[-1,1], central weights1+8e-6, versus z=0, atol1e-5, max_cells15000.",
+    "before": {
+      "elapsed_s": 4.444835333968513,
+      "complete": false,
+      "reasons": [
+        "work_budget",
+        "output_cap"
+      ],
+      "cells_processed": 11339,
+      "ssx_cells": 9312,
+      "branch_trace_steps": 35,
+      "output_items": 1024,
+      "final_branches": 2,
+      "final_points": 0,
+      "unresolved_regions": 1022,
+      "tracer_calls": 1
+    },
+    "after": {
+      "elapsed_s": 0.8202814999967813,
+      "complete": true,
+      "status": {
+        "reasons": [],
+        "work": {
+          "cells_processed": 2106,
+          "csx_calls": 8,
+          "max_cells": 15000,
+          "max_csx_calls": 10000,
+          "output_items": 2,
+          "max_output_items": 1024,
+          "postprocess_work": 130,
+          "max_postprocess_work": 15000,
+          "cell_counts": {
+            "precompute": 5,
+            "csx": 1950,
+            "ssx": 39,
+            "branch_trace": 35,
+            "branch_trace_verify": 37,
+            "c3": 40
+          }
+        }
+      },
+      "final_counts": {
+        "branches": 2,
+        "points": 0,
+        "unresolved_regions": 0,
+        "singularities": 0
+      },
+      "trace_calls": [
+        [
+          "(0, 4, 2, 0, False)",
+          1
+        ]
+      ]
+    },
+    "diagnosis": "Only two fragments were traced. The1022 remaining output items were diagnostic boxes from an exhausted auxiliary singular-probe queue; longest-axis Cartesian subdivision repeated the critical-strip hunt along free extrusion parameters.",
+    "change": "Probe-only bisection chooses the largest Bernstein derivative-control-net variation among necessary T=0 constraints, falling back toPsi variation when allT are constant. One active-axis split produces two children and preserves all constraints and existing exclusions.",
+    "validation": "Five focused probe tests plus original off-lattice touch+ring and tangent-line tagging:7passed in7.34s."
+  }
+}

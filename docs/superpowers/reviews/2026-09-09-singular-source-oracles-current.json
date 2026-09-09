@@ -1,0 +1,162 @@
+{
+  "method": "Independent Fraction Bernstein-to-power coefficients match prior exact CAS polynomials. A regular source normal parallel to plane z=0 requires P=P_s=P_t=0. No assumption that rounded x/y control nets equal exact identity is needed.",
+  "cases": [
+    {
+      "helper": "_closed_tangent_loop",
+      "arguments": [],
+      "source_sha256": "583e0ff2d39885f3de86e5eddc42e13efb2368d5ab77071a0a0c6ab87cb3469a",
+      "same_exact_height_polynomial": true,
+      "target_plane_z_zero": true,
+      "prior_groebner": [
+        "1"
+      ],
+      "no_regular_tangent_contact": true
+    },
+    {
+      "helper": "_double_touch_asym",
+      "arguments": [],
+      "source_sha256": "336e6d059538a01d808145515d65da47a164a752f0e3b143ab6ed5a663955cf6",
+      "same_exact_height_polynomial": true,
+      "target_plane_z_zero": true,
+      "prior_groebner": [
+        "1"
+      ],
+      "no_regular_tangent_contact": true
+    },
+    {
+      "helper": "_line_plus_touch",
+      "arguments": [
+        0.2
+      ],
+      "source_sha256": "5733fa0d5ba3f3ec2a75f60eb3d0bd2c7580635bdac4657ae7a5a9b2fd865626",
+      "same_exact_height_polynomial": true,
+      "target_plane_z_zero": true,
+      "prior_groebner": [
+        "1"
+      ],
+      "no_regular_tangent_contact": true
+    },
+    {
+      "helper": "_line_plus_touch",
+      "arguments": [
+        0.495
+      ],
+      "source_sha256": "3402537ed9e762a057d715798d62021b70aefbb55c098ea6a8d7158a2321fd30",
+      "same_exact_height_polynomial": true,
+      "target_plane_z_zero": true,
+      "prior_groebner": [
+        "1"
+      ],
+      "no_regular_tangent_contact": true
+    },
+    {
+      "helper": "_line_plus_touch",
+      "arguments": [
+        0.49
+      ],
+      "source_sha256": "c3085f4e50e76c5d4a82fff2325382ca229163447d1b4671e25a1ef0a9be30bb",
+      "same_exact_height_polynomial": true,
+      "target_plane_z_zero": true,
+      "prior_groebner": [
+        "1"
+      ],
+      "no_regular_tangent_contact": true
+    },
+    {
+      "helper": "_mexican_hat",
+      "arguments": [],
+      "source_sha256": "239e797dc676ab26d8d8493b2e6f0cbaa75c2455cd655410b5e83e9675059420",
+      "same_exact_height_polynomial": true,
+      "target_plane_z_zero": true,
+      "prior_groebner": [
+        "1"
+      ],
+      "no_regular_tangent_contact": true
+    },
+    {
+      "helper": "_offcenter_touch_plus_loop",
+      "arguments": [],
+      "source_sha256": "a8e5bae24a0b81a4a76e3202639f21c935f83c03e633f96c5b1bc67b550dda61",
+      "same_exact_height_polynomial": true,
+      "target_plane_z_zero": true,
+      "prior_groebner": [
+        "1"
+      ],
+      "no_regular_tangent_contact": true
+    },
+    {
+      "helper": "_offlattice_tangent_ring",
+      "arguments": [],
+      "source_sha256": "1dfb9562ed26d85b2e5e747724c36ee5d66b8a09881cabfb8301795ad8de63c5",
+      "same_exact_height_polynomial": true,
+      "target_plane_z_zero": true,
+      "prior_groebner": [
+        "1"
+      ],
+      "no_regular_tangent_contact": true
+    },
+    {
+      "helper": "_touch_plus_loop",
+      "arguments": [
+        0.001
+      ],
+      "source_sha256": "a58e7aeb8c75ed5b19ff95835bddc78d304b981b4b6198093dda4fa359655ef7",
+      "same_exact_height_polynomial": true,
+      "target_plane_z_zero": true,
+      "prior_groebner": [
+        "1"
+      ],
+      "no_regular_tangent_contact": true
+    },
+    {
+      "helper": "_touch_plus_loop",
+      "arguments": [
+        0.005
+      ],
+      "source_sha256": "f6542f932064e90cdc63c70ea2566db6a1c70ded8aa513618bd9d018f8e53398",
+      "same_exact_height_polynomial": true,
+      "target_plane_z_zero": true,
+      "prior_groebner": [
+        "1"
+      ],
+      "no_regular_tangent_contact": true
+    },
+    {
+      "helper": "_touch_plus_loop",
+      "arguments": [
+        0.008
+      ],
+      "source_sha256": "05f7e780ff187e984afc4ea1bf217c6e106e7ca4eb18967e0fb248b7a2fb5a39",
+      "same_exact_height_polynomial": true,
+      "target_plane_z_zero": true,
+      "prior_groebner": [
+        "1"
+      ],
+      "no_regular_tangent_contact": true
+    },
+    {
+      "helper": "_touch_plus_loop",
+      "arguments": [
+        0.04
+      ],
+      "source_sha256": "4d1d9f7c01f12e3155f5194fce1430b560c08bff782daf353753bc18009de7db",
+      "same_exact_height_polynomial": true,
+      "target_plane_z_zero": true,
+      "prior_groebner": [
+        "1"
+      ],
+      "no_regular_tangent_contact": true
+    },
+    {
+      "helper": "_touch_plus_loop_offlattice",
+      "arguments": [],
+      "source_sha256": "79b59f11ac54cda2c031341ddc76983ccddfb863858b0832ae9e485ed9dee220",
+      "same_exact_height_polynomial": true,
+      "target_plane_z_zero": true,
+      "prior_groebner": [
+        "1"
+      ],
+      "no_regular_tangent_contact": true
+    }
+  ]
+}

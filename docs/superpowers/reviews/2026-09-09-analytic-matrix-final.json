@@ -1,0 +1,6037 @@
+{
+  "started_utc": "2026-09-09T07:15:18.517236+00:00",
+  "finished_utc": "2026-09-09T07:16:55.952054+00:00",
+  "complete_run": true,
+  "case_count": 63,
+  "watchdog_seconds": 45,
+  "atol": 0.001,
+  "python": "/Users/sthv/PycharmProjects/mmcore/.venv/bin/python",
+  "platform": "macOS-26.6.1-arm64-arm-64bit-Mach-O",
+  "source_manifests": {
+    "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29": {
+      "examples/ssx/ssx5_analytic_audit.py": "f7ca0329b7a001c3085da110b04eb0579d9f83ca127515c1912de59d4fde5f09",
+      "mmcore/numeric/_bezier_common.py": "58086fd64d2aa6a92954933fbf0fa4e0e407f3a0e0333a1e8a27955fdc9e578b",
+      "mmcore/numeric/_work_budget.py": "e077fd7994d18fbf27882a8f5a47d188119f3b81eb9f30c83384c44996f8651e",
+      "mmcore/numeric/bern.py": "df0bb3fc9c4df423f6a0096d143d7e2ab32b4d1745b657dcb9495d96c117b12c",
+      "mmcore/numeric/intersection/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mmcore/numeric/intersection/_adapter_status.py": "ede7cfb6735ae088a4d2b2f5ebc71574ac6069d1ea4d2f285b85068061326a3f",
+      "mmcore/numeric/intersection/_deflate.py": "f5dd8843c035d522d1a2efb40a1928b24974a08672e00e72eccaf9539380b2ca",
+      "mmcore/numeric/intersection/_exact_univariate.py": "f5ffcc108eecdd3f74dc5cdc89ba6794b5ad817e9f9a88747fa9a524ddf4f907",
+      "mmcore/numeric/intersection/_interval_cutout.py": "4c08050dbf5bebf0eea40ef5c3ab71fa0a537c6664d69088b43fdf859bb1c781",
+      "mmcore/numeric/intersection/_parameter_mapping.py": "fd05269cb9acd8e5c138fb30a968346adf220d2d35f6c21dfee8f3f9fff3ea40",
+      "mmcore/numeric/intersection/_root_box_certificate.py": "0de0e53355697bf41caf2583e18b34a3f1d374edcdc26d439e3fbb383dc829bb",
+      "mmcore/numeric/intersection/_sq_dist_classify.py": "a1feaefc3814f4577485ba222f46cd5203c2f67c29477b68e93b145221bd831e",
+      "mmcore/numeric/intersection/ccx/__init__.py": "86d89322aaeb52f90480b8e69af452e896bb040302e536b644f6fb82d8216857",
+      "mmcore/numeric/intersection/ccx/_bez_ccx4.py": "93cd73e1a82f3524126144a34ba0f9dd0e8590d280cb6ca2c1972e1f01b9ed78",
+      "mmcore/numeric/intersection/ccx/_bez_overlap.py": "293ff10c7b96188dc44a0ae0f0a86df438c46425330ea17fc38a06dfdff775f8",
+      "mmcore/numeric/intersection/ccx/_curve_line_exact.py": "6bb4b6e97c71a11fdaebb54cda8c6928245cdb444208e61f056191de9a16b4c6",
+      "mmcore/numeric/intersection/ccx/_linear_exact.py": "ccacb3fbf93d315bd21ad4f0d16cf0a983d42ce044c69916b26aebc800ef00f1",
+      "mmcore/numeric/intersection/ccx/_nccx4.py": "47fc45e42a4d40037f8cecc9392fb00d5e788adf1d9ac2f02da464fdc737141c",
+      "mmcore/numeric/intersection/ccx/_utils.py": "aa1232ac299c55841b5c178350743abbba68b19fa1296c4dfb24544fb99abca3",
+      "mmcore/numeric/intersection/ccx/ccx.py": "bebd556a89f1762723ec29aa514272bcc24f6e27c10ece8bd51c2d3395bf616d",
+      "mmcore/numeric/intersection/ccx/segment.py": "afdf5fc23bb41cfa0698ca01c07669620dccf9cdc932c3bacfaaceadd97e3117",
+      "mmcore/numeric/intersection/csx/__init__.py": "c167863cb62ff0e6da66e73f06aafd1ac53d0ed4783944702bf50240d40f72d7",
+      "mmcore/numeric/intersection/csx/_bez_csx4.py": "5f3e1697a3c38cd8a019478383836a098c3ee2ac418bc645709eb71f7335fd5d",
+      "mmcore/numeric/intersection/csx/_ncsx4.py": "5f12c1e5c996faca37af8d9f43beff9e0d6de35fdca6d2053b496226773cc4bd",
+      "mmcore/numeric/intersection/csx/_planar_overlap.py": "7e195ed310d830a18893867e39d6d51ffbd69f1861f7348aefe9c19e0f3080e0",
+      "mmcore/numeric/intersection/csx/_planar_roots.py": "05722fbc580d00d393150cd1d9818903e07554cfdff2a14e9aafbe7c66cbfe95",
+      "mmcore/numeric/intersection/separability/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mmcore/numeric/intersection/separability/spatial.py": "f28e5de2a6ba96b4d303355a8e4ce56413aa795c7c9aa3af7e1c8fe2812d47d2",
+      "mmcore/numeric/intersection/separability/spherical.py": "87dbac9c16fc44a82fad3328dc8d86846792c1690ebab56594729148f43d820d",
+      "mmcore/numeric/intersection/ssx/__init__.py": "31157515adc98ba3ee0e47065e3473b463bc425cdc77b79fc337b68cb4f6cc96",
+      "mmcore/numeric/intersection/ssx/_bez_ssx5.py": "d55ee760019b322d09f41f1a382e97cc17fa355eec64eae4ed56d01084299688",
+      "mmcore/numeric/intersection/ssx/_detect_intersections.py": "1921d4a27db1246dbbd76b81b77c275a6581042fa090842f88aa283d90667bd4",
+      "mmcore/numeric/intersection/ssx/_nssx5.py": "288e23309cb0068f6a57503e52a8e485df7cac3305b632ac8dc1d2bc52075a98",
+      "mmcore/numeric/intersection/ssx/_ssx5_overlap.py": "c57854d3101400e5deb578f3413ca1d5648c8d07fe935ac668aa5f70421edcba",
+      "mmcore/numeric/intersection/ssx/_ssx5_singular.py": "a19a17d463fcc8e2f53ce9270c8cd26a1dcb8bc2457b2dbc5581b9f9a53d9930",
+      "mmcore/numeric/intersection/ssx/_ssx_affine_constraints.py": "ea60c89659f8dd99c242c93f24c48bd8d1e1615218e7c3ca17d6ae3f4a331f2a",
+      "mmcore/numeric/intersection/ssx/_ssx_affine_path.py": "7cc2ecc97c3a9e7e64a7a629fdf244490e1a2cde4232aea3420d1f83aae71e68",
+      "mmcore/numeric/intersection/ssx/_ssx_arc_ownership.py": "976c35d79331f20ed310894cb15868324ffc8f8ed40158fce9ae13ab2ff9fabb",
+      "mmcore/numeric/intersection/ssx/_ssx_boundary_identity.py": "e49424776f63ceaa048b469048204f5a399ce1c88a3cc76d62dd78e3297d5f76",
+      "mmcore/numeric/intersection/ssx/_ssx_boundary_strata.py": "2bb598ae518a7921865eb64d0bb3198951441572851f50df2cb39fa45d62b7ad",
+      "mmcore/numeric/intersection/ssx/_ssx_cofactor_bounds.py": "cda4411563f76a3ae794e5337cfc739370a687ce9ffb130a97721edaf299c37f",
+      "mmcore/numeric/intersection/ssx/_ssx_exact_region.py": "858aa793cf921671b6a3e00a9c49b93e5899710936f2befc1a08c53e2a17b40d",
+      "mmcore/numeric/intersection/ssx/_ssx_extrusion.py": "1872bf047534b597f0b7378e53787a5b1e9a673e95378caa720421ffdddafbee",
+      "mmcore/numeric/intersection/ssx/_ssx_face_residual.py": "7edced0cb93e2a7f16e83464531ad85767e5e4ccda7cc314e9d5eaf57b2d79c3",
+      "mmcore/numeric/intersection/ssx/_ssx_input.py": "2059de043fdd73377a44b5aa960df14baa5ffad7ef4b7639d2af16fbfc2b680d",
+      "mmcore/numeric/intersection/ssx/_ssx_opposed_strata.py": "1b648caa74dd3744d45b95185ae5e42f2c96de0d8095ea4cb41c4e27856b5494",
+      "mmcore/numeric/intersection/ssx/_ssx_planar_cut.py": "9c91746a9e3c6a4539518fe110f0afbbcbb61bbe0a55b2961195a6d668c94686",
+      "mmcore/numeric/intersection/ssx/_ssx_polyline.py": "e05ad057f22a11ef638ce29fbae5cbc94d68da9ea78ca19738d9c343400b5c9d",
+      "mmcore/numeric/intersection/ssx/_ssx_quadratic_constraints.py": "fbb8c6b6bcbd9f0b7447c3b0f71401b7503a4032dfa0b6fccc7cefb1e1f12412",
+      "mmcore/numeric/intersection/ssx/_ssx_residual_contract.py": "fd27210795d41be99592afe2f4ff18f43416e68d6739ea24e197eb9e2f8ea156",
+      "mmcore/numeric/intersection/ssx/_ssx_root_identity.py": "def1f1cd6f347422236fd77d1b4b776f3ed513f50c37ac376e3bff8d14b7e402",
+      "mmcore/numeric/intersection/ssx/_ssx_singular_candidate.py": "9406ba60a38b31a20748319803bf6f1a162cc68e0db03501b634c310692dba04",
+      "mmcore/numeric/intersection/ssx/_ssx_source_cut_cache.py": "2c02c0fcad699371d7c14d21ab69168c455ce8fa70c9b1c5558ecdb716ea6465",
+      "mmcore/numeric/intersection/ssx/_ssx_source_residual.py": "c6d2b4e1b407e12cd44a559252c98052bde2c9a343cfdd24d6a7b05aa1c6ab29",
+      "mmcore/numeric/intersection/ssx/_ssx_substrate.py": "255b86f1a9eb13631d6295d0f0bbc26b410a0d94f110bc1e050c663f06006d8c",
+      "mmcore/numeric/intersection/ssx/refine.py": "087945b4405732fbd1d197c4fd0d9e978c11e2af5f8b34edee57f47266a6c839",
+      "mmcore/numeric/intersection/ssx/trace_inter_segm.py": "9eaab76a9cc34f6bdc1e853ecd441a954f5fa451aaafdd1c53115974726974a7",
+      "mmcore/nurbs/_nurbs_param_tol.py": "c997c97d67ff4f9ada0184031e3cf1bb2d68b97ea8eecb67a9f5ae800df9d2a4"
+    },
+    "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5": {
+      "examples/ssx/ssx5_analytic_audit.py": "f7ca0329b7a001c3085da110b04eb0579d9f83ca127515c1912de59d4fde5f09",
+      "mmcore/numeric/_bezier_common.py": "58086fd64d2aa6a92954933fbf0fa4e0e407f3a0e0333a1e8a27955fdc9e578b",
+      "mmcore/numeric/_work_budget.py": "e077fd7994d18fbf27882a8f5a47d188119f3b81eb9f30c83384c44996f8651e",
+      "mmcore/numeric/bern.py": "df0bb3fc9c4df423f6a0096d143d7e2ab32b4d1745b657dcb9495d96c117b12c",
+      "mmcore/numeric/intersection/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mmcore/numeric/intersection/_adapter_status.py": "ede7cfb6735ae088a4d2b2f5ebc71574ac6069d1ea4d2f285b85068061326a3f",
+      "mmcore/numeric/intersection/_deflate.py": "f5dd8843c035d522d1a2efb40a1928b24974a08672e00e72eccaf9539380b2ca",
+      "mmcore/numeric/intersection/_exact_univariate.py": "f5ffcc108eecdd3f74dc5cdc89ba6794b5ad817e9f9a88747fa9a524ddf4f907",
+      "mmcore/numeric/intersection/_interval_cutout.py": "4c08050dbf5bebf0eea40ef5c3ab71fa0a537c6664d69088b43fdf859bb1c781",
+      "mmcore/numeric/intersection/_parameter_mapping.py": "fd05269cb9acd8e5c138fb30a968346adf220d2d35f6c21dfee8f3f9fff3ea40",
+      "mmcore/numeric/intersection/_root_box_certificate.py": "0de0e53355697bf41caf2583e18b34a3f1d374edcdc26d439e3fbb383dc829bb",
+      "mmcore/numeric/intersection/_sq_dist_classify.py": "a1feaefc3814f4577485ba222f46cd5203c2f67c29477b68e93b145221bd831e",
+      "mmcore/numeric/intersection/ccx/__init__.py": "86d89322aaeb52f90480b8e69af452e896bb040302e536b644f6fb82d8216857",
+      "mmcore/numeric/intersection/ccx/_bez_ccx4.py": "93cd73e1a82f3524126144a34ba0f9dd0e8590d280cb6ca2c1972e1f01b9ed78",
+      "mmcore/numeric/intersection/ccx/_bez_overlap.py": "293ff10c7b96188dc44a0ae0f0a86df438c46425330ea17fc38a06dfdff775f8",
+      "mmcore/numeric/intersection/ccx/_curve_line_exact.py": "6bb4b6e97c71a11fdaebb54cda8c6928245cdb444208e61f056191de9a16b4c6",
+      "mmcore/numeric/intersection/ccx/_linear_exact.py": "ccacb3fbf93d315bd21ad4f0d16cf0a983d42ce044c69916b26aebc800ef00f1",
+      "mmcore/numeric/intersection/ccx/_nccx4.py": "47fc45e42a4d40037f8cecc9392fb00d5e788adf1d9ac2f02da464fdc737141c",
+      "mmcore/numeric/intersection/ccx/_utils.py": "aa1232ac299c55841b5c178350743abbba68b19fa1296c4dfb24544fb99abca3",
+      "mmcore/numeric/intersection/ccx/ccx.py": "bebd556a89f1762723ec29aa514272bcc24f6e27c10ece8bd51c2d3395bf616d",
+      "mmcore/numeric/intersection/ccx/segment.py": "afdf5fc23bb41cfa0698ca01c07669620dccf9cdc932c3bacfaaceadd97e3117",
+      "mmcore/numeric/intersection/csx/__init__.py": "c167863cb62ff0e6da66e73f06aafd1ac53d0ed4783944702bf50240d40f72d7",
+      "mmcore/numeric/intersection/csx/_bez_csx4.py": "5f3e1697a3c38cd8a019478383836a098c3ee2ac418bc645709eb71f7335fd5d",
+      "mmcore/numeric/intersection/csx/_ncsx4.py": "5f12c1e5c996faca37af8d9f43beff9e0d6de35fdca6d2053b496226773cc4bd",
+      "mmcore/numeric/intersection/csx/_planar_overlap.py": "7e195ed310d830a18893867e39d6d51ffbd69f1861f7348aefe9c19e0f3080e0",
+      "mmcore/numeric/intersection/csx/_planar_roots.py": "05722fbc580d00d393150cd1d9818903e07554cfdff2a14e9aafbe7c66cbfe95",
+      "mmcore/numeric/intersection/separability/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mmcore/numeric/intersection/separability/spatial.py": "f28e5de2a6ba96b4d303355a8e4ce56413aa795c7c9aa3af7e1c8fe2812d47d2",
+      "mmcore/numeric/intersection/separability/spherical.py": "87dbac9c16fc44a82fad3328dc8d86846792c1690ebab56594729148f43d820d",
+      "mmcore/numeric/intersection/ssx/__init__.py": "31157515adc98ba3ee0e47065e3473b463bc425cdc77b79fc337b68cb4f6cc96",
+      "mmcore/numeric/intersection/ssx/_bez_ssx5.py": "fd0417c90d1b726f954893cbdbc0f5084dcea1a34ac30f9dc5dbdcf56b44fbb7",
+      "mmcore/numeric/intersection/ssx/_detect_intersections.py": "1921d4a27db1246dbbd76b81b77c275a6581042fa090842f88aa283d90667bd4",
+      "mmcore/numeric/intersection/ssx/_nssx5.py": "288e23309cb0068f6a57503e52a8e485df7cac3305b632ac8dc1d2bc52075a98",
+      "mmcore/numeric/intersection/ssx/_ssx5_overlap.py": "c57854d3101400e5deb578f3413ca1d5648c8d07fe935ac668aa5f70421edcba",
+      "mmcore/numeric/intersection/ssx/_ssx5_singular.py": "a19a17d463fcc8e2f53ce9270c8cd26a1dcb8bc2457b2dbc5581b9f9a53d9930",
+      "mmcore/numeric/intersection/ssx/_ssx_affine_constraints.py": "ea60c89659f8dd99c242c93f24c48bd8d1e1615218e7c3ca17d6ae3f4a331f2a",
+      "mmcore/numeric/intersection/ssx/_ssx_affine_path.py": "7cc2ecc97c3a9e7e64a7a629fdf244490e1a2cde4232aea3420d1f83aae71e68",
+      "mmcore/numeric/intersection/ssx/_ssx_arc_ownership.py": "976c35d79331f20ed310894cb15868324ffc8f8ed40158fce9ae13ab2ff9fabb",
+      "mmcore/numeric/intersection/ssx/_ssx_boundary_identity.py": "e49424776f63ceaa048b469048204f5a399ce1c88a3cc76d62dd78e3297d5f76",
+      "mmcore/numeric/intersection/ssx/_ssx_boundary_strata.py": "2bb598ae518a7921865eb64d0bb3198951441572851f50df2cb39fa45d62b7ad",
+      "mmcore/numeric/intersection/ssx/_ssx_cofactor_bounds.py": "cda4411563f76a3ae794e5337cfc739370a687ce9ffb130a97721edaf299c37f",
+      "mmcore/numeric/intersection/ssx/_ssx_exact_region.py": "858aa793cf921671b6a3e00a9c49b93e5899710936f2befc1a08c53e2a17b40d",
+      "mmcore/numeric/intersection/ssx/_ssx_extrusion.py": "1872bf047534b597f0b7378e53787a5b1e9a673e95378caa720421ffdddafbee",
+      "mmcore/numeric/intersection/ssx/_ssx_face_residual.py": "7edced0cb93e2a7f16e83464531ad85767e5e4ccda7cc314e9d5eaf57b2d79c3",
+      "mmcore/numeric/intersection/ssx/_ssx_input.py": "2059de043fdd73377a44b5aa960df14baa5ffad7ef4b7639d2af16fbfc2b680d",
+      "mmcore/numeric/intersection/ssx/_ssx_opposed_strata.py": "1b648caa74dd3744d45b95185ae5e42f2c96de0d8095ea4cb41c4e27856b5494",
+      "mmcore/numeric/intersection/ssx/_ssx_planar_cut.py": "9c91746a9e3c6a4539518fe110f0afbbcbb61bbe0a55b2961195a6d668c94686",
+      "mmcore/numeric/intersection/ssx/_ssx_polyline.py": "e05ad057f22a11ef638ce29fbae5cbc94d68da9ea78ca19738d9c343400b5c9d",
+      "mmcore/numeric/intersection/ssx/_ssx_quadratic_constraints.py": "fbb8c6b6bcbd9f0b7447c3b0f71401b7503a4032dfa0b6fccc7cefb1e1f12412",
+      "mmcore/numeric/intersection/ssx/_ssx_residual_contract.py": "fd27210795d41be99592afe2f4ff18f43416e68d6739ea24e197eb9e2f8ea156",
+      "mmcore/numeric/intersection/ssx/_ssx_root_identity.py": "def1f1cd6f347422236fd77d1b4b776f3ed513f50c37ac376e3bff8d14b7e402",
+      "mmcore/numeric/intersection/ssx/_ssx_singular_candidate.py": "9406ba60a38b31a20748319803bf6f1a162cc68e0db03501b634c310692dba04",
+      "mmcore/numeric/intersection/ssx/_ssx_source_cut_cache.py": "2c02c0fcad699371d7c14d21ab69168c455ce8fa70c9b1c5558ecdb716ea6465",
+      "mmcore/numeric/intersection/ssx/_ssx_source_residual.py": "c6d2b4e1b407e12cd44a559252c98052bde2c9a343cfdd24d6a7b05aa1c6ab29",
+      "mmcore/numeric/intersection/ssx/_ssx_substrate.py": "255b86f1a9eb13631d6295d0f0bbc26b410a0d94f110bc1e050c663f06006d8c",
+      "mmcore/numeric/intersection/ssx/refine.py": "087945b4405732fbd1d197c4fd0d9e978c11e2af5f8b34edee57f47266a6c839",
+      "mmcore/numeric/intersection/ssx/trace_inter_segm.py": "9eaab76a9cc34f6bdc1e853ecd441a954f5fa451aaafdd1c53115974726974a7",
+      "mmcore/nurbs/_nurbs_param_tol.py": "c997c97d67ff4f9ada0184031e3cf1bb2d68b97ea8eecb67a9f5ae800df9d2a4"
+    }
+  },
+  "counts": {
+    "run": 63,
+    "pass": 63,
+    "timeout": 0,
+    "silent_failure": 0
+  },
+  "results": [
+    {
+      "case": "one_line",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 985,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 1,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 24,
+          "quadratic_constraints": 455,
+          "boundary_strata": 24,
+          "boundary_halfspace": 448,
+          "extrusion_certificate": 24,
+          "extrusion_roots": 6,
+          "extrusion_geometry": 4
+        }
+      },
+      "branch_count": 1,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.375
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "identity",
+      "elapsed_s": 0.5207701670005918,
+      "index": 0,
+      "wall_seconds": 0.6291797909652814,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "one_line",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 985,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 1,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 24,
+          "quadratic_constraints": 455,
+          "boundary_strata": 24,
+          "boundary_halfspace": 448,
+          "extrusion_certificate": 24,
+          "extrusion_roots": 6,
+          "extrusion_geometry": 4
+        }
+      },
+      "branch_count": 1,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.375
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "swap",
+      "elapsed_s": 0.47919954103417695,
+      "index": 1,
+      "wall_seconds": 0.5845407079905272,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "one_line",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 985,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 1,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 24,
+          "quadratic_constraints": 455,
+          "boundary_strata": 24,
+          "boundary_halfspace": 448,
+          "extrusion_certificate": 24,
+          "extrusion_roots": 6,
+          "extrusion_geometry": 4
+        }
+      },
+      "branch_count": 1,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.375
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "reverse_u",
+      "elapsed_s": 0.4804625000106171,
+      "index": 2,
+      "wall_seconds": 0.591044457978569,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "one_line",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 985,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 1,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 24,
+          "quadratic_constraints": 455,
+          "boundary_strata": 24,
+          "boundary_halfspace": 448,
+          "extrusion_certificate": 24,
+          "extrusion_roots": 6,
+          "extrusion_geometry": 4
+        }
+      },
+      "branch_count": 1,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.375
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "reverse_v",
+      "elapsed_s": 0.4776753329206258,
+      "index": 3,
+      "wall_seconds": 0.5883330419892445,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "one_line",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 967,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 1,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 24,
+          "quadratic_constraints": 437,
+          "boundary_strata": 24,
+          "boundary_halfspace": 448,
+          "extrusion_certificate": 24,
+          "extrusion_roots": 6,
+          "extrusion_geometry": 4
+        }
+      },
+      "branch_count": 1,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.375
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "transpose",
+      "elapsed_s": 0.48226349998731166,
+      "index": 4,
+      "wall_seconds": 0.5902653340017423,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "one_line",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 985,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 1,
+        "max_output_items": 1024,
+        "postprocess_work": 3,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 24,
+          "quadratic_constraints": 455,
+          "boundary_strata": 24,
+          "boundary_halfspace": 448,
+          "extrusion_certificate": 24,
+          "extrusion_roots": 6,
+          "extrusion_geometry": 4
+        }
+      },
+      "branch_count": 1,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.375
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "split_u",
+      "elapsed_s": 0.4783663749694824,
+      "index": 5,
+      "wall_seconds": 0.5901884579798207,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "one_line",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 1970,
+        "csx_calls": 0,
+        "max_cells": 500000,
+        "max_csx_calls": 20000,
+        "output_items": 2,
+        "max_output_items": 2048,
+        "postprocess_work": 12,
+        "max_postprocess_work": 500000,
+        "cell_counts": {
+          "affine_region_identity": 48,
+          "quadratic_constraints": 910,
+          "boundary_strata": 48,
+          "boundary_halfspace": 896,
+          "extrusion_certificate": 48,
+          "extrusion_roots": 12,
+          "extrusion_geometry": 8
+        }
+      },
+      "branch_count": 1,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.375
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 3,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "split_uv",
+      "elapsed_s": 0.4872315420070663,
+      "index": 6,
+      "wall_seconds": 0.5924940420081839,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "two_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 963,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 2,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 30,
+          "quadratic_constraints": 737,
+          "quadratic_strata": 8,
+          "quadratic_curve": 188
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.25
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.75
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "identity",
+      "elapsed_s": 0.48286095808725804,
+      "index": 7,
+      "wall_seconds": 0.5912747079273686,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "two_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 981,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 2,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 30,
+          "quadratic_constraints": 755,
+          "quadratic_strata": 8,
+          "quadratic_curve": 188
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.25
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.75
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        },
+        {
+          "branch": 1,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "swap",
+      "elapsed_s": 0.47769383306149393,
+      "index": 8,
+      "wall_seconds": 0.5817661660257727,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "two_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 963,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 2,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 30,
+          "quadratic_constraints": 737,
+          "quadratic_strata": 8,
+          "quadratic_curve": 188
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.25
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.75
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "reverse_u",
+      "elapsed_s": 0.47576774994377047,
+      "index": 9,
+      "wall_seconds": 0.5825619579991326,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "two_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 963,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 2,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 30,
+          "quadratic_constraints": 737,
+          "quadratic_strata": 8,
+          "quadratic_curve": 188
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.25
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.75
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "reverse_v",
+      "elapsed_s": 0.4746990419225767,
+      "index": 10,
+      "wall_seconds": 0.5794698339886963,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "two_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 963,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 2,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 30,
+          "quadratic_constraints": 737,
+          "quadratic_strata": 8,
+          "quadratic_curve": 188
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.25
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.75
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "transpose",
+      "elapsed_s": 0.4795485830400139,
+      "index": 11,
+      "wall_seconds": 0.5884667499922216,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "two_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 1400,
+        "csx_calls": 0,
+        "max_cells": 500000,
+        "max_csx_calls": 20000,
+        "output_items": 2,
+        "max_output_items": 2048,
+        "postprocess_work": 13,
+        "max_postprocess_work": 500000,
+        "cell_counts": {
+          "affine_region_identity": 60,
+          "quadratic_constraints": 1144,
+          "quadratic_strata": 8,
+          "quadratic_curve": 188
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.25
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.75
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        },
+        {
+          "branch": 1,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "split_u",
+      "elapsed_s": 0.4787581660784781,
+      "index": 12,
+      "wall_seconds": 0.5851207080995664,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "two_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 2800,
+        "csx_calls": 0,
+        "max_cells": 1000000,
+        "max_csx_calls": 40000,
+        "output_items": 4,
+        "max_output_items": 4096,
+        "postprocess_work": 312,
+        "max_postprocess_work": 1000000,
+        "cell_counts": {
+          "affine_region_identity": 120,
+          "quadratic_constraints": 2288,
+          "quadratic_strata": 16,
+          "quadratic_curve": 376
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.25
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.75
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 3,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        },
+        {
+          "branch": 1,
+          "component": 1,
+          "vertices": 3,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "split_uv",
+      "elapsed_s": 0.4766362919472158,
+      "index": 13,
+      "wall_seconds": 0.58257012499962,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "four_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 6351,
+        "csx_calls": 27,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 4,
+        "max_output_items": 1024,
+        "postprocess_work": 65,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 42,
+          "quadratic_constraints": 213,
+          "boundary_strata": 42,
+          "boundary_halfspace": 784,
+          "extrusion_certificate": 42,
+          "extrusion_roots": 81,
+          "precompute": 8,
+          "affine_constants": 2,
+          "affine_constraints": 365,
+          "cofactor_bounds": 394,
+          "source_residual": 177,
+          "source_cut": 3568,
+          "root_identity": 91,
+          "ssx": 19,
+          "affine_domain": 148,
+          "source_cut_filter": 41,
+          "boundary_event_partition": 48,
+          "straight_path": 44,
+          "path_representation": 84,
+          "arc_chord": 158
+        }
+      },
+      "branch_count": 4,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.125
+          ],
+          "branches": 1,
+          "coverage_lower": 2.7756757792349785e-17,
+          "coverage_upper": 0.00025000000000002776,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.375
+          ],
+          "branches": 1,
+          "coverage_lower": 2.775557617862871e-16,
+          "coverage_upper": 0.00025000000000027756,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 2,
+          "kind": "line",
+          "parameters": [
+            0.625
+          ],
+          "branches": 1,
+          "coverage_lower": 2.220481055257896e-16,
+          "coverage_upper": 0.00025000000000022205,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 3,
+          "kind": "line",
+          "parameters": [
+            0.875
+          ],
+          "branches": 1,
+          "coverage_lower": 1.734723475976807e-18,
+          "coverage_upper": 0.00025000000000000174,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 2.7756757792349785e-17
+        },
+        {
+          "branch": 1,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 2.775557617862871e-16
+        },
+        {
+          "branch": 2,
+          "component": 2,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 2.220481055257896e-16
+        },
+        {
+          "branch": 3,
+          "component": 3,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 1.734723475976807e-18
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "identity",
+      "elapsed_s": 0.6270682500908151,
+      "index": 14,
+      "wall_seconds": 0.7341214999323711,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "four_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 6271,
+        "csx_calls": 27,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 4,
+        "max_output_items": 1024,
+        "postprocess_work": 65,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 42,
+          "quadratic_constraints": 213,
+          "boundary_strata": 42,
+          "boundary_halfspace": 784,
+          "extrusion_certificate": 42,
+          "extrusion_roots": 81,
+          "precompute": 8,
+          "affine_constants": 2,
+          "affine_constraints": 365,
+          "cofactor_bounds": 394,
+          "source_residual": 177,
+          "source_cut": 3568,
+          "root_identity": 91,
+          "ssx": 19,
+          "affine_domain": 148,
+          "source_cut_filter": 41,
+          "boundary_event_partition": 48,
+          "straight_path": 44,
+          "path_representation": 84,
+          "arc_chord": 78
+        }
+      },
+      "branch_count": 4,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.125
+          ],
+          "branches": 1,
+          "coverage_lower": 4.163336342344337e-17,
+          "coverage_upper": 0.00025000000000004164,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.375
+          ],
+          "branches": 1,
+          "coverage_lower": 1.6653345369377348e-16,
+          "coverage_upper": 0.00025000000000016654,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 2,
+          "kind": "line",
+          "parameters": [
+            0.625
+          ],
+          "branches": 1,
+          "coverage_lower": 3.3306690738754696e-16,
+          "coverage_upper": 0.00025000000000033307,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 3,
+          "kind": "line",
+          "parameters": [
+            0.875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 4.163336342344337e-17
+        },
+        {
+          "branch": 1,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 1.665695898455916e-16
+        },
+        {
+          "branch": 2,
+          "component": 2,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 3.337167946540778e-16
+        },
+        {
+          "branch": 3,
+          "component": 3,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "swap",
+      "elapsed_s": 0.6340821249177679,
+      "index": 15,
+      "wall_seconds": 0.7429185829823837,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "four_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 6233,
+        "csx_calls": 25,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 4,
+        "max_output_items": 1024,
+        "postprocess_work": 65,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 42,
+          "quadratic_constraints": 213,
+          "boundary_strata": 42,
+          "boundary_halfspace": 784,
+          "extrusion_certificate": 42,
+          "extrusion_roots": 81,
+          "precompute": 8,
+          "affine_constants": 2,
+          "affine_constraints": 365,
+          "cofactor_bounds": 394,
+          "source_residual": 177,
+          "source_cut": 3450,
+          "root_identity": 91,
+          "ssx": 19,
+          "affine_domain": 148,
+          "source_cut_filter": 41,
+          "boundary_event_partition": 48,
+          "straight_path": 44,
+          "path_representation": 84,
+          "arc_chord": 158
+        }
+      },
+      "branch_count": 4,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.125
+          ],
+          "branches": 1,
+          "coverage_lower": 1.734723475976807e-18,
+          "coverage_upper": 0.00025000000000000174,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.375
+          ],
+          "branches": 1,
+          "coverage_lower": 2.220481055257896e-16,
+          "coverage_upper": 0.00025000000000022205,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 2,
+          "kind": "line",
+          "parameters": [
+            0.625
+          ],
+          "branches": 1,
+          "coverage_lower": 2.2204461196252876e-16,
+          "coverage_upper": 0.00025000000000022205,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 3,
+          "kind": "line",
+          "parameters": [
+            0.875
+          ],
+          "branches": 1,
+          "coverage_lower": 2.5617452698522246e-19,
+          "coverage_upper": 0.0002500000000000003,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 3,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 2.5617452698522246e-19
+        },
+        {
+          "branch": 1,
+          "component": 2,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 2.2204461196252876e-16
+        },
+        {
+          "branch": 2,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 2.220481055257896e-16
+        },
+        {
+          "branch": 3,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 1.734723475976807e-18
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "reverse_u",
+      "elapsed_s": 0.6327574590686709,
+      "index": 16,
+      "wall_seconds": 0.7429791670292616,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "four_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 6351,
+        "csx_calls": 27,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 4,
+        "max_output_items": 1024,
+        "postprocess_work": 65,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 42,
+          "quadratic_constraints": 213,
+          "boundary_strata": 42,
+          "boundary_halfspace": 784,
+          "extrusion_certificate": 42,
+          "extrusion_roots": 81,
+          "precompute": 8,
+          "affine_constants": 2,
+          "affine_constraints": 365,
+          "cofactor_bounds": 394,
+          "source_residual": 177,
+          "source_cut": 3568,
+          "root_identity": 91,
+          "ssx": 19,
+          "affine_domain": 148,
+          "source_cut_filter": 41,
+          "boundary_event_partition": 48,
+          "straight_path": 44,
+          "path_representation": 84,
+          "arc_chord": 158
+        }
+      },
+      "branch_count": 4,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.125
+          ],
+          "branches": 1,
+          "coverage_lower": 2.7756757792349785e-17,
+          "coverage_upper": 0.00025000000000002776,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.375
+          ],
+          "branches": 1,
+          "coverage_lower": 2.775557617862871e-16,
+          "coverage_upper": 0.00025000000000027756,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 2,
+          "kind": "line",
+          "parameters": [
+            0.625
+          ],
+          "branches": 1,
+          "coverage_lower": 2.220481055257896e-16,
+          "coverage_upper": 0.00025000000000022205,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 3,
+          "kind": "line",
+          "parameters": [
+            0.875
+          ],
+          "branches": 1,
+          "coverage_lower": 1.734723475976807e-18,
+          "coverage_upper": 0.00025000000000000174,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 2.7756757792349785e-17
+        },
+        {
+          "branch": 1,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 2.775557617862871e-16
+        },
+        {
+          "branch": 2,
+          "component": 2,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 2.220481055257896e-16
+        },
+        {
+          "branch": 3,
+          "component": 3,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 1.734723475976807e-18
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "reverse_v",
+      "elapsed_s": 0.6229437500005588,
+      "index": 17,
+      "wall_seconds": 0.7316038330318406,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "four_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 6279,
+        "csx_calls": 27,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 4,
+        "max_output_items": 1024,
+        "postprocess_work": 65,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 42,
+          "quadratic_constraints": 213,
+          "boundary_strata": 42,
+          "boundary_halfspace": 784,
+          "extrusion_certificate": 42,
+          "extrusion_roots": 81,
+          "precompute": 8,
+          "affine_constants": 2,
+          "affine_constraints": 365,
+          "cofactor_bounds": 394,
+          "source_residual": 177,
+          "source_cut": 3520,
+          "root_identity": 91,
+          "ssx": 19,
+          "affine_domain": 148,
+          "source_cut_filter": 41,
+          "boundary_event_partition": 48,
+          "straight_path": 44,
+          "path_representation": 84,
+          "arc_chord": 134
+        }
+      },
+      "branch_count": 4,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.125
+          ],
+          "branches": 1,
+          "coverage_lower": 2.7756757792349785e-17,
+          "coverage_upper": 0.00025000000000002776,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.375
+          ],
+          "branches": 1,
+          "coverage_lower": 2.775557617862871e-16,
+          "coverage_upper": 0.00025000000000027756,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 2,
+          "kind": "line",
+          "parameters": [
+            0.625
+          ],
+          "branches": 1,
+          "coverage_lower": 2.220481055257896e-16,
+          "coverage_upper": 0.00025000000000022205,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 3,
+          "kind": "line",
+          "parameters": [
+            0.875
+          ],
+          "branches": 1,
+          "coverage_lower": 1.734723475976807e-18,
+          "coverage_upper": 0.00025000000000000174,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 2.7756757792349785e-17
+        },
+        {
+          "branch": 1,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 2.775557617862871e-16
+        },
+        {
+          "branch": 2,
+          "component": 2,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 2.220481055257896e-16
+        },
+        {
+          "branch": 3,
+          "component": 3,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 1.734723475976807e-18
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "transpose",
+      "elapsed_s": 0.6290636250050738,
+      "index": 18,
+      "wall_seconds": 0.736919124959968,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "four_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 8033,
+        "csx_calls": 34,
+        "max_cells": 500000,
+        "max_csx_calls": 20000,
+        "output_items": 4,
+        "max_output_items": 2048,
+        "postprocess_work": 42,
+        "max_postprocess_work": 500000,
+        "cell_counts": {
+          "affine_region_identity": 84,
+          "quadratic_constraints": 426,
+          "boundary_strata": 84,
+          "boundary_halfspace": 1568,
+          "extrusion_certificate": 84,
+          "extrusion_roots": 158,
+          "precompute": 16,
+          "affine_constants": 4,
+          "affine_constraints": 364,
+          "cofactor_bounds": 388,
+          "source_residual": 200,
+          "source_cut": 4090,
+          "root_identity": 69,
+          "ssx": 18,
+          "affine_domain": 136,
+          "source_cut_filter": 24,
+          "boundary_event_partition": 32,
+          "straight_path": 44,
+          "path_representation": 84,
+          "arc_chord": 160
+        }
+      },
+      "branch_count": 4,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.125
+          ],
+          "branches": 1,
+          "coverage_lower": 1.3908297114356696e-17,
+          "coverage_upper": 0.00025000000000001394,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.375
+          ],
+          "branches": 1,
+          "coverage_lower": 2.2204651735837177e-16,
+          "coverage_upper": 0.00025000000000022205,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 2,
+          "kind": "line",
+          "parameters": [
+            0.625
+          ],
+          "branches": 1,
+          "coverage_lower": 2.220448858576847e-16,
+          "coverage_upper": 0.00025000000000022205,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 3,
+          "kind": "line",
+          "parameters": [
+            0.875
+          ],
+          "branches": 1,
+          "coverage_lower": 1.734723475976807e-18,
+          "coverage_upper": 0.00025000000000000174,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 1.3908297114356696e-17
+        },
+        {
+          "branch": 1,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 2.2204651735837177e-16
+        },
+        {
+          "branch": 2,
+          "component": 2,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 2.220448858576847e-16
+        },
+        {
+          "branch": 3,
+          "component": 3,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 1.734723475976807e-18
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "split_u",
+      "elapsed_s": 0.6447493339655921,
+      "index": 19,
+      "wall_seconds": 0.753746125032194,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "four_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 16102,
+        "csx_calls": 68,
+        "max_cells": 1000000,
+        "max_csx_calls": 40000,
+        "output_items": 8,
+        "max_output_items": 4096,
+        "postprocess_work": 148,
+        "max_postprocess_work": 1000000,
+        "cell_counts": {
+          "affine_region_identity": 168,
+          "quadratic_constraints": 852,
+          "boundary_strata": 168,
+          "boundary_halfspace": 3136,
+          "extrusion_certificate": 168,
+          "extrusion_roots": 316,
+          "precompute": 32,
+          "affine_constants": 8,
+          "affine_constraints": 728,
+          "cofactor_bounds": 776,
+          "source_residual": 400,
+          "source_cut": 8180,
+          "root_identity": 138,
+          "ssx": 36,
+          "affine_domain": 272,
+          "source_cut_filter": 48,
+          "boundary_event_partition": 64,
+          "straight_path": 88,
+          "path_representation": 168,
+          "arc_chord": 320,
+          "singular_source": 36
+        }
+      },
+      "branch_count": 4,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.125
+          ],
+          "branches": 1,
+          "coverage_lower": 1.3908297114356696e-17,
+          "coverage_upper": 0.00025000000000001394,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.375
+          ],
+          "branches": 1,
+          "coverage_lower": 2.2204651735837177e-16,
+          "coverage_upper": 0.00025000000000022205,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 2,
+          "kind": "line",
+          "parameters": [
+            0.625
+          ],
+          "branches": 1,
+          "coverage_lower": 2.220448858576847e-16,
+          "coverage_upper": 0.00025000000000022205,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 3,
+          "kind": "line",
+          "parameters": [
+            0.875
+          ],
+          "branches": 1,
+          "coverage_lower": 1.734723475976807e-18,
+          "coverage_upper": 0.00025000000000000174,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 3,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 1.3908297114356696e-17
+        },
+        {
+          "branch": 1,
+          "component": 1,
+          "vertices": 3,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 2.2204651735837177e-16
+        },
+        {
+          "branch": 2,
+          "component": 2,
+          "vertices": 3,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 2.220448858576847e-16
+        },
+        {
+          "branch": 3,
+          "component": 3,
+          "vertices": 3,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 1.734723475976807e-18
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "split_uv",
+      "elapsed_s": 0.7892426250036806,
+      "index": 20,
+      "wall_seconds": 0.8971818330464885,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "nearby_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 969,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 2,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 30,
+          "quadratic_constraints": 743,
+          "quadratic_strata": 8,
+          "quadratic_curve": 188
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.46875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.53125
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "identity",
+      "elapsed_s": 0.48416008392814547,
+      "index": 21,
+      "wall_seconds": 0.5898139589698985,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "nearby_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 987,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 2,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 30,
+          "quadratic_constraints": 761,
+          "quadratic_strata": 8,
+          "quadratic_curve": 188
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.46875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.53125
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        },
+        {
+          "branch": 1,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "swap",
+      "elapsed_s": 0.4790345410583541,
+      "index": 22,
+      "wall_seconds": 0.5852290419861674,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "nearby_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 969,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 2,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 30,
+          "quadratic_constraints": 743,
+          "quadratic_strata": 8,
+          "quadratic_curve": 188
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.46875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.53125
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "reverse_u",
+      "elapsed_s": 0.47468387510161847,
+      "index": 23,
+      "wall_seconds": 0.5826162920566276,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "nearby_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 969,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 2,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 30,
+          "quadratic_constraints": 743,
+          "quadratic_strata": 8,
+          "quadratic_curve": 188
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.46875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.53125
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "reverse_v",
+      "elapsed_s": 0.4800792499445379,
+      "index": 24,
+      "wall_seconds": 0.5868567089783028,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "nearby_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 969,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 2,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 30,
+          "quadratic_constraints": 743,
+          "quadratic_strata": 8,
+          "quadratic_curve": 188
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.46875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.53125
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "transpose",
+      "elapsed_s": 0.4795926669612527,
+      "index": 25,
+      "wall_seconds": 0.5877482499927282,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "nearby_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 1412,
+        "csx_calls": 0,
+        "max_cells": 500000,
+        "max_csx_calls": 20000,
+        "output_items": 2,
+        "max_output_items": 2048,
+        "postprocess_work": 13,
+        "max_postprocess_work": 500000,
+        "cell_counts": {
+          "affine_region_identity": 60,
+          "quadratic_constraints": 1156,
+          "quadratic_strata": 8,
+          "quadratic_curve": 188
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.46875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.53125
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        },
+        {
+          "branch": 1,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "split_u",
+      "elapsed_s": 0.4836689999792725,
+      "index": 26,
+      "wall_seconds": 0.5908596250228584,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "nearby_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 2824,
+        "csx_calls": 0,
+        "max_cells": 1000000,
+        "max_csx_calls": 40000,
+        "output_items": 4,
+        "max_output_items": 4096,
+        "postprocess_work": 312,
+        "max_postprocess_work": 1000000,
+        "cell_counts": {
+          "affine_region_identity": 120,
+          "quadratic_constraints": 2312,
+          "quadratic_strata": 16,
+          "quadratic_curve": 376
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.46875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.53125
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 3,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        },
+        {
+          "branch": 1,
+          "component": 1,
+          "vertices": 3,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "split_uv",
+      "elapsed_s": 0.49103479098994285,
+      "index": 27,
+      "wall_seconds": 0.5998212500708178,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "tight_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 975,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 2,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 30,
+          "quadratic_constraints": 749,
+          "quadratic_strata": 8,
+          "quadratic_curve": 188
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.49609375
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.50390625
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "identity",
+      "elapsed_s": 0.47667141701094806,
+      "index": 28,
+      "wall_seconds": 0.5892133750021458,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "tight_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 993,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 2,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 30,
+          "quadratic_constraints": 767,
+          "quadratic_strata": 8,
+          "quadratic_curve": 188
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.49609375
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.50390625
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        },
+        {
+          "branch": 1,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "swap",
+      "elapsed_s": 0.48042045801412314,
+      "index": 29,
+      "wall_seconds": 0.589192625018768,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "tight_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 975,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 2,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 30,
+          "quadratic_constraints": 749,
+          "quadratic_strata": 8,
+          "quadratic_curve": 188
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.49609375
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.50390625
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "reverse_u",
+      "elapsed_s": 0.478884833981283,
+      "index": 30,
+      "wall_seconds": 0.5887799999909475,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "tight_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 975,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 2,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 30,
+          "quadratic_constraints": 749,
+          "quadratic_strata": 8,
+          "quadratic_curve": 188
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.49609375
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.50390625
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "reverse_v",
+      "elapsed_s": 0.47931979096028954,
+      "index": 31,
+      "wall_seconds": 0.585019541089423,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "tight_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 975,
+        "csx_calls": 0,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 2,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 30,
+          "quadratic_constraints": 749,
+          "quadratic_strata": 8,
+          "quadratic_curve": 188
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.49609375
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.50390625
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "transpose",
+      "elapsed_s": 0.4775621249573305,
+      "index": 32,
+      "wall_seconds": 0.585967667051591,
+      "source_snapshot": "e9f8183cb75545206dc7dbcaf0cfe2cd26b9071ccbaa3388a709de1c7fac8d29",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": true
+    },
+    {
+      "case": "tight_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 1424,
+        "csx_calls": 0,
+        "max_cells": 500000,
+        "max_csx_calls": 20000,
+        "output_items": 2,
+        "max_output_items": 2048,
+        "postprocess_work": 13,
+        "max_postprocess_work": 500000,
+        "cell_counts": {
+          "affine_region_identity": 60,
+          "quadratic_constraints": 1168,
+          "quadratic_strata": 8,
+          "quadratic_curve": 188
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.49609375
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.50390625
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        },
+        {
+          "branch": 1,
+          "component": 1,
+          "vertices": 2,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "split_u",
+      "elapsed_s": 0.5160297499969602,
+      "index": 33,
+      "wall_seconds": 0.6213977910811082,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "tight_lines",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 2848,
+        "csx_calls": 0,
+        "max_cells": 1000000,
+        "max_csx_calls": 40000,
+        "output_items": 4,
+        "max_output_items": 4096,
+        "postprocess_work": 312,
+        "max_postprocess_work": 1000000,
+        "cell_counts": {
+          "affine_region_identity": 120,
+          "quadratic_constraints": 2336,
+          "quadratic_strata": 16,
+          "quadratic_curve": 376
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "line",
+          "parameters": [
+            0.49609375
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        },
+        {
+          "component": 1,
+          "kind": "line",
+          "parameters": [
+            0.50390625
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0,
+          "coverage_upper": 0.00025,
+          "expected_length": 1.0,
+          "output_length": 1.0
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 3,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        },
+        {
+          "branch": 1,
+          "component": 1,
+          "vertices": 3,
+          "length": 1.0,
+          "closed": false,
+          "endpoint_gap": 1.0,
+          "soundness_upper": 0.0
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "split_uv",
+      "elapsed_s": 0.49190304102376103,
+      "index": 34,
+      "wall_seconds": 0.6014327080920339,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "one_circle",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 7794,
+        "csx_calls": 31,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 13,
+        "max_output_items": 1024,
+        "postprocess_work": 90,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 39,
+          "quadratic_constraints": 520,
+          "boundary_strata": 39,
+          "boundary_halfspace": 728,
+          "extrusion_certificate": 39,
+          "precompute": 8,
+          "affine_constants": 2,
+          "affine_constraints": 647,
+          "cofactor_bounds": 502,
+          "source_residual": 119,
+          "source_cut": 3845,
+          "ssx": 39,
+          "affine_domain": 416,
+          "source_cut_filter": 77,
+          "boundary_event_partition": 87,
+          "root_identity": 173,
+          "path_representation": 204,
+          "branch_trace": 100,
+          "branch_trace_verify": 110,
+          "singular_existence": 2,
+          "arc_chord": 81,
+          "arc_image": 17
+        }
+      },
+      "branch_count": 1,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.25
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0012553452231676026,
+          "coverage_upper": 0.001505312811772774,
+          "expected_length": 1.5707963267948966,
+          "output_length": 1.5699774315313875,
+          "angular_travel": 6.283185307179585
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 70,
+          "length": 1.5699774315313875,
+          "closed": true,
+          "endpoint_gap": 0.0,
+          "soundness_upper": 0.0012553542607788848
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "identity",
+      "elapsed_s": 0.6594486670801416,
+      "index": 35,
+      "wall_seconds": 0.7747797500342131,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "one_circle",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 6314,
+        "csx_calls": 24,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 9,
+        "max_output_items": 1024,
+        "postprocess_work": 74,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 39,
+          "quadratic_constraints": 542,
+          "boundary_strata": 39,
+          "boundary_halfspace": 728,
+          "extrusion_certificate": 39,
+          "precompute": 8,
+          "affine_constants": 2,
+          "affine_constraints": 563,
+          "cofactor_bounds": 547,
+          "source_residual": 126,
+          "source_cut": 2599,
+          "ssx": 39,
+          "affine_domain": 416,
+          "source_cut_filter": 62,
+          "boundary_event_partition": 83,
+          "root_identity": 136,
+          "singular_source": 60,
+          "path_representation": 153,
+          "branch_trace": 62,
+          "branch_trace_verify": 71
+        }
+      },
+      "branch_count": 1,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.25
+          ],
+          "branches": 1,
+          "coverage_lower": 0.001255347378286515,
+          "coverage_upper": 0.0015053149668916863,
+          "expected_length": 1.5707963267948966,
+          "output_length": 1.5699111633292155,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 63,
+          "length": 1.5699111633292155,
+          "closed": true,
+          "endpoint_gap": 1.1443916996305594e-16,
+          "soundness_upper": 0.0012553564217041013
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "swap",
+      "elapsed_s": 0.6377129160100594,
+      "index": 36,
+      "wall_seconds": 0.7470824590418488,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "one_circle",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 5860,
+        "csx_calls": 22,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 8,
+        "max_output_items": 1024,
+        "postprocess_work": 66,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 39,
+          "quadratic_constraints": 520,
+          "boundary_strata": 39,
+          "boundary_halfspace": 728,
+          "extrusion_certificate": 39,
+          "precompute": 8,
+          "affine_constants": 2,
+          "affine_constraints": 508,
+          "cofactor_bounds": 490,
+          "source_residual": 105,
+          "source_cut": 2496,
+          "ssx": 33,
+          "affine_domain": 350,
+          "source_cut_filter": 51,
+          "boundary_event_partition": 68,
+          "root_identity": 120,
+          "path_representation": 136,
+          "branch_trace": 60,
+          "branch_trace_verify": 68
+        }
+      },
+      "branch_count": 1,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.25
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0012553458792381176,
+          "coverage_upper": 0.001505313467843289,
+          "expected_length": 1.5707963267948966,
+          "output_length": 1.5699126408259685,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 61,
+          "length": 1.5699126408259685,
+          "closed": true,
+          "endpoint_gap": 0.0,
+          "soundness_upper": 0.00125535491861678
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "reverse_u",
+      "elapsed_s": 0.6240456249797717,
+      "index": 37,
+      "wall_seconds": 0.7315342499641702,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "one_circle",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 6172,
+        "csx_calls": 23,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 8,
+        "max_output_items": 1024,
+        "postprocess_work": 66,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 39,
+          "quadratic_constraints": 520,
+          "boundary_strata": 39,
+          "boundary_halfspace": 728,
+          "extrusion_certificate": 39,
+          "precompute": 8,
+          "affine_constants": 2,
+          "affine_constraints": 519,
+          "cofactor_bounds": 490,
+          "source_residual": 105,
+          "source_cut": 2772,
+          "ssx": 33,
+          "affine_domain": 350,
+          "source_cut_filter": 53,
+          "boundary_event_partition": 68,
+          "root_identity": 123,
+          "path_representation": 136,
+          "branch_trace": 69,
+          "branch_trace_verify": 78,
+          "singular_existence": 1
+        }
+      },
+      "branch_count": 1,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.25
+          ],
+          "branches": 1,
+          "coverage_lower": 0.001255343718119565,
+          "coverage_upper": 0.0015053113067247364,
+          "expected_length": 1.5707963267948966,
+          "output_length": 1.5699124650447014,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 61,
+          "length": 1.5699124650447014,
+          "closed": true,
+          "endpoint_gap": 0.0,
+          "soundness_upper": 0.0012553527516770968
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "reverse_v",
+      "elapsed_s": 0.6210605419473723,
+      "index": 38,
+      "wall_seconds": 0.7305914579192176,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "one_circle",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 8817,
+        "csx_calls": 33,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 20,
+        "max_output_items": 1024,
+        "postprocess_work": 99,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 39,
+          "quadratic_constraints": 520,
+          "boundary_strata": 39,
+          "boundary_halfspace": 728,
+          "extrusion_certificate": 39,
+          "precompute": 8,
+          "affine_constants": 2,
+          "affine_constraints": 716,
+          "cofactor_bounds": 372,
+          "source_residual": 140,
+          "source_cut": 4624,
+          "ssx": 41,
+          "affine_domain": 444,
+          "source_cut_filter": 98,
+          "boundary_event_partition": 90,
+          "root_identity": 225,
+          "path_representation": 272,
+          "branch_trace": 201,
+          "branch_trace_verify": 211,
+          "singular_existence": 8
+        }
+      },
+      "branch_count": 1,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.25
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0012553456080615752,
+          "coverage_upper": 0.0015053131966667466,
+          "expected_length": 1.5707963267948966,
+          "output_length": 1.5700285248224461,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 71,
+          "length": 1.5700285248224461,
+          "closed": true,
+          "endpoint_gap": 6.6960326172704744e-18,
+          "soundness_upper": 0.0012553546467097276
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "transpose",
+      "elapsed_s": 0.6966199999442324,
+      "index": 39,
+      "wall_seconds": 0.809712375048548,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "one_circle",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 8173,
+        "csx_calls": 34,
+        "max_cells": 500000,
+        "max_csx_calls": 20000,
+        "output_items": 15,
+        "max_output_items": 2048,
+        "postprocess_work": 96,
+        "max_postprocess_work": 500000,
+        "cell_counts": {
+          "affine_region_identity": 78,
+          "quadratic_constraints": 1037,
+          "boundary_strata": 78,
+          "boundary_halfspace": 1456,
+          "extrusion_certificate": 78,
+          "precompute": 16,
+          "affine_constants": 4,
+          "affine_constraints": 470,
+          "cofactor_bounds": 352,
+          "source_residual": 98,
+          "source_cut": 3469,
+          "root_identity": 157,
+          "ssx": 28,
+          "affine_domain": 294,
+          "source_cut_filter": 51,
+          "boundary_event_partition": 69,
+          "path_representation": 170,
+          "branch_trace": 126,
+          "branch_trace_verify": 138,
+          "singular_existence": 4
+        }
+      },
+      "branch_count": 1,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.25
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0011979585203565919,
+          "coverage_upper": 0.0014479261089617632,
+          "expected_length": 1.5707963267948966,
+          "output_length": 1.5700091613897527,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 68,
+          "length": 1.5700091613897527,
+          "closed": true,
+          "endpoint_gap": 9.037909309839191e-18,
+          "soundness_upper": 0.0011979588575210809
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "split_u",
+      "elapsed_s": 0.6503486669389531,
+      "index": 40,
+      "wall_seconds": 0.7615339159965515,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "one_circle",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 12953,
+        "csx_calls": 58,
+        "max_cells": 1000000,
+        "max_csx_calls": 40000,
+        "output_items": 13,
+        "max_output_items": 4096,
+        "postprocess_work": 136,
+        "max_postprocess_work": 1000000,
+        "cell_counts": {
+          "affine_region_identity": 156,
+          "quadratic_constraints": 2068,
+          "boundary_strata": 156,
+          "boundary_halfspace": 2912,
+          "extrusion_certificate": 156,
+          "precompute": 32,
+          "affine_constants": 8,
+          "affine_constraints": 678,
+          "cofactor_bounds": 491,
+          "source_residual": 161,
+          "source_cut": 4942,
+          "root_identity": 186,
+          "ssx": 36,
+          "affine_domain": 344,
+          "source_cut_filter": 38,
+          "boundary_event_partition": 75,
+          "path_representation": 204,
+          "branch_trace": 100,
+          "branch_trace_verify": 110,
+          "singular_existence": 2,
+          "arc_chord": 81,
+          "arc_image": 17
+        }
+      },
+      "branch_count": 1,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.25
+          ],
+          "branches": 1,
+          "coverage_lower": 0.001255345149327828,
+          "coverage_upper": 0.0015053127379329994,
+          "expected_length": 1.5707963267948966,
+          "output_length": 1.5699774315225958,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 70,
+          "length": 1.5699774315225958,
+          "closed": true,
+          "endpoint_gap": 0.0,
+          "soundness_upper": 0.0012553541867402485
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "split_uv",
+      "elapsed_s": 0.6819872920168564,
+      "index": 41,
+      "wall_seconds": 0.7941334579372779,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "two_circles",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 42392,
+        "csx_calls": 62,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 34,
+        "max_output_items": 1024,
+        "postprocess_work": 242,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 87,
+          "quadratic_constraints": 573,
+          "boundary_strata": 87,
+          "boundary_halfspace": 1624,
+          "extrusion_certificate": 87,
+          "precompute": 23,
+          "affine_constants": 2,
+          "affine_constraints": 1701,
+          "cofactor_bounds": 3596,
+          "source_residual": 1349,
+          "source_cut": 22489,
+          "ssx": 103,
+          "affine_domain": 3553,
+          "source_cut_filter": 341,
+          "boundary_event_partition": 191,
+          "root_identity": 562,
+          "singular_source": 60,
+          "path_representation": 2010,
+          "branch_trace": 301,
+          "branch_trace_verify": 318,
+          "singular_existence": 30,
+          "arc_chord": 2233,
+          "arc_image": 1072
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.25,
+            0.5,
+            0.1875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0008510388912939059,
+          "coverage_upper": 0.0011009534532574554,
+          "expected_length": 1.1780972450961724,
+          "output_length": 1.1775775831242905,
+          "angular_travel": 6.283185307179586
+        },
+        {
+          "component": 1,
+          "kind": "circle",
+          "parameters": [
+            0.75,
+            0.5,
+            0.1875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0008510433300812667,
+          "coverage_upper": 0.0011009578920448161,
+          "expected_length": 1.1780972450961724,
+          "output_length": 1.1776029387035054,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 79,
+          "length": 1.1775775831242905,
+          "closed": true,
+          "endpoint_gap": 6.960302227394282e-18,
+          "soundness_upper": 0.0008510824221855673
+        },
+        {
+          "branch": 1,
+          "component": 1,
+          "vertices": 77,
+          "length": 1.1776029387035054,
+          "closed": true,
+          "endpoint_gap": 3.2526065174565133e-19,
+          "soundness_upper": 0.0008510831129094065
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "identity",
+      "elapsed_s": 1.458613916998729,
+      "index": 42,
+      "wall_seconds": 1.5669474579626694,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "two_circles",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 41715,
+        "csx_calls": 63,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 33,
+        "max_output_items": 1024,
+        "postprocess_work": 230,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 87,
+          "quadratic_constraints": 573,
+          "boundary_strata": 87,
+          "boundary_halfspace": 1624,
+          "extrusion_certificate": 87,
+          "precompute": 23,
+          "affine_constants": 2,
+          "affine_constraints": 1698,
+          "cofactor_bounds": 3736,
+          "source_residual": 1368,
+          "source_cut": 21552,
+          "ssx": 105,
+          "affine_domain": 3623,
+          "source_cut_filter": 371,
+          "boundary_event_partition": 192,
+          "root_identity": 560,
+          "singular_source": 300,
+          "path_representation": 1943,
+          "branch_trace": 300,
+          "branch_trace_verify": 316,
+          "arc_chord": 2133,
+          "arc_image": 1005,
+          "singular_existence": 30
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.25,
+            0.5,
+            0.1875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.000860331426490348,
+          "coverage_upper": 0.0011102459884538974,
+          "expected_length": 1.1780972450961724,
+          "output_length": 1.1775646779453302,
+          "angular_travel": 6.283185307179585
+        },
+        {
+          "component": 1,
+          "kind": "circle",
+          "parameters": [
+            0.75,
+            0.5,
+            0.1875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0008427252447214495,
+          "coverage_upper": 0.001092639806684999,
+          "expected_length": 1.1780972450961724,
+          "output_length": 1.177591532626657,
+          "angular_travel": 6.283185307179587
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 78,
+          "length": 1.1775646779453302,
+          "closed": true,
+          "endpoint_gap": 0.0,
+          "soundness_upper": 0.000860391076751732
+        },
+        {
+          "branch": 1,
+          "component": 1,
+          "vertices": 80,
+          "length": 1.177591532626657,
+          "closed": true,
+          "endpoint_gap": 2.220446049250313e-16,
+          "soundness_upper": 0.0008427982553849689
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "swap",
+      "elapsed_s": 1.507432417012751,
+      "index": 43,
+      "wall_seconds": 1.6186642920365557,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "two_circles",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 38402,
+        "csx_calls": 56,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 28,
+        "max_output_items": 1024,
+        "postprocess_work": 222,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 87,
+          "quadratic_constraints": 573,
+          "boundary_strata": 87,
+          "boundary_halfspace": 1624,
+          "extrusion_certificate": 87,
+          "precompute": 23,
+          "affine_constants": 2,
+          "affine_constraints": 1550,
+          "cofactor_bounds": 3576,
+          "source_residual": 1349,
+          "source_cut": 19952,
+          "ssx": 99,
+          "affine_domain": 3413,
+          "source_cut_filter": 275,
+          "boundary_event_partition": 181,
+          "root_identity": 485,
+          "path_representation": 1742,
+          "branch_trace": 221,
+          "branch_trace_verify": 239,
+          "arc_chord": 1884,
+          "arc_image": 938,
+          "singular_existence": 15
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.25,
+            0.5,
+            0.1875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0008510389132161902,
+          "coverage_upper": 0.0011009534751797397,
+          "expected_length": 1.1780972450961724,
+          "output_length": 1.1775889074661539,
+          "angular_travel": 6.283185307179586
+        },
+        {
+          "component": 1,
+          "kind": "circle",
+          "parameters": [
+            0.75,
+            0.5,
+            0.1875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0008510426245058654,
+          "coverage_upper": 0.001100957186469415,
+          "expected_length": 1.1780972450961724,
+          "output_length": 1.1775581722127206,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 72,
+          "length": 1.1775581722127206,
+          "closed": true,
+          "endpoint_gap": 4.878909776184768e-19,
+          "soundness_upper": 0.000851082412130777
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 77,
+          "length": 1.1775889074661539,
+          "closed": true,
+          "endpoint_gap": 1.8431436932253575e-18,
+          "soundness_upper": 0.0008510824442659604
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "reverse_u",
+      "elapsed_s": 1.339289958938025,
+      "index": 44,
+      "wall_seconds": 1.4546902499860153,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "two_circles",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 37661,
+        "csx_calls": 58,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 25,
+        "max_output_items": 1024,
+        "postprocess_work": 212,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 87,
+          "quadratic_constraints": 573,
+          "boundary_strata": 87,
+          "boundary_halfspace": 1624,
+          "extrusion_certificate": 87,
+          "precompute": 23,
+          "affine_constants": 2,
+          "affine_constraints": 1500,
+          "cofactor_bounds": 3566,
+          "source_residual": 1349,
+          "source_cut": 19938,
+          "ssx": 97,
+          "affine_domain": 3343,
+          "source_cut_filter": 269,
+          "boundary_event_partition": 176,
+          "root_identity": 437,
+          "singular_source": 60,
+          "path_representation": 1608,
+          "branch_trace": 194,
+          "branch_trace_verify": 212,
+          "arc_chord": 1616,
+          "arc_image": 804,
+          "singular_existence": 9
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.25,
+            0.5,
+            0.1875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0008510388622387524,
+          "coverage_upper": 0.001100953424202302,
+          "expected_length": 1.1780972450961724,
+          "output_length": 1.1775892256401035,
+          "angular_travel": 6.283185307179586
+        },
+        {
+          "component": 1,
+          "kind": "circle",
+          "parameters": [
+            0.75,
+            0.5,
+            0.1875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0008510434394474228,
+          "coverage_upper": 0.0011009580014109724,
+          "expected_length": 1.1780972450961724,
+          "output_length": 1.177515368853101,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 77,
+          "length": 1.1775892256401035,
+          "closed": true,
+          "endpoint_gap": 4.878909776184768e-19,
+          "soundness_upper": 0.0008510823929208933
+        },
+        {
+          "branch": 1,
+          "component": 1,
+          "vertices": 68,
+          "length": 1.177515368853101,
+          "closed": true,
+          "endpoint_gap": 3.2526065174565133e-19,
+          "soundness_upper": 0.0008510832215320729
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "reverse_v",
+      "elapsed_s": 1.290365832974203,
+      "index": 45,
+      "wall_seconds": 1.3995587499812245,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "two_circles",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 44109,
+        "csx_calls": 73,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 36,
+        "max_output_items": 1024,
+        "postprocess_work": 240,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 87,
+          "quadratic_constraints": 573,
+          "boundary_strata": 87,
+          "boundary_halfspace": 1624,
+          "extrusion_certificate": 87,
+          "precompute": 23,
+          "affine_constants": 2,
+          "affine_constraints": 1567,
+          "cofactor_bounds": 2672,
+          "source_residual": 1178,
+          "source_cut": 25195,
+          "ssx": 95,
+          "affine_domain": 3299,
+          "source_cut_filter": 352,
+          "boundary_event_partition": 191,
+          "root_identity": 564,
+          "singular_source": 180,
+          "path_representation": 2077,
+          "branch_trace": 362,
+          "branch_trace_verify": 371,
+          "arc_chord": 2281,
+          "arc_image": 1206,
+          "singular_existence": 36
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.25,
+            0.5,
+            0.1875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.00084277940336519,
+          "coverage_upper": 0.0010926939653287395,
+          "expected_length": 1.1780972450961724,
+          "output_length": 1.177555571102104,
+          "angular_travel": 6.283185307179588
+        },
+        {
+          "component": 1,
+          "kind": "circle",
+          "parameters": [
+            0.75,
+            0.5,
+            0.1875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0008427253798393953,
+          "coverage_upper": 0.001092639941802945,
+          "expected_length": 1.1780972450961724,
+          "output_length": 1.1776395857425852,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 75,
+          "length": 1.177555571102104,
+          "closed": true,
+          "endpoint_gap": 5.963111948670274e-19,
+          "soundness_upper": 0.0008427984200693461
+        },
+        {
+          "branch": 1,
+          "component": 1,
+          "vertices": 88,
+          "length": 1.1776395857425852,
+          "closed": true,
+          "endpoint_gap": 0.0,
+          "soundness_upper": 0.0008427983917737303
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "transpose",
+      "elapsed_s": 1.4577748340088874,
+      "index": 46,
+      "wall_seconds": 1.5728038339875638,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "two_circles",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 42146,
+        "csx_calls": 73,
+        "max_cells": 500000,
+        "max_csx_calls": 20000,
+        "output_items": 26,
+        "max_output_items": 2048,
+        "postprocess_work": 293,
+        "max_postprocess_work": 500000,
+        "cell_counts": {
+          "affine_region_identity": 174,
+          "quadratic_constraints": 1146,
+          "boundary_strata": 174,
+          "boundary_halfspace": 3248,
+          "extrusion_certificate": 174,
+          "precompute": 46,
+          "affine_constants": 4,
+          "affine_constraints": 1437,
+          "cofactor_bounds": 2696,
+          "source_residual": 1425,
+          "source_cut": 22151,
+          "ssx": 96,
+          "affine_domain": 3308,
+          "source_cut_filter": 191,
+          "boundary_event_partition": 194,
+          "root_identity": 493,
+          "singular_source": 120,
+          "path_representation": 1675,
+          "branch_trace": 212,
+          "branch_trace_verify": 230,
+          "arc_chord": 1932,
+          "arc_image": 1005,
+          "singular_existence": 15
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.25,
+            0.5,
+            0.1875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0008510389422419207,
+          "coverage_upper": 0.0011009535042054703,
+          "expected_length": 1.1780972450961724,
+          "output_length": 1.1776041386172378,
+          "angular_travel": 6.283185307179586
+        },
+        {
+          "component": 1,
+          "kind": "circle",
+          "parameters": [
+            0.75,
+            0.5,
+            0.1875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0008510426620928332,
+          "coverage_upper": 0.0011009572240563829,
+          "expected_length": 1.1780972450961724,
+          "output_length": 1.1776029095687228,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 78,
+          "length": 1.1776041386172378,
+          "closed": true,
+          "endpoint_gap": 5.551138945876306e-17,
+          "soundness_upper": 0.0008510824735010192
+        },
+        {
+          "branch": 1,
+          "component": 1,
+          "vertices": 78,
+          "length": 1.1776029095687228,
+          "closed": true,
+          "endpoint_gap": 5.551157474611588e-17,
+          "soundness_upper": 0.0008510824494621927
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "split_u",
+      "elapsed_s": 1.3469493330921978,
+      "index": 47,
+      "wall_seconds": 1.4558275840245187,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "two_circles",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 54549,
+        "csx_calls": 100,
+        "max_cells": 1000000,
+        "max_csx_calls": 40000,
+        "output_items": 28,
+        "max_output_items": 4096,
+        "postprocess_work": 449,
+        "max_postprocess_work": 1000000,
+        "cell_counts": {
+          "affine_region_identity": 348,
+          "quadratic_constraints": 2292,
+          "boundary_strata": 348,
+          "boundary_halfspace": 6496,
+          "extrusion_certificate": 348,
+          "precompute": 92,
+          "affine_constants": 8,
+          "affine_constraints": 1581,
+          "cofactor_bounds": 3732,
+          "source_residual": 1349,
+          "source_cut": 28560,
+          "root_identity": 582,
+          "singular_source": 240,
+          "ssx": 96,
+          "affine_domain": 3152,
+          "source_cut_filter": 150,
+          "boundary_event_partition": 177,
+          "path_representation": 1742,
+          "branch_trace": 239,
+          "branch_trace_verify": 259,
+          "arc_chord": 1808,
+          "arc_image": 938,
+          "singular_existence": 12
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.25,
+            0.5,
+            0.1875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0008510388826798311,
+          "coverage_upper": 0.0011009534446433807,
+          "expected_length": 1.1780972450961724,
+          "output_length": 1.1775909044750932,
+          "angular_travel": 6.283185307179586
+        },
+        {
+          "component": 1,
+          "kind": "circle",
+          "parameters": [
+            0.75,
+            0.5,
+            0.1875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0008510426918976056,
+          "coverage_upper": 0.0011009572538611553,
+          "expected_length": 1.1780972450961724,
+          "output_length": 1.1775601692224344,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 0,
+          "vertices": 78,
+          "length": 1.1775909044750932,
+          "closed": true,
+          "endpoint_gap": 0.0,
+          "soundness_upper": 0.0008510824135093686
+        },
+        {
+          "branch": 1,
+          "component": 1,
+          "vertices": 73,
+          "length": 1.1775601692224344,
+          "closed": true,
+          "endpoint_gap": 0.0,
+          "soundness_upper": 0.0008510824790643468
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "split_uv",
+      "elapsed_s": 1.464747374993749,
+      "index": 48,
+      "wall_seconds": 1.5802140419837087,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "nested_circles",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 76191,
+        "csx_calls": 101,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 62,
+        "max_output_items": 1024,
+        "postprocess_work": 561,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 87,
+          "quadratic_constraints": 573,
+          "boundary_strata": 87,
+          "boundary_halfspace": 1624,
+          "extrusion_certificate": 87,
+          "precompute": 23,
+          "affine_constants": 2,
+          "affine_constraints": 3184,
+          "cofactor_bounds": 6433,
+          "source_residual": 988,
+          "source_cut": 40917,
+          "ssx": 177,
+          "affine_domain": 6143,
+          "source_cut_filter": 743,
+          "boundary_event_partition": 448,
+          "root_identity": 1100,
+          "singular_source": 480,
+          "path_representation": 3819,
+          "arc_chord": 5812,
+          "arc_image": 2546,
+          "branch_trace": 428,
+          "branch_trace_verify": 448,
+          "singular_existence": 42
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.1875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0003224460158844247,
+          "coverage_upper": 0.0005723605778479742,
+          "expected_length": 1.1780972450961724,
+          "output_length": 1.1775498338716988,
+          "angular_travel": 6.283185307179586
+        },
+        {
+          "component": 1,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.375
+          ],
+          "branches": 1,
+          "coverage_lower": 0.00047715767788714954,
+          "coverage_upper": 0.0007271252664923208,
+          "expected_length": 2.356194490192345,
+          "output_length": 2.355957971326866,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 200,
+          "length": 2.355957971326866,
+          "closed": true,
+          "endpoint_gap": 6.980386784276463e-18,
+          "soundness_upper": 0.0004771657822593145
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 67,
+          "length": 1.1775498338716988,
+          "closed": true,
+          "endpoint_gap": 6.800615775267987e-19,
+          "soundness_upper": 0.0003224460417567687
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "identity",
+      "elapsed_s": 2.298530500032939,
+      "index": 49,
+      "wall_seconds": 2.41850291704759,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "nested_circles",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 80454,
+        "csx_calls": 110,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 65,
+        "max_output_items": 1024,
+        "postprocess_work": 596,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 87,
+          "quadratic_constraints": 573,
+          "boundary_strata": 87,
+          "boundary_halfspace": 1624,
+          "extrusion_certificate": 87,
+          "precompute": 23,
+          "affine_constants": 2,
+          "affine_constraints": 3526,
+          "cofactor_bounds": 7734,
+          "source_residual": 1064,
+          "source_cut": 39665,
+          "ssx": 201,
+          "affine_domain": 6983,
+          "source_cut_filter": 840,
+          "boundary_event_partition": 491,
+          "root_identity": 1237,
+          "singular_source": 1560,
+          "path_representation": 4020,
+          "arc_chord": 6492,
+          "arc_image": 3082,
+          "branch_trace": 493,
+          "branch_trace_verify": 532,
+          "singular_existence": 51
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.1875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0003224460166996892,
+          "coverage_upper": 0.0005723605786632387,
+          "expected_length": 1.1780972450961724,
+          "output_length": 1.1776505984542722,
+          "angular_travel": 6.283185307179586
+        },
+        {
+          "component": 1,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.375
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0003262150807353531,
+          "coverage_upper": 0.0005761826693405244,
+          "expected_length": 2.356194490192345,
+          "output_length": 2.356066130671537,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 220,
+          "length": 2.356066130671537,
+          "closed": true,
+          "endpoint_gap": 2.7755575615628914e-17,
+          "soundness_upper": 0.0003262298457371027
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 80,
+          "length": 1.1776505984542722,
+          "closed": true,
+          "endpoint_gap": 1.1102230246251565e-16,
+          "soundness_upper": 0.00032244606228634676
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "swap",
+      "elapsed_s": 2.470034374971874,
+      "index": 50,
+      "wall_seconds": 2.584763416904025,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "nested_circles",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 75627,
+        "csx_calls": 103,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 63,
+        "max_output_items": 1024,
+        "postprocess_work": 589,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 87,
+          "quadratic_constraints": 573,
+          "boundary_strata": 87,
+          "boundary_halfspace": 1624,
+          "extrusion_certificate": 87,
+          "precompute": 23,
+          "affine_constants": 2,
+          "affine_constraints": 3169,
+          "cofactor_bounds": 6370,
+          "source_residual": 969,
+          "source_cut": 39892,
+          "ssx": 177,
+          "affine_domain": 6143,
+          "source_cut_filter": 665,
+          "boundary_event_partition": 456,
+          "root_identity": 1095,
+          "singular_source": 480,
+          "path_representation": 3953,
+          "arc_chord": 6138,
+          "arc_image": 2680,
+          "branch_trace": 448,
+          "branch_trace_verify": 464,
+          "singular_existence": 45
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.1875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0003224460157114828,
+          "coverage_upper": 0.0005723605776750323,
+          "expected_length": 1.1780972450961724,
+          "output_length": 1.1775542724346646,
+          "angular_travel": 6.283185307179586
+        },
+        {
+          "component": 1,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.375
+          ],
+          "branches": 1,
+          "coverage_lower": 0.00047712629254219134,
+          "coverage_upper": 0.0007270938811473626,
+          "expected_length": 2.356194490192345,
+          "output_length": 2.356000925636379,
+          "angular_travel": 6.283185307179585
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 208,
+          "length": 2.356000925636379,
+          "closed": true,
+          "endpoint_gap": 1.1124152751439728e-16,
+          "soundness_upper": 0.00047716573944350804
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 69,
+          "length": 1.1775542724346646,
+          "closed": true,
+          "endpoint_gap": 8.077306185017014e-18,
+          "soundness_upper": 0.0003224460497893711
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "reverse_u",
+      "elapsed_s": 2.2701013749465346,
+      "index": 51,
+      "wall_seconds": 2.3828938340302557,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "nested_circles",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 68396,
+        "csx_calls": 94,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 50,
+        "max_output_items": 1024,
+        "postprocess_work": 485,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 87,
+          "quadratic_constraints": 573,
+          "boundary_strata": 87,
+          "boundary_halfspace": 1624,
+          "extrusion_certificate": 87,
+          "precompute": 23,
+          "affine_constants": 2,
+          "affine_constraints": 2696,
+          "cofactor_bounds": 5992,
+          "source_residual": 950,
+          "source_cut": 37198,
+          "ssx": 161,
+          "affine_domain": 5583,
+          "source_cut_filter": 572,
+          "boundary_event_partition": 410,
+          "root_identity": 915,
+          "singular_source": 540,
+          "path_representation": 3216,
+          "arc_chord": 4698,
+          "arc_image": 2278,
+          "branch_trace": 327,
+          "branch_trace_verify": 359,
+          "singular_existence": 18
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.1875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0003224460159174405,
+          "coverage_upper": 0.0005723605778809901,
+          "expected_length": 1.1780972450961724,
+          "output_length": 1.1775451708903018,
+          "angular_travel": 6.283185307179588
+        },
+        {
+          "component": 1,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.375
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0004771576811427104,
+          "coverage_upper": 0.0007271252697478817,
+          "expected_length": 2.356194490192345,
+          "output_length": 2.355939686310525,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 185,
+          "length": 2.355939686310525,
+          "closed": true,
+          "endpoint_gap": 1.1102242710633554e-16,
+          "soundness_upper": 0.0004771657855014988
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 67,
+          "length": 1.1775451708903018,
+          "closed": true,
+          "endpoint_gap": 5.421010862427522e-20,
+          "soundness_upper": 0.00032244605843656515
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "reverse_v",
+      "elapsed_s": 2.048478874959983,
+      "index": 52,
+      "wall_seconds": 2.1571092910598963,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "nested_circles",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 76098,
+        "csx_calls": 108,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 57,
+        "max_output_items": 1024,
+        "postprocess_work": 582,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 87,
+          "quadratic_constraints": 573,
+          "boundary_strata": 87,
+          "boundary_halfspace": 1624,
+          "extrusion_certificate": 87,
+          "precompute": 23,
+          "affine_constants": 2,
+          "affine_constraints": 2965,
+          "cofactor_bounds": 5947,
+          "source_residual": 1102,
+          "source_cut": 41514,
+          "ssx": 175,
+          "affine_domain": 6099,
+          "source_cut_filter": 693,
+          "boundary_event_partition": 451,
+          "root_identity": 981,
+          "singular_source": 720,
+          "path_representation": 3685,
+          "arc_chord": 5943,
+          "arc_image": 2546,
+          "branch_trace": 368,
+          "branch_trace_verify": 399,
+          "singular_existence": 27
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.1875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0003224460120703385,
+          "coverage_upper": 0.000572360574033888,
+          "expected_length": 1.1780972450961724,
+          "output_length": 1.177552624770393,
+          "angular_travel": 6.283185307179586
+        },
+        {
+          "component": 1,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.375
+          ],
+          "branches": 1,
+          "coverage_lower": 0.00018314909066597017,
+          "coverage_upper": 0.0004331166792711415,
+          "expected_length": 2.356194490192345,
+          "output_length": 2.3560683844046375,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 213,
+          "length": 2.3560683844046375,
+          "closed": true,
+          "endpoint_gap": 2.874833297220524e-17,
+          "soundness_upper": 0.0001831501223191756
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 68,
+          "length": 1.177552624770393,
+          "closed": true,
+          "endpoint_gap": 2.710505431213761e-20,
+          "soundness_upper": 0.00032244606094869455
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "transpose",
+      "elapsed_s": 2.255691999918781,
+      "index": 53,
+      "wall_seconds": 2.3707841669674963,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "nested_circles",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 107956,
+        "csx_calls": 178,
+        "max_cells": 500000,
+        "max_csx_calls": 20000,
+        "output_items": 95,
+        "max_output_items": 2048,
+        "postprocess_work": 690,
+        "max_postprocess_work": 500000,
+        "cell_counts": {
+          "affine_region_identity": 174,
+          "quadratic_constraints": 1146,
+          "boundary_strata": 174,
+          "boundary_halfspace": 3248,
+          "extrusion_certificate": 174,
+          "precompute": 46,
+          "affine_constants": 4,
+          "affine_constraints": 4043,
+          "cofactor_bounds": 4827,
+          "source_residual": 1596,
+          "source_cut": 61010,
+          "root_identity": 1489,
+          "singular_source": 600,
+          "ssx": 212,
+          "affine_domain": 7368,
+          "source_cut_filter": 826,
+          "boundary_event_partition": 607,
+          "path_representation": 5762,
+          "arc_chord": 9464,
+          "arc_image": 3953,
+          "branch_trace": 578,
+          "branch_trace_verify": 607,
+          "singular_existence": 48
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.1875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.00032244602330435437,
+          "coverage_upper": 0.0005723605852679039,
+          "expected_length": 1.1780972450961724,
+          "output_length": 1.1777195449254747,
+          "angular_travel": 6.283185307179586
+        },
+        {
+          "component": 1,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.375
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0004771576666723168,
+          "coverage_upper": 0.0007271252552774881,
+          "expected_length": 2.356194490192345,
+          "output_length": 2.355957906441944,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 260,
+          "length": 2.355957906441944,
+          "closed": true,
+          "endpoint_gap": 0.0,
+          "soundness_upper": 0.0004771657710905264
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 90,
+          "length": 1.1777195449254747,
+          "closed": true,
+          "endpoint_gap": 3.989525181567824e-19,
+          "soundness_upper": 0.00032244602991299276
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "split_u",
+      "elapsed_s": 2.9300681670429185,
+      "index": 54,
+      "wall_seconds": 3.0408589580329135,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "nested_circles",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 88910,
+        "csx_calls": 153,
+        "max_cells": 1000000,
+        "max_csx_calls": 40000,
+        "output_items": 54,
+        "max_output_items": 4096,
+        "postprocess_work": 805,
+        "max_postprocess_work": 1000000,
+        "cell_counts": {
+          "affine_region_identity": 348,
+          "quadratic_constraints": 2292,
+          "boundary_strata": 348,
+          "boundary_halfspace": 6496,
+          "extrusion_certificate": 348,
+          "precompute": 92,
+          "affine_constants": 8,
+          "affine_constraints": 2982,
+          "cofactor_bounds": 6571,
+          "source_residual": 1083,
+          "source_cut": 48244,
+          "root_identity": 1156,
+          "singular_source": 660,
+          "ssx": 168,
+          "affine_domain": 5672,
+          "source_cut_filter": 313,
+          "boundary_event_partition": 410,
+          "path_representation": 3484,
+          "arc_chord": 5089,
+          "arc_image": 2412,
+          "branch_trace": 342,
+          "branch_trace_verify": 371,
+          "singular_existence": 21
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.1875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.00032244601585312897,
+          "coverage_upper": 0.0005723605778166785,
+          "expected_length": 1.1780972450961724,
+          "output_length": 1.1775509771093493,
+          "angular_travel": 6.283185307179586
+        },
+        {
+          "component": 1,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.375
+          ],
+          "branches": 1,
+          "coverage_lower": 0.00047715772625811335,
+          "coverage_upper": 0.0007271253148632847,
+          "expected_length": 2.356194490192345,
+          "output_length": 2.3559707658513593,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 202,
+          "length": 2.3559707658513593,
+          "closed": true,
+          "endpoint_gap": 0.0,
+          "soundness_upper": 0.000477165830431725
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 67,
+          "length": 1.1775509771093493,
+          "closed": true,
+          "endpoint_gap": 0.0,
+          "soundness_upper": 0.0003224460419041508
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "split_uv",
+      "elapsed_s": 2.263194042025134,
+      "index": 55,
+      "wall_seconds": 2.3772252920316532,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "nearby_circles",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 219334,
+        "csx_calls": 298,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 192,
+        "max_output_items": 1024,
+        "postprocess_work": 2093,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 87,
+          "quadratic_constraints": 573,
+          "boundary_strata": 87,
+          "boundary_halfspace": 1624,
+          "extrusion_certificate": 87,
+          "precompute": 23,
+          "affine_constants": 2,
+          "affine_constraints": 9662,
+          "cofactor_bounds": 18964,
+          "source_residual": 2907,
+          "source_cut": 116064,
+          "ssx": 537,
+          "affine_domain": 18743,
+          "source_cut_filter": 2187,
+          "boundary_event_partition": 1340,
+          "root_identity": 2722,
+          "singular_source": 1560,
+          "path_representation": 11591,
+          "arc_chord": 21178,
+          "arc_image": 7370,
+          "branch_trace": 972,
+          "branch_trace_verify": 988,
+          "singular_existence": 66
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.21875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.00014408717800316924,
+          "coverage_upper": 0.00039407749920097467,
+          "expected_length": 1.3744467859455345,
+          "output_length": 1.3743717981899044,
+          "angular_travel": 6.283185307179587
+        },
+        {
+          "component": 1,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.28125
+          ],
+          "branches": 1,
+          "coverage_lower": 0.00011066222359788206,
+          "coverage_upper": 0.0003606121341557687,
+          "expected_length": 1.7671458676442586,
+          "output_length": 1.767058692831571,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 318,
+          "length": 1.767058692831571,
+          "closed": true,
+          "endpoint_gap": 2.2719126173535955e-18,
+          "soundness_upper": 0.00011066471290205326
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 255,
+          "length": 1.3743717981899044,
+          "closed": true,
+          "endpoint_gap": 1.2412757260034575e-16,
+          "soundness_upper": 0.00014415784729179815
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "identity",
+      "elapsed_s": 5.837380999932066,
+      "index": 56,
+      "wall_seconds": 5.962040500016883,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "nearby_circles",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 205755,
+        "csx_calls": 277,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 175,
+        "max_output_items": 1024,
+        "postprocess_work": 2033,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 87,
+          "quadratic_constraints": 573,
+          "boundary_strata": 87,
+          "boundary_halfspace": 1624,
+          "extrusion_certificate": 87,
+          "precompute": 23,
+          "affine_constants": 2,
+          "affine_constraints": 9655,
+          "cofactor_bounds": 20442,
+          "source_residual": 2926,
+          "source_cut": 103721,
+          "ssx": 547,
+          "affine_domain": 19093,
+          "source_cut_filter": 2224,
+          "boundary_event_partition": 1345,
+          "root_identity": 2793,
+          "singular_source": 2880,
+          "path_representation": 10854,
+          "arc_chord": 17736,
+          "arc_image": 7303,
+          "branch_trace": 828,
+          "branch_trace_verify": 880,
+          "singular_existence": 45
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.21875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.00014114025287762674,
+          "coverage_upper": 0.0003911305740754322,
+          "expected_length": 1.3744467859455345,
+          "output_length": 1.3743908469509236,
+          "angular_travel": 6.283185307179586
+        },
+        {
+          "component": 1,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.28125
+          ],
+          "branches": 1,
+          "coverage_lower": 0.00011066222359788194,
+          "coverage_upper": 0.0003606121341557686,
+          "expected_length": 1.7671458676442586,
+          "output_length": 1.7670526761995193,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 315,
+          "length": 1.7670526761995193,
+          "closed": true,
+          "endpoint_gap": 6.206335383118183e-17,
+          "soundness_upper": 0.00011066471290205326
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 273,
+          "length": 1.3743908469509236,
+          "closed": true,
+          "endpoint_gap": 0.0,
+          "soundness_upper": 0.00014117670604371635
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "swap",
+      "elapsed_s": 5.69016116601415,
+      "index": 57,
+      "wall_seconds": 5.805189833976328,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "nearby_circles",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 229206,
+        "csx_calls": 306,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 212,
+        "max_output_items": 1024,
+        "postprocess_work": 2179,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 87,
+          "quadratic_constraints": 573,
+          "boundary_strata": 87,
+          "boundary_halfspace": 1624,
+          "extrusion_certificate": 87,
+          "precompute": 23,
+          "affine_constants": 2,
+          "affine_constraints": 10089,
+          "cofactor_bounds": 18868,
+          "source_residual": 2964,
+          "source_cut": 120395,
+          "ssx": 551,
+          "affine_domain": 19233,
+          "source_cut_filter": 2367,
+          "boundary_event_partition": 1378,
+          "root_identity": 2974,
+          "singular_source": 1560,
+          "path_representation": 12462,
+          "arc_chord": 22965,
+          "arc_image": 8375,
+          "branch_trace": 1218,
+          "branch_trace_verify": 1210,
+          "singular_existence": 114
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.21875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.0001411402528747627,
+          "coverage_upper": 0.0003911305740725682,
+          "expected_length": 1.3744467859455345,
+          "output_length": 1.374392267163618,
+          "angular_travel": 6.283185307179585
+        },
+        {
+          "component": 1,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.28125
+          ],
+          "branches": 1,
+          "coverage_lower": 0.00011065108458752158,
+          "coverage_upper": 0.0003606009951454082,
+          "expected_length": 1.7671458676442586,
+          "output_length": 1.7670654330211792,
+          "angular_travel": 6.2831853071795845
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 330,
+          "length": 1.7670654330211792,
+          "closed": true,
+          "endpoint_gap": 2.2719126173535955e-18,
+          "soundness_upper": 0.00011066471290205326
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 280,
+          "length": 1.374392267163618,
+          "closed": true,
+          "endpoint_gap": 3.1976418515269746e-18,
+          "soundness_upper": 0.00014117670604088528
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "reverse_u",
+      "elapsed_s": 6.2200369170168415,
+      "index": 58,
+      "wall_seconds": 6.337727874983102,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "nearby_circles",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 208396,
+        "csx_calls": 286,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 181,
+        "max_output_items": 1024,
+        "postprocess_work": 1989,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 87,
+          "quadratic_constraints": 573,
+          "boundary_strata": 87,
+          "boundary_halfspace": 1624,
+          "extrusion_certificate": 87,
+          "precompute": 23,
+          "affine_constants": 2,
+          "affine_constraints": 9371,
+          "cofactor_bounds": 18904,
+          "source_residual": 3002,
+          "source_cut": 107797,
+          "ssx": 533,
+          "affine_domain": 18603,
+          "source_cut_filter": 2227,
+          "boundary_event_partition": 1325,
+          "root_identity": 2666,
+          "singular_source": 1020,
+          "path_representation": 10988,
+          "arc_chord": 20106,
+          "arc_image": 7504,
+          "branch_trace": 885,
+          "branch_trace_verify": 937,
+          "singular_existence": 45
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.21875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.00014114172854580594,
+          "coverage_upper": 0.0003911320497436114,
+          "expected_length": 1.3744467859455345,
+          "output_length": 1.374384341611042,
+          "angular_travel": 6.283185307179586
+        },
+        {
+          "component": 1,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.28125
+          ],
+          "branches": 1,
+          "coverage_lower": 0.00011066222359788206,
+          "coverage_upper": 0.0003606121341557687,
+          "expected_length": 1.7671458676442586,
+          "output_length": 1.7670638040487794,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 329,
+          "length": 1.7670638040487794,
+          "closed": true,
+          "endpoint_gap": 4.4166366594573204e-18,
+          "soundness_upper": 0.00011066471290205326
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 261,
+          "length": 1.374384341611042,
+          "closed": true,
+          "endpoint_gap": 1.242079529042235e-16,
+          "soundness_upper": 0.00014117670604077426
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "reverse_v",
+      "elapsed_s": 5.547316708951257,
+      "index": 59,
+      "wall_seconds": 5.666532041039318,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "nearby_circles",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 228075,
+        "csx_calls": 315,
+        "max_cells": 250000,
+        "max_csx_calls": 10000,
+        "output_items": 189,
+        "max_output_items": 1024,
+        "postprocess_work": 2231,
+        "max_postprocess_work": 250000,
+        "cell_counts": {
+          "affine_region_identity": 87,
+          "quadratic_constraints": 573,
+          "boundary_strata": 87,
+          "boundary_halfspace": 1624,
+          "extrusion_certificate": 87,
+          "precompute": 23,
+          "affine_constants": 2,
+          "affine_constraints": 9502,
+          "cofactor_bounds": 16546,
+          "source_residual": 3287,
+          "source_cut": 127047,
+          "ssx": 527,
+          "affine_domain": 18419,
+          "source_cut_filter": 2089,
+          "boundary_event_partition": 1358,
+          "root_identity": 2810,
+          "singular_source": 1620,
+          "path_representation": 11725,
+          "arc_chord": 21822,
+          "arc_image": 6968,
+          "branch_trace": 894,
+          "branch_trace_verify": 918,
+          "singular_existence": 60
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.21875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.00014408717800316924,
+          "coverage_upper": 0.00039407749920097467,
+          "expected_length": 1.3744467859455345,
+          "output_length": 1.374391663055727,
+          "angular_travel": 6.283185307179586
+        },
+        {
+          "component": 1,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.28125
+          ],
+          "branches": 1,
+          "coverage_lower": 0.00011066222359788216,
+          "coverage_upper": 0.0003606121341557688,
+          "expected_length": 1.7671458676442586,
+          "output_length": 1.7670499491607439,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 320,
+          "length": 1.7670499491607439,
+          "closed": true,
+          "endpoint_gap": 2.785940390630863e-17,
+          "soundness_upper": 0.00011066471290205326
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 277,
+          "length": 1.374391663055727,
+          "closed": true,
+          "endpoint_gap": 5.58723783038604e-17,
+          "soundness_upper": 0.00014415784729179815
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "transpose",
+      "elapsed_s": 6.10642095899675,
+      "index": 60,
+      "wall_seconds": 6.22067412501201,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "nearby_circles",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 220318,
+        "csx_calls": 343,
+        "max_cells": 500000,
+        "max_csx_calls": 20000,
+        "output_items": 206,
+        "max_output_items": 2048,
+        "postprocess_work": 1307,
+        "max_postprocess_work": 500000,
+        "cell_counts": {
+          "affine_region_identity": 174,
+          "quadratic_constraints": 1146,
+          "boundary_strata": 174,
+          "boundary_halfspace": 3248,
+          "extrusion_certificate": 174,
+          "precompute": 46,
+          "affine_constants": 4,
+          "affine_constraints": 8442,
+          "cofactor_bounds": 14465,
+          "source_residual": 2907,
+          "source_cut": 119680,
+          "root_identity": 2986,
+          "singular_source": 1320,
+          "ssx": 466,
+          "affine_domain": 16258,
+          "source_cut_filter": 1628,
+          "boundary_event_partition": 1284,
+          "path_representation": 12261,
+          "arc_chord": 22574,
+          "arc_image": 8844,
+          "branch_trace": 1063,
+          "branch_trace_verify": 1099,
+          "singular_existence": 75
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.21875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.00014408717800045811,
+          "coverage_upper": 0.00039407749919826357,
+          "expected_length": 1.3744467859455345,
+          "output_length": 1.3743854722657045,
+          "angular_travel": 6.283185307179586
+        },
+        {
+          "component": 1,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.28125
+          ],
+          "branches": 1,
+          "coverage_lower": 0.00010926850386831312,
+          "coverage_upper": 0.00035921841442619975,
+          "expected_length": 1.7671458676442586,
+          "output_length": 1.767092880511246,
+          "angular_travel": 6.283185307179911
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 368,
+          "length": 1.767092880511246,
+          "closed": true,
+          "endpoint_gap": 0.0,
+          "soundness_upper": 0.0001092875618076139
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 275,
+          "length": 1.3743854722657045,
+          "closed": true,
+          "endpoint_gap": 0.0,
+          "soundness_upper": 0.0001441578472890781
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "split_u",
+      "elapsed_s": 5.8322625840082765,
+      "index": 61,
+      "wall_seconds": 5.951533499988727,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    },
+    {
+      "case": "nearby_circles",
+      "atol": 0.001,
+      "complete": true,
+      "reasons": [],
+      "work": {
+        "cells_processed": 235733,
+        "csx_calls": 380,
+        "max_cells": 1000000,
+        "max_csx_calls": 40000,
+        "output_items": 191,
+        "max_output_items": 4096,
+        "postprocess_work": 1697,
+        "max_postprocess_work": 1000000,
+        "cell_counts": {
+          "affine_region_identity": 348,
+          "quadratic_constraints": 2292,
+          "boundary_strata": 348,
+          "boundary_halfspace": 6496,
+          "extrusion_certificate": 348,
+          "precompute": 92,
+          "affine_constants": 8,
+          "affine_constraints": 9497,
+          "cofactor_bounds": 19035,
+          "source_residual": 3097,
+          "source_cut": 125573,
+          "root_identity": 3349,
+          "singular_source": 1260,
+          "ssx": 536,
+          "affine_domain": 18552,
+          "source_cut_filter": 1073,
+          "boundary_event_partition": 1324,
+          "path_representation": 11524,
+          "arc_chord": 20946,
+          "arc_image": 7906,
+          "branch_trace": 1013,
+          "branch_trace_verify": 1041,
+          "singular_existence": 75
+        }
+      },
+      "branch_count": 2,
+      "point_count": 0,
+      "singularity_count": 0,
+      "components": [
+        {
+          "component": 0,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.21875
+          ],
+          "branches": 1,
+          "coverage_lower": 0.00014415193951710834,
+          "coverage_upper": 0.0003941422607149138,
+          "expected_length": 1.3744467859455345,
+          "output_length": 1.3743929478504398,
+          "angular_travel": 6.283185307179586
+        },
+        {
+          "component": 1,
+          "kind": "circle",
+          "parameters": [
+            0.5,
+            0.5,
+            0.28125
+          ],
+          "branches": 1,
+          "coverage_lower": 0.00011066222359788206,
+          "coverage_upper": 0.0003606121341557687,
+          "expected_length": 1.7671458676442586,
+          "output_length": 1.7670641452841813,
+          "angular_travel": 6.283185307179586
+        }
+      ],
+      "branches": [
+        {
+          "branch": 0,
+          "component": 1,
+          "vertices": 333,
+          "length": 1.7670641452841813,
+          "closed": true,
+          "endpoint_gap": 0.0,
+          "soundness_upper": 0.00011066471290199775
+        },
+        {
+          "branch": 1,
+          "component": 0,
+          "vertices": 279,
+          "length": 1.3743929478504398,
+          "closed": true,
+          "endpoint_gap": 0.0,
+          "soundness_upper": 0.00014415784729121528
+        }
+      ],
+      "failures": [],
+      "silent_failure": false,
+      "passed": true,
+      "variant": "split_uv",
+      "elapsed_s": 5.983954582945444,
+      "index": 62,
+      "wall_seconds": 6.098928084014915,
+      "source_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_end_snapshot": "b5a21fe0b88552c3ebac10f8bdd4f4d991bd54eb5517473773a62090956178a5",
+      "source_changed_during_test": false
+    }
+  ]
+}

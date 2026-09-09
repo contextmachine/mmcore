@@ -208,10 +208,12 @@ result = {
   'status': {
      'reasons': [                    # empty iff complete
         'work_budget',               # hard ledger exhaustion — raising budget can help
-        'output_cap', 'postprocess_cap',
+        'output_cap', 'postprocess_cap', 'depth_limit',
         'parameter_fiber',           # structural — raising budget cannot help
+        'parameter_representation',  # source solution cannot be represented by float parameters
         'overlap_region_unsupported',# retired by L28
         'unresolved_tangential_zone','unresolved_multiplicity',
+        'trace_unverified', 'trace_point_cap', 'unresolved_singular_set',
      ],
      'work': { ...current budget_usage counters, incl. cell_counts... },
   },

@@ -1,0 +1,531 @@
+{
+  "run_artifact": "2026-09-09-singular-final-frozen.json",
+  "complete_run": true,
+  "counts": {
+    "pass": 91,
+    "fail": 21,
+    "timeout": 5
+  },
+  "watchdog_seconds": 30.0,
+  "workers": 2,
+  "source_manifest_count": 1,
+  "source_changes_during_run": [],
+  "comparison": {
+    "prior_artifact": "2026-09-09-singular-final-current.json",
+    "prior_counts": {
+      "pass": 84,
+      "fail": 23,
+      "timeout": 10
+    },
+    "same_watchdog_seconds": 30,
+    "same_workers": 2,
+    "transitions": [
+      {
+        "index": 56,
+        "node": "tests/test_bez_ssx5_singular.py::test_transversal_branch_between_two_collapsed_rational_fibers_is_preserved",
+        "prior": "fail",
+        "current": "pass"
+      },
+      {
+        "index": 57,
+        "node": "tests/test_bez_ssx5_singular.py::test_case14_rational_cones_return_certified_branch_and_explicit_partial_status",
+        "prior": "fail",
+        "current": "pass"
+      },
+      {
+        "index": 58,
+        "node": "tests/test_bez_ssx5_singular.py::test_case14_tangent_generator_is_homogeneous_scale_invariant",
+        "prior": "fail",
+        "current": "pass"
+      },
+      {
+        "index": 70,
+        "node": "tests/test_bez_ssx5_singular.py::test_assembly_does_not_close_or_scan_pairs_after_budget_denial",
+        "prior": "fail",
+        "current": "pass"
+      },
+      {
+        "index": 71,
+        "node": "tests/test_bez_ssx5_singular.py::test_assembly_pair_join_stops_at_postprocess_budget",
+        "prior": "fail",
+        "current": "pass"
+      },
+      {
+        "index": 93,
+        "node": "tests/test_bez_ssx5_singular.py::test_schema_v2_collapsed_edge_reports_parameter_fiber",
+        "prior": "fail",
+        "current": "pass"
+      },
+      {
+        "index": 95,
+        "node": "tests/test_bez_ssx5_singular.py::test_overlap_region_case12_partial_overlap",
+        "prior": "timeout",
+        "current": "fail"
+      },
+      {
+        "index": 96,
+        "node": "tests/test_bez_ssx5_singular.py::test_overlap_region_full_containment",
+        "prior": "timeout",
+        "current": "fail"
+      },
+      {
+        "index": 97,
+        "node": "tests/test_bez_ssx5_singular.py::test_overlap_region_identical_patches",
+        "prior": "timeout",
+        "current": "fail"
+      },
+      {
+        "index": 99,
+        "node": "tests/test_bez_ssx5_singular.py::test_overlap_region_rational_twin_case12",
+        "prior": "timeout",
+        "current": "fail"
+      },
+      {
+        "index": 100,
+        "node": "tests/test_bez_ssx5_singular.py::test_overlap_region_opposed_orientation",
+        "prior": "timeout",
+        "current": "fail"
+      },
+      {
+        "index": 114,
+        "node": "tests/test_bez_ssx5_singular.py::test_unresolved_complement_is_typed_with_boxes",
+        "prior": "fail",
+        "current": "pass"
+      }
+    ]
+  },
+  "category_counts": {
+    "exact_source_contact_premise_invalid": 15,
+    "invalid_contact_premise_and_unresolved_runtime": 3,
+    "unproved_singular_existence_expectation": 1,
+    "unsupported_paired_region_representation": 5,
+    "unsupported_nonlinear_pinch_fiber_runtime": 2
+  },
+  "nonpassing": [
+    {
+      "index": 13,
+      "node": "tests/test_bez_ssx5_singular.py::test_two_isolated_tangent_points_same_cell",
+      "status": "fail",
+      "seconds": 11.207714332966134,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "6de9db41b4f000c1c5afc37d00d67f1544fd688148584b4e1f89f798dd6b0038",
+      "assertion_excerpt": "E   assert 0 == 2\nE    +  where 0 = len([])",
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "oracle_artifacts": [
+        "2026-09-09-singular-source-oracles-release.json",
+        "2026-09-09-singular-source-oracles-current.json",
+        "2026-09-09-singular-extra-source-oracles.json"
+      ],
+      "limitation": "This invalidates the asserted regular tangent contact, not every branch-count or ordinary geometry assertion. No failing test is marked passed or skipped."
+    },
+    {
+      "index": 14,
+      "node": "tests/test_bez_ssx5_singular.py::test_tangent_point_with_coexisting_transversal_ring",
+      "status": "fail",
+      "seconds": 12.858594874967821,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "1649df29e68512a8eeab37e391aab1ef00d69fe6001efb1493813334feb4df95",
+      "assertion_excerpt": "E   assert 0 == 1\nE    +  where 0 = len([])",
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "oracle_artifacts": [
+        "2026-09-09-singular-source-oracles-release.json",
+        "2026-09-09-singular-source-oracles-current.json",
+        "2026-09-09-singular-extra-source-oracles.json"
+      ],
+      "limitation": "This invalidates the asserted regular tangent contact, not every branch-count or ordinary geometry assertion. No failing test is marked passed or skipped."
+    },
+    {
+      "index": 17,
+      "node": "tests/test_bez_ssx5_singular.py::test_tangent_point_plus_tiny_loop",
+      "status": "fail",
+      "seconds": 12.714521583984606,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "9b625605e1c3a5388827a0fe4425798487fe7cab96d097696462d7f05290bdd9",
+      "assertion_excerpt": "E   assert (0 == 1)\nE    +  where 0 = len([])",
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "oracle_artifacts": [
+        "2026-09-09-singular-source-oracles-release.json",
+        "2026-09-09-singular-source-oracles-current.json",
+        "2026-09-09-singular-extra-source-oracles.json"
+      ],
+      "limitation": "This invalidates the asserted regular tangent contact, not every branch-count or ordinary geometry assertion. No failing test is marked passed or skipped."
+    },
+    {
+      "index": 18,
+      "node": "tests/test_bez_ssx5_singular.py::test_touch_plus_loop_small_eps_no_phantom_tangential",
+      "status": "fail",
+      "seconds": 9.464570541982539,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "a6f0151a71f9cb989016276a447bc0b74c2ff1c5dc3823163b00579a5590574e",
+      "assertion_excerpt": "E   AssertionError: expected exactly 1 tangent_point, got 0\nE   assert 0 == 1\nE    +  where 0 = len([])",
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "oracle_artifacts": [
+        "2026-09-09-singular-source-oracles-release.json",
+        "2026-09-09-singular-source-oracles-current.json",
+        "2026-09-09-singular-extra-source-oracles.json"
+      ],
+      "limitation": "This invalidates the asserted regular tangent contact, not every branch-count or ordinary geometry assertion. No failing test is marked passed or skipped."
+    },
+    {
+      "index": 19,
+      "node": "tests/test_bez_ssx5_singular.py::test_touch_plus_loop_controls_stay_clean[0.005]",
+      "status": "fail",
+      "seconds": 11.039615000016056,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "4852f624334ff495617b0596c29e68d6f279b7cfc737417592bbaf586718c4ac",
+      "assertion_excerpt": "E   assert (0 == 1)\nE    +  where 0 = len([])",
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "oracle_artifacts": [
+        "2026-09-09-singular-source-oracles-release.json",
+        "2026-09-09-singular-source-oracles-current.json",
+        "2026-09-09-singular-extra-source-oracles.json"
+      ],
+      "limitation": "This invalidates the asserted regular tangent contact, not every branch-count or ordinary geometry assertion. No failing test is marked passed or skipped."
+    },
+    {
+      "index": 20,
+      "node": "tests/test_bez_ssx5_singular.py::test_touch_plus_loop_controls_stay_clean[0.008]",
+      "status": "fail",
+      "seconds": 14.314759625005536,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "8b36c76dd4927f116069a8cb92793291c4e0802eda4ead4b0e553695a4b5a078",
+      "assertion_excerpt": "E   assert (0 == 1)\nE    +  where 0 = len([])",
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "oracle_artifacts": [
+        "2026-09-09-singular-source-oracles-release.json",
+        "2026-09-09-singular-source-oracles-current.json",
+        "2026-09-09-singular-extra-source-oracles.json"
+      ],
+      "limitation": "This invalidates the asserted regular tangent contact, not every branch-count or ordinary geometry assertion. No failing test is marked passed or skipped."
+    },
+    {
+      "index": 21,
+      "node": "tests/test_bez_ssx5_singular.py::test_tangent_line_with_coexisting_isolated_touch",
+      "status": "timeout",
+      "seconds": 30.01227770803962,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "assertion_excerpt": "",
+      "category": "invalid_contact_premise_and_unresolved_runtime",
+      "finding": "The exact source oracle invalidates the claimed regular tangent contact (skew case25 only away from s=0). The current full test still reaches its30s watchdog, so nearby ordinary geometry and runtime remain unresolved. Source-premise evidence does not excuse the timeout."
+    },
+    {
+      "index": 22,
+      "node": "tests/test_bez_ssx5_singular.py::test_offcurve_touch_near_tangent_line_blind_band[0.01]",
+      "status": "fail",
+      "seconds": 11.106471041915938,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "f8bd5cadd0677e95c9ea23b929dca045baf17367fd1a280583522797f365b15a",
+      "assertion_excerpt": "E   AssertionError: off-curve touch at 10*atol from the tangent line lost (blind band): []\nE   assert []",
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "oracle_artifacts": [
+        "2026-09-09-singular-source-oracles-release.json",
+        "2026-09-09-singular-source-oracles-current.json",
+        "2026-09-09-singular-extra-source-oracles.json"
+      ],
+      "limitation": "This invalidates the asserted regular tangent contact, not every branch-count or ordinary geometry assertion. No failing test is marked passed or skipped."
+    },
+    {
+      "index": 23,
+      "node": "tests/test_bez_ssx5_singular.py::test_offcurve_touch_near_tangent_line_blind_band[0.005]",
+      "status": "fail",
+      "seconds": 11.973508416907862,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "0f63c732b3e7ae7e521525ea23d544318c1be9347a4db99228ad55d2a23f860f",
+      "assertion_excerpt": "E   AssertionError: expected the tangent line branch, got 2\nE   assert 2 == 1\nE    +  where 2 = len([SSXBranch(curve=(array([[0.        , 0.50000001, 0.25      , 0.5       ],\\n       [0.        , 0.49999999, 0.25      ,...999998, -0.        ]])), closed=False, overlap=False, kind='tangential', curve_xyz=None, curve_st=None, curve_uv=None)])",
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "oracle_artifacts": [
+        "2026-09-09-singular-source-oracles-release.json",
+        "2026-09-09-singular-source-oracles-current.json",
+        "2026-09-09-singular-extra-source-oracles.json"
+      ],
+      "limitation": "This invalidates the asserted regular tangent contact, not every branch-count or ordinary geometry assertion. No failing test is marked passed or skipped.",
+      "actual_failure": "The current first failed assertion concerns branch count (2 versus1 for23;3 versus1 for42). Exact contact absence alone does not determine the full nearby ordinary zero set; branch type, count and coverage remain independently unresolved."
+    },
+    {
+      "index": 24,
+      "node": "tests/test_bez_ssx5_singular.py::test_closed_tangent_loop_via_phi_marcher",
+      "status": "timeout",
+      "seconds": 30.015379667049274,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "assertion_excerpt": "",
+      "category": "invalid_contact_premise_and_unresolved_runtime",
+      "finding": "The exact source oracle invalidates the claimed regular tangent contact (skew case25 only away from s=0). The current full test still reaches its30s watchdog, so nearby ordinary geometry and runtime remain unresolved. Source-premise evidence does not excuse the timeout."
+    },
+    {
+      "index": 25,
+      "node": "tests/test_bez_ssx5_singular.py::test_param_far_touch_near_overlap_not_subsumed",
+      "status": "timeout",
+      "seconds": 30.019091207999736,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "assertion_excerpt": "",
+      "category": "invalid_contact_premise_and_unresolved_runtime",
+      "finding": "The exact source oracle invalidates the claimed regular tangent contact (skew case25 only away from s=0). The current full test still reaches its30s watchdog, so nearby ordinary geometry and runtime remain unresolved. Source-premise evidence does not excuse the timeout."
+    },
+    {
+      "index": 33,
+      "node": "tests/test_bez_ssx5_singular.py::test_offlattice_touch_plus_loop_found",
+      "status": "fail",
+      "seconds": 5.077054125024006,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "823c7006895c725995c2cc667db4461f78c9eb73920c615ca93e2be4c956cb34",
+      "assertion_excerpt": "E   AssertionError: off-lattice touch lost (L4): tangent_points at []\nE   assert []",
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "oracle_artifacts": [
+        "2026-09-09-singular-source-oracles-release.json",
+        "2026-09-09-singular-source-oracles-current.json",
+        "2026-09-09-singular-extra-source-oracles.json"
+      ],
+      "limitation": "This invalidates the asserted regular tangent contact, not every branch-count or ordinary geometry assertion. No failing test is marked passed or skipped."
+    },
+    {
+      "index": 38,
+      "node": "tests/test_bez_ssx5_singular.py::test_rational_weights_tangent_point_found",
+      "status": "fail",
+      "seconds": 9.08928629104048,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "be782927b3a9e67cd9bb98bcef4f4401a1c9f75d2406d057e62130ba1dba8c14",
+      "assertion_excerpt": "E   AssertionError: rationalized paraboloid lost its touch: 0 tangent_points\nE   assert 0 == 1\nE    +  where 0 = len([])",
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "oracle_artifacts": [
+        "2026-09-09-singular-source-oracles-release.json",
+        "2026-09-09-singular-source-oracles-current.json",
+        "2026-09-09-singular-extra-source-oracles.json"
+      ],
+      "limitation": "This invalidates the asserted regular tangent contact, not every branch-count or ordinary geometry assertion. No failing test is marked passed or skipped."
+    },
+    {
+      "index": 41,
+      "node": "tests/test_bez_ssx5_singular.py::test_offlattice_tangent_point_plus_loop",
+      "status": "fail",
+      "seconds": 4.795696333050728,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "3b3cf5e57de3e5eebee9646596907cf5dfb10964cbd3dce361ea0e43652cf300",
+      "assertion_excerpt": "E   assert 0 == 1\nE    +  where 0 = len([])",
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "oracle_artifacts": [
+        "2026-09-09-singular-source-oracles-release.json",
+        "2026-09-09-singular-source-oracles-current.json",
+        "2026-09-09-singular-extra-source-oracles.json"
+      ],
+      "limitation": "This invalidates the asserted regular tangent contact, not every branch-count or ordinary geometry assertion. No failing test is marked passed or skipped."
+    },
+    {
+      "index": 42,
+      "node": "tests/test_bez_ssx5_singular.py::test_repeated_calls_bit_identical",
+      "status": "fail",
+      "seconds": 26.70760879199952,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "710fb883995e4b3711a6768cbaa08dcb072c6133747d399af886eafa72a011bd",
+      "assertion_excerpt": "E   AssertionError: assert 3 == 1\nE    +  where 3 = len([SSXBranch(curve=(array([[0.50000096, 0.55477226, 0.50000048, 0.52738613],\\n       [0.48630786, 0.55303325, 0.49315393,...9999984,  0.        ]])), closed=True, overlap=False, kind='tangential', curve_xyz=None, curve_st=None, curve_uv=None)])",
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "oracle_artifacts": [
+        "2026-09-09-singular-source-oracles-release.json",
+        "2026-09-09-singular-source-oracles-current.json",
+        "2026-09-09-singular-extra-source-oracles.json"
+      ],
+      "limitation": "This invalidates the asserted regular tangent contact, not every branch-count or ordinary geometry assertion. No failing test is marked passed or skipped.",
+      "actual_failure": "The current first failed assertion concerns branch count (2 versus1 for23;3 versus1 for42). Exact contact absence alone does not determine the full nearby ordinary zero set; branch type, count and coverage remain independently unresolved."
+    },
+    {
+      "index": 43,
+      "node": "tests/test_bez_ssx5_singular.py::test_aniso_tangent_point_plus_thin_loop",
+      "status": "fail",
+      "seconds": 5.8596382909454405,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "7b23ee8a719370891a93690424a8b8aeec1321154915926f7feeb98df667db20",
+      "assertion_excerpt": "E   assert (0 == 1)\nE    +  where 0 = len([])",
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "oracle_artifacts": [
+        "2026-09-09-singular-source-oracles-release.json",
+        "2026-09-09-singular-source-oracles-current.json",
+        "2026-09-09-singular-extra-source-oracles.json"
+      ],
+      "limitation": "This invalidates the asserted regular tangent contact, not every branch-count or ordinary geometry assertion. No failing test is marked passed or skipped."
+    },
+    {
+      "index": 48,
+      "node": "tests/test_bez_ssx5_singular.py::test_touch_detection_scale_covariant[10.0]",
+      "status": "fail",
+      "seconds": 11.344966333010234,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "e736056ba4f8cca6dff79b8b9daad9a5df6fcaaafbcfe1337833a4f62b9d5468",
+      "assertion_excerpt": "E   assert 0 == 2\nE    +  where 0 = len([])",
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "oracle_artifacts": [
+        "2026-09-09-singular-source-oracles-release.json",
+        "2026-09-09-singular-source-oracles-current.json",
+        "2026-09-09-singular-extra-source-oracles.json"
+      ],
+      "limitation": "This invalidates the asserted regular tangent contact, not every branch-count or ordinary geometry assertion. No failing test is marked passed or skipped."
+    },
+    {
+      "index": 49,
+      "node": "tests/test_bez_ssx5_singular.py::test_touch_detection_scale_covariant[100.0]",
+      "status": "fail",
+      "seconds": 11.763932832982391,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "bfa924a47e8acf6ebe006a3f78037d5854be636e08857207ed41d3aacef8a0a6",
+      "assertion_excerpt": "E   assert 0 == 2\nE    +  where 0 = len([])",
+      "category": "exact_source_contact_premise_invalid",
+      "finding": "Exact binary height P has no regular plane-tangent zero: the relevant exact ideal (P,Ps,Pt) has unit Groebner basis. This invalidates expected contact/multiplicity, not all ordinary curve coverage or branch-count assertions.",
+      "oracle_artifacts": [
+        "2026-09-09-singular-source-oracles-release.json",
+        "2026-09-09-singular-source-oracles-current.json",
+        "2026-09-09-singular-extra-source-oracles.json"
+      ],
+      "limitation": "This invalidates the asserted regular tangent contact, not every branch-count or ordinary geometry assertion. No failing test is marked passed or skipped."
+    },
+    {
+      "index": 59,
+      "node": "tests/test_bez_ssx5_singular.py::test_case13_rational_tangency_terminates_with_explicit_partial_status",
+      "status": "fail",
+      "seconds": 6.882399791968055,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "09a00d0f6a3f65cff6afad81ac2ce83086bab88b6e820dcdab633feccf3b746b",
+      "assertion_excerpt": "E   assert 0 == 1\nE    +  where 0 = len([])",
+      "category": "unproved_singular_existence_expectation",
+      "finding": "The legacy test expects a residual-small nearly parallel numerical witness to be published as a certified tangent point. No original-source singular existence or absence proof has been established; current explicit partial retains the source obligation without publishing that unproved point."
+    },
+    {
+      "index": 95,
+      "node": "tests/test_bez_ssx5_singular.py::test_overlap_region_case12_partial_overlap",
+      "status": "fail",
+      "seconds": 0.8325587919680402,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "a63ba4df1517cc32d326a5ca9ffb476608b4cf7693b430b802df16f70332ef03",
+      "assertion_excerpt": "E   AssertionError: []\nE   assert 0 == 1\nE    +  where 0 = len([])",
+      "category": "unsupported_paired_region_representation",
+      "finding": "Exact positive-weight convex rational-bilinear source proof identifies the entire paired zero set as one 2D owner, and records its exact physical image polygon. Public paired-UV region geometry remains unsupported; the unchanged test requires an overlap_region and fails. Early typed owner termination now reaches the assertion promptly instead of the30s watchdog."
+    },
+    {
+      "index": 96,
+      "node": "tests/test_bez_ssx5_singular.py::test_overlap_region_full_containment",
+      "status": "fail",
+      "seconds": 0.833460042020306,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "2064869b8baf4ca7d5122d3ac2c7f939d6a1f254ca868cf084ac233839d46e35",
+      "assertion_excerpt": "E   AssertionError: []\nE   assert 0 == 1\nE    +  where 0 = len([])",
+      "category": "unsupported_paired_region_representation",
+      "finding": "Exact positive-weight convex rational-bilinear source proof identifies the entire paired zero set as one 2D owner, and records its exact physical image polygon. Public paired-UV region geometry remains unsupported; the unchanged test requires an overlap_region and fails. Early typed owner termination now reaches the assertion promptly instead of the30s watchdog."
+    },
+    {
+      "index": 97,
+      "node": "tests/test_bez_ssx5_singular.py::test_overlap_region_identical_patches",
+      "status": "fail",
+      "seconds": 0.833602083963342,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "0dc65ab535128b1c5455036d32077150cab286bab2b525541e6fb43474e5fa87",
+      "assertion_excerpt": "E   assert 0 == 1\nE    +  where 0 = len([])",
+      "category": "unsupported_paired_region_representation",
+      "finding": "Exact positive-weight convex rational-bilinear source proof identifies the entire paired zero set as one 2D owner, and records its exact physical image polygon. Public paired-UV region geometry remains unsupported; the unchanged test requires an overlap_region and fails. Early typed owner termination now reaches the assertion promptly instead of the30s watchdog."
+    },
+    {
+      "index": 99,
+      "node": "tests/test_bez_ssx5_singular.py::test_overlap_region_rational_twin_case12",
+      "status": "fail",
+      "seconds": 0.8557827499462292,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "bd1c86bfc5f362c3975a687634ba2e07a529cf17e8fed11abe17e618359b204c",
+      "assertion_excerpt": "E   AssertionError: []\nE   assert 0 == 1\nE    +  where 0 = len([])",
+      "category": "unsupported_paired_region_representation",
+      "finding": "Exact positive-weight convex rational-bilinear source proof identifies the entire paired zero set as one 2D owner, and records its exact physical image polygon. Public paired-UV region geometry remains unsupported; the unchanged test requires an overlap_region and fails. Early typed owner termination now reaches the assertion promptly instead of the30s watchdog."
+    },
+    {
+      "index": 100,
+      "node": "tests/test_bez_ssx5_singular.py::test_overlap_region_opposed_orientation",
+      "status": "fail",
+      "seconds": 0.8285863749915734,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "71164c9f72bd78397da62ee1790ec1023d5cf9f574ae6f4cd3314fbbe371c652",
+      "assertion_excerpt": "E   assert 0 == 1\nE    +  where 0 = len([])",
+      "category": "unsupported_paired_region_representation",
+      "finding": "Exact positive-weight convex rational-bilinear source proof identifies the entire paired zero set as one 2D owner, and records its exact physical image polygon. Public paired-UV region geometry remains unsupported; the unchanged test requires an overlap_region and fails. Early typed owner termination now reaches the assertion promptly instead of the30s watchdog."
+    },
+    {
+      "index": 111,
+      "node": "tests/test_bez_ssx5_singular.py::test_interior_pinch_cut_face_fibers_are_surfaced",
+      "status": "timeout",
+      "seconds": 30.018520417041145,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "assertion_excerpt": "",
+      "category": "unsupported_nonlinear_pinch_fiber_runtime",
+      "finding": "Exact nonlinear interior pinch/fiber residuals are outside the bounded affine/quadratic reduction; current generic search reaches the unchanged30s watchdog. Required singular/fiber geometry and bounded runtime remain unresolved."
+    },
+    {
+      "index": 113,
+      "node": "tests/test_bez_ssx5_singular.py::test_positive_dim_sigma_truncation_is_structural_not_work_budget",
+      "status": "timeout",
+      "seconds": 30.015496334061027,
+      "source_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "source_end_snapshot": "6a079c723ae9a1fd5348774fe5bf078637bbdb8524f6d03d4a345cc064260e6b",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "assertion_excerpt": "",
+      "category": "unsupported_nonlinear_pinch_fiber_runtime",
+      "finding": "Exact nonlinear interior pinch/fiber residuals are outside the bounded affine/quadratic reduction; current generic search reaches the unchanged30s watchdog. Required singular/fiber geometry and bounded runtime remain unresolved."
+    }
+  ],
+  "recovered_indices": [
+    56,
+    57,
+    58,
+    70,
+    71,
+    93,
+    114
+  ],
+  "ordinary_analytic_gate": {
+    "artifact": "2026-09-09-analytic-matrix-release.json",
+    "counts": {
+      "run": 63,
+      "pass": 63,
+      "timeout": 0,
+      "silent_failure": 0
+    },
+    "source_manifest_count": 1
+  },
+  "history_note": "Earlier full-run artifacts and their counts are unchanged. All geometry assertions remain visible. Between the preceding full run and this frozen run, only 3 demonstrably obsolete budget/depth fault injections were changed to exercise their actual retained mechanisms; the full frozen run passes those3. No remaining failed or timed-out test has been relabeled. No60s followup was required for repaired case14: both tests completed under30s. The remaining5 watchdog cases were already outstanding in the preceding30s run.",
+  "reproduce": "python examples/ssx/ssx5_singular_regression_audit.py --output /tmp/ssx-singular-audit.json --timeout 30 --workers 2"
+}

@@ -1,0 +1,88 @@
+{
+  "started_utc": "2026-09-09T07:47:47.859363+00:00",
+  "command": [
+    "/Users/sthv/PycharmProjects/mmcore/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "tests/test_ssx_source_boundary_fibers.py",
+    "tests/test_bez_ssx5_singular.py::test_transversal_branch_between_two_collapsed_rational_fibers_is_preserved",
+    "tests/test_bez_ssx5_singular.py::test_case14_rational_cones_return_certified_branch_and_explicit_partial_status",
+    "tests/test_bez_ssx5_singular.py::test_case14_tangent_generator_is_homogeneous_scale_invariant",
+    "tests/test_bez_ssx5_singular.py::test_schema_v2_collapsed_edge_reports_parameter_fiber"
+  ],
+  "source_before": {
+    "mmcore/numeric/intersection/ssx/_ssx_boundary_fibers.py": "88302ff7bb2058401e1d318e4ddb0a5ab33bd83c15642792ad54f15a807835f5",
+    "mmcore/numeric/intersection/ssx/_bez_ssx5.py": "36c6d5071627b8cf46426f2c07dcf0b9774fa8a5f7684dd759e31b7c8bb46d71",
+    "tests/test_ssx_source_boundary_fibers.py": "72e156758f37b9dc44138ab3266f394625fc827df66f5c977c8476a960375b93"
+  },
+  "timeout_seconds": 100,
+  "exit_code": 0,
+  "output": ".................                                                        [100%]\n17 passed in 69.33s (0:01:09)\n",
+  "seconds": 69.54935591598041,
+  "source_after": {
+    "mmcore/numeric/intersection/ssx/_ssx_boundary_fibers.py": "88302ff7bb2058401e1d318e4ddb0a5ab33bd83c15642792ad54f15a807835f5",
+    "mmcore/numeric/intersection/ssx/_bez_ssx5.py": "36c6d5071627b8cf46426f2c07dcf0b9774fa8a5f7684dd759e31b7c8bb46d71",
+    "tests/test_ssx_source_boundary_fibers.py": "72e156758f37b9dc44138ab3266f394625fc827df66f5c977c8476a960375b93"
+  },
+  "sources_unchanged": true,
+  "history": [
+    {
+      "started_utc": "2026-09-09T07:43:03.073722+00:00",
+      "command": [
+        "/Users/sthv/PycharmProjects/mmcore/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_ssx_source_boundary_fibers.py",
+        "tests/test_bez_ssx5_singular.py::test_transversal_branch_between_two_collapsed_rational_fibers_is_preserved",
+        "tests/test_bez_ssx5_singular.py::test_case14_rational_cones_return_certified_branch_and_explicit_partial_status",
+        "tests/test_bez_ssx5_singular.py::test_case14_tangent_generator_is_homogeneous_scale_invariant",
+        "tests/test_bez_ssx5_singular.py::test_schema_v2_collapsed_edge_reports_parameter_fiber"
+      ],
+      "source_before": {
+        "mmcore/numeric/intersection/ssx/_ssx_boundary_fibers.py": "38e959c529513acbf1b303cd6636a07761b38efaf686cc4c463b79dde4ab5cf5",
+        "mmcore/numeric/intersection/ssx/_bez_ssx5.py": "1002a731a6ad4cabb6cc38fbe15792b0d7c92f85316aa675d0da9668f08f492c",
+        "tests/test_ssx_source_boundary_fibers.py": "bf747543928df6d6eaf2718025860be2c8353e3ea05d5f8b3e25f35f1cab98a3"
+      },
+      "timeout_seconds": 100,
+      "exit_code": 0,
+      "output": ".............                                                            [100%]\n13 passed in 68.98s (0:01:08)\n",
+      "seconds": 69.18965654203203,
+      "source_after": {
+        "mmcore/numeric/intersection/ssx/_ssx_boundary_fibers.py": "38e959c529513acbf1b303cd6636a07761b38efaf686cc4c463b79dde4ab5cf5",
+        "mmcore/numeric/intersection/ssx/_bez_ssx5.py": "1002a731a6ad4cabb6cc38fbe15792b0d7c92f85316aa675d0da9668f08f492c",
+        "tests/test_ssx_source_boundary_fibers.py": "bf747543928df6d6eaf2718025860be2c8353e3ea05d5f8b3e25f35f1cab98a3"
+      },
+      "sources_unchanged": true
+    }
+  ],
+  "final_delta": {
+    "started_utc": "2026-09-09T07:51:02.122578+00:00",
+    "command": [
+      "/Users/sthv/PycharmProjects/mmcore/.venv/bin/python",
+      "-m",
+      "pytest",
+      "-q",
+      "tests/test_ssx_source_boundary_fibers.py",
+      "tests/test_bez_ssx5_singular.py::test_transversal_branch_between_two_collapsed_rational_fibers_is_preserved",
+      "tests/test_bez_ssx5_singular.py::test_schema_v2_collapsed_edge_reports_parameter_fiber"
+    ],
+    "source_before": {
+      "mmcore/numeric/intersection/ssx/_ssx_boundary_fibers.py": "88302ff7bb2058401e1d318e4ddb0a5ab33bd83c15642792ad54f15a807835f5",
+      "mmcore/numeric/intersection/ssx/_bez_ssx5.py": "83fb0984eef468f80c2abf147ece1a414fcff9cd4779c5932c354dd5c5609d35",
+      "tests/test_ssx_source_boundary_fibers.py": "172902167a076898aa343aa400adac8d46e892a8ff0c9a2cdb31e7ddf318dcab"
+    },
+    "timeout_seconds": 50,
+    "scope": "Final exact-fiber source representation callback; numerical cone proposal path unchanged since full17-test gate",
+    "exit_code": 0,
+    "output": "................                                                         [100%]\n16 passed in 17.36s\n",
+    "seconds": 17.568909624940716,
+    "source_after": {
+      "mmcore/numeric/intersection/ssx/_ssx_boundary_fibers.py": "88302ff7bb2058401e1d318e4ddb0a5ab33bd83c15642792ad54f15a807835f5",
+      "mmcore/numeric/intersection/ssx/_bez_ssx5.py": "83fb0984eef468f80c2abf147ece1a414fcff9cd4779c5932c354dd5c5609d35",
+      "tests/test_ssx_source_boundary_fibers.py": "172902167a076898aa343aa400adac8d46e892a8ff0c9a2cdb31e7ddf318dcab"
+    },
+    "sources_unchanged": true
+  }
+}

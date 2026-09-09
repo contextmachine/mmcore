@@ -1,0 +1,86 @@
+{
+  "seconds": 0.003948041936382651,
+  "complete": true,
+  "status": {
+    "reasons": [],
+    "work": {
+      "cells_processed": 1428,
+      "csx_calls": 0,
+      "max_cells": 250000,
+      "max_csx_calls": 10000,
+      "output_items": 2,
+      "max_output_items": 1024,
+      "postprocess_work": 0,
+      "max_postprocess_work": 250000,
+      "cell_counts": {
+        "affine_region_identity": 24,
+        "quadratic_constraints": 1116,
+        "quadratic_strata": 7,
+        "quadratic_curve": 156,
+        "quadratic_junction": 125
+      }
+    }
+  },
+  "branches": [
+    {
+      "kind": "transversal",
+      "stuv": [
+        [
+          0.0,
+          0.5,
+          0.5,
+          0.5
+        ],
+        [
+          1.0,
+          0.5,
+          0.6666666666666666,
+          0.8333333333333334
+        ]
+      ],
+      "xyz": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.5,
+          1.0,
+          0.0
+        ]
+      ]
+    }
+  ],
+  "singularities": [
+    {
+      "kind": "cusp_curve",
+      "surface": 1,
+      "samples": [
+        [
+          0.0,
+          0.0,
+          0.5,
+          0.5
+        ],
+        [
+          0.0,
+          1.0,
+          0.5,
+          0.5
+        ]
+      ],
+      "xyz": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "branch_links": [
+        [
+          0,
+          0
+        ]
+      ]
+    }
+  ]
+}
