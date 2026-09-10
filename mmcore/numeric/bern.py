@@ -1839,7 +1839,7 @@ def bern_roots_1d(bern, eps: float = 1e-3, interval=None,rational=False,**kwargs
 
     if len(roots) == 0:
         return BernRootsOutput(np.array([]), np.array([]), iters)
-    roots, errs = zip(*sorted(roots, key=lambda x: x[0]))
+    roots, errs = zip(*roots)
 
     return BernRootsOutput(np.array(roots), np.array(errs), iters)
 
