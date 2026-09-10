@@ -102,6 +102,6 @@ if RENDER:
         control_net_material=ControlNetMaterial((0.0, 1.0, 0.5, 0.7), control_point_material=PointMaterial((0.0, 1.0, 0.5, 0.4), size=8)),
     )
 
-    viewer = draw_ssx(s1, s2, result, intersection_curves_material=inter_curves_mat)
+    viewer = draw_ssx(s1, s2, result, intersection_curves_material=inter_curves_mat,recompute_camera=True)
 
     viewer.run()

@@ -7,9 +7,11 @@ import numpy as np
 
 from mmcore.numeric.bvh.lbvh import AABB
 
-from mmcore.nurbs._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple, _nurbs_to_tuple
+from mmcore.nurbs._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple, _nurbs_to_tuple, NURBSCurveTuple
+
 try:
-    from mmcore.extras.renderer.renderer3d import Viewer, OrbitCamera
+    from mmcore.extras.renderer.renderer3d import Viewer, OrbitCamera, ViewerSettings
+
     VIEWER_INSTALLED = True
 except ImportError:
     VIEWER_INSTALLED = False
@@ -43,7 +45,7 @@ class WiresMaterial(CurveMaterial):
 @dataclass
 class SurfaceMaterial:
 
-    color:tuple[float,float,float,float]=field(default=(0.5, 0.5, 0.9, 0.5))
+    color:tuple[float,float,float,float]=field(default=(0.5, 0.5, 0.9, 0.8))
     show_wires:bool=field(default=True)
     wires_material: WiresMaterial = field(
         default_factory=lambda: WiresMaterial((1.0, 1.0, 1.0, 1.0), show_control_net=False, u_count=1, v_count=1)
@@ -101,8 +103,9 @@ def save_pkl(s1,s2,result,fp=None)->Path:
     with open(pth, 'wb') as f:
         pickle.dump(((s1, s2), [r.curve_xyz for r in result['branches']], [r.curve_st for r in result['branches']], [r.curve_uv for r in result['branches']], [p.xyz for p in result['points']]), f)
     return pth
-
-
+from mmcore.nurbs._nurbs_interp import interpolate_nurbs_curve
+def curve_from_branch(pts, deg=3, tol=1e-12)->NURBSCurveTuple:
+    return interpolate_nurbs_curve(pts,deg,rational=False, tol=tol)
 def draw_ssx(
     s1: NURBSSurfaceTuple,
     s2: NURBSSurfaceTuple,
@@ -125,7 +128,7 @@ def draw_ssx(
 
     bb = AABB.from_points(s1.control_points.reshape(-1, 3)).merge(AABB.from_points(s2.control_points.reshape(-1, 3)))
     if viewer is None:
-        viewer = Viewer(camera=OrbitCamera(target=bb.centroid(), distance=np.linalg.norm(bb.diag())**2, near=1.0))
+        viewer = Viewer(camera=OrbitCamera(target=bb.centroid(), distance=np.linalg.norm(bb.diag())**2, near=1.0),settings=ViewerSettings())
 
     viewer.add_nurbs_surface(s1, color=surf1_material.wires_material.color, surface_color=surf1_material.color, u_count=surf1_material.wires_material.u_count, v_count=surf1_material.wires_material.v_count,show_edges=surf1_material.show_wires,show_isocurves=surf1_material.show_wires,)
     viewer.add_nurbs_surface(
@@ -134,16 +137,17 @@ def draw_ssx(
     )
 
     for branch in result['branches']:
-
-        viewer.add_nurbs_curve(branch.curve_xyz, color=intersection_curves_material.color)
+        ncrv=curve_from_branch(branch.curve[1])
+        viewer.add_nurbs_curve(ncrv, color=intersection_curves_material.color)
         if intersection_curves_material.show_control_net:
-            for p in branch.curve_xyz.control_points:
+            for p in ncrv.control_points:
                 viewer.add_point3d(p, color=intersection_curves_material.control_net_material.control_point_material.color, size_px=intersection_curves_material.control_net_material.control_point_material.size)
-            viewer.add_nurbs_curve(nurbs_curve(branch.curve_xyz.control_points, 1), color=intersection_curves_material.control_net_material.color)
+            viewer.add_nurbs_curve(nurbs_curve(ncrv.control_points, 1), color=intersection_curves_material.control_net_material.color)
         # renderer.add_point3d(branch.curve_xyz.end(), color=(0.0, 1.0, 0.5, 1.0), size_px=6)
     for p in result['points']:
         viewer.add_point3d(p.xyz, color=intersection_points_material.color, size_px=intersection_points_material.size)
     if recompute_camera:
         viewer.cam.target=viewer.scene_info.bbox.centroid()
         viewer.cam.distance=np.linalg.norm(bb.diag())*2
+
     return viewer
