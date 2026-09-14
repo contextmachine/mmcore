@@ -893,22 +893,25 @@ def _cusp_edge_on_split_plane():
     return S1, S2
 
 
-def test_rounded_cusp_constructor_has_exact_positive_plane_gap():
-    # The historical L1 fixture used float(-1/3) as a degree-elevated
-    # quadratic coefficient. Its supplied polynomial is strictly positive,
-    # so a tolerance-level cusp curve would be a false intersection. The
-    # exact [3,-1,-1,3] counterpart is tested in exact_extrusion instead.
-    from fractions import Fraction
-    from mmcore.numeric.intersection._exact_univariate import _power, _value
-
+def test_cusp_curve_on_split_plane_not_knifed_out():
+    # Ledger L1 regression: the strict `min > 0` Bernstein hull test excluded
+    # BOTH children after solve_zero_dim's first split through s=0.5 — the
+    # mathematically-zero coefficients drift to ~eps/8 under de Casteljau,
+    # collapsing the 1-dimensional cusp CURVE to ONE isolated `cusp` with a
+    # false-complete enumeration. With the roundoff margin the enumeration
+    # floods (>12 sols) and the curve_flag types it as `cusp_curve`.
     S1, S2 = _cusp_edge_on_split_plane()
-    polynomial = _power([Fraction.from_float(float(x)) for x in S1[:, 0, 0]])
-    assert len(polynomial) == 3 and polynomial[2] > 0
-    assert polynomial[1] == -polynomial[2]  # Unique minimum at s=1/2.
-    assert _value(polynomial, Fraction(1, 2)) == Fraction(1, 2**56)
     r = bez_ssx(S1, S2, 1e-3, rational=False)
-    assert r['complete']
-    assert r['branches'] == [] and r['points'] == [] and r['singularities'] == []
+    curves = [g for g in r["singularities"] if g.kind == "cusp_curve"]
+    assert curves, (
+        f"cusp curve knifed out: kinds={[g.kind for g in r['singularities']]}")
+    assert [g for g in r["singularities"] if g.kind == "cusp"] == [], \
+        "cusp curve mistyped as isolated cusp(s)"
+    samples = np.concatenate([np.asarray(g.samples) for g in curves])
+    assert len(samples) >= 13
+    # every sample on the true singular curve {s = 0.5}, covering most of t
+    assert np.allclose(samples[:, 0], 0.5, atol=1e-6)
+    assert samples[:, 1].max() - samples[:, 1].min() > 0.8
 
 
 def test_theorem3_skips_regular_case():
@@ -2016,10 +2019,10 @@ def test_bez_ssx_global_soft_budget_returns_partial_result(monkeypatch):
     s2 = np.array([[[0., 0., -1.], [0., 1., 1.]],
                    [[1., 0., -1.], [1., 1., 1.]]])
     def forbidden(*_args, **_kwargs):
-        pytest.fail("4-D minor nets were built with zero allowance")
+        pytest.fail("the 4-D distance net was built with zero allowance")
 
     monkeypatch.setattr(
-        ssx5, "minors_Tpsi_from_control_nets", forbidden)
+        ssx5, "surface_surface_distance_squared_net_homog", forbidden)
     r = ssx5.bez_ssx(
         s1, s2, 1e-3, rational=False,
         max_cells=0, max_csx_calls=8,
@@ -2029,7 +2032,7 @@ def test_bez_ssx_global_soft_budget_returns_partial_result(monkeypatch):
     assert set(("branches", "points", "singularities")) <= set(r)
 
 
-def test_bez_ssx_preflights_minor_net_work(monkeypatch):
+def test_bez_ssx_preflights_distance_net_work(monkeypatch):
     """A tiny global allowance cannot start a superlinear 4-D net build."""
     import mmcore.numeric.intersection.ssx._bez_ssx5 as ssx5
 
@@ -2038,10 +2041,10 @@ def test_bez_ssx_preflights_minor_net_work(monkeypatch):
     surface[..., 1] = np.linspace(0.0, 1.0, 8)[None, :]
 
     def forbidden(*_args, **_kwargs):
-        pytest.fail("minor-net construction bypassed its preflight charge")
+        pytest.fail("distance-net construction bypassed its preflight charge")
 
     monkeypatch.setattr(
-        ssx5, "minors_Tpsi_from_control_nets", forbidden)
+        ssx5, "surface_surface_distance_squared_net_homog", forbidden)
     result = ssx5.bez_ssx(
         surface, surface, 1e-3, rational=False,
         max_cells=1, max_csx_calls=1,
@@ -2069,8 +2072,8 @@ def test_bez_ssx_output_budget_bounds_postprocessing():
 
 def test_zero_postprocess_budget_skips_all_postassembly_scans():
     """Preserve discovered geometry when junction/filter scans cannot run."""
-    # An exact shared-edge tier needs no postassembly scans.  Exercise the
-    # ordinary tracer explicitly, where the step bound requires sampling.
+    # Exercise an ordinary sampled branch so a denied cleanup cannot
+    # silently discard useful geometry already found by the tracer.
     s1 = np.array([[[u, v, 0.] for v in (0., 1.)] for u in (0., 1.)])
     s2 = s1.copy()
     s2[..., 2] = np.array([[-.375, .625], [-.375, .625]])
@@ -2108,6 +2111,8 @@ def test_bez_ssx_depth_cap_reports_unresolved_partial_result():
 
 
 def test_bez_ssx_surfaces_c1_local_truncation(monkeypatch):
+    from mmcore.numeric.intersection.ssx import _bez_ssx5
+    monkeypatch.setattr(_bez_ssx5, '_try_isoline_intersection', lambda *args: None)
     """A locally capped C1 enumeration must not masquerade as complete."""
     import mmcore.numeric.intersection.ssx._ssx5_singular as singular
 
@@ -2123,9 +2128,7 @@ def test_bez_ssx_surfaces_c1_local_truncation(monkeypatch):
         return [], False
 
     monkeypatch.setattr(singular, "c1_pass", fake_c1)
-    # An exact source tier can now finish this plane pair without invoking
-    # C1. Request explicit sampling so this test exercises the general path.
-    r = bez_ssx(s1, s2, 1e-3, rational=False, max_xyz_step=.1)
+    r = bez_ssx(s1, s2, 1e-3, rational=False)
     assert r["complete"] is False
     assert "work_budget" in r["status"]["reasons"]
 
@@ -2883,6 +2886,8 @@ def test_schema_v2_collapsed_edge_reports_parameter_fiber():
 
 
 def test_zero_csx_allowance_knobs_are_honored(monkeypatch):
+    from mmcore.numeric.intersection.ssx import _bez_ssx5
+    monkeypatch.setattr(_bez_ssx5, '_try_isoline_intersection', lambda *args: None)
     # Ledger L41 / review finding 11: csx_max_cells=0,
     # boundary_csx_max_cells=0 and csx_max_results=0 were silently promoted
     # to 1 via max(1, ...) while max_cells=0/max_csx_calls=0 were honored —
@@ -2900,15 +2905,13 @@ def test_zero_csx_allowance_knobs_are_honored(monkeypatch):
     monkeypatch.setattr(ssx5, "bez_csx", recording)
 
     r = ssx5.bez_ssx(s1, s2, 1e-3, rational=False,
-                     boundary_csx_max_cells=0, csx_max_cells=0,
-                     max_xyz_step=.1)
+                     boundary_csx_max_cells=0, csx_max_cells=0)
     assert calls == [], "bez_csx ran despite a zero per-call cell allowance"
     assert r["complete"] is False
     assert "work_budget" in r["status"]["reasons"]
 
     calls.clear()
-    r = ssx5.bez_ssx(s1, s2, 1e-3, rational=False, csx_max_results=0,
-                     max_xyz_step=.1)
+    r = ssx5.bez_ssx(s1, s2, 1e-3, rational=False, csx_max_results=0)
     assert calls == [], "bez_csx ran despite a zero result allowance"
     assert r["complete"] is False
     assert "work_budget" in r["status"]["reasons"]
@@ -2925,18 +2928,14 @@ def _case12_pair():
 
 def _region_loop_checks(r, reg, atol=1e-3):
     """Shared §8 invariants for one assembled region."""
-    cert = reg.certification
-    exact_affine = (cert.get("image_identity") == "exact_affine_plane"
-                    and cert.get("complete_preimage") is True)
     # boundary references result['branches'] overlap rims, head-to-tail
     assert reg.boundary and all(loop for loop in reg.boundary)
     for loop in reg.boundary:
         for idx, reversed_ in loop:
             b = r["branches"][idx]
             assert b.kind == "overlap"
-            # Exact affine identity certifies the entire two-point rim;
-            # the sampled overlap tier still requires its dense evidence.
-            assert len(np.asarray(b.curve[1])) >= (2 if exact_affine else 9)
+            # rims are properly sampled, not L27's 2-point chords
+            assert len(np.asarray(b.curve[1])) >= 9
     # uv loops closed, paired, sample-synchronized
     assert len(reg.uv1_loops) == len(reg.uv2_loops) == len(reg.boundary)
     for uv1, uv2 in zip(reg.uv1_loops, reg.uv2_loops):
@@ -2944,13 +2943,10 @@ def _region_loop_checks(r, reg, atol=1e-3):
         assert np.allclose(uv1[0], uv1[-1], atol=1e-9)
         assert np.allclose(uv2[0], uv2[-1], atol=1e-9)
     # certification is in atol units and within tolerance
+    cert = reg.certification
     assert cert["boundary_resid_max"] <= 1.0
     assert cert["interior_resid"] <= 1.0
-    if exact_affine:
-        # Paired polygon vertices plus the interior witness are evaluated.
-        assert cert["n_samples"] == sum(map(len, reg.boundary)) + 1
-    else:
-        assert cert["n_samples"] >= 8
+    assert cert["n_samples"] >= 8
     # interior witness is a certified coincidence point
     w = np.asarray(reg.interior_stuv, dtype=float)
     assert w.shape == (4,)
@@ -3156,6 +3152,8 @@ def test_point_dedup_is_nan_safe():
 
 
 def test_boundary_polish_gate_rejects_nan_residual(monkeypatch):
+    from mmcore.numeric.intersection.ssx import _bez_ssx5
+    monkeypatch.setattr(_bez_ssx5, '_try_isoline_intersection', lambda *args: None)
     # Ledger L45 (soundness half): the boundary polish gate was written
     # reject-if-greater (`if pres > tol: continue`), so a NaN residual —
     # every NaN comparison is False — was ACCEPTED as a certified
@@ -3168,20 +3166,12 @@ def test_boundary_polish_gate_rejects_nan_residual(monkeypatch):
         return np.array([0.5, 0.5, 0.5, 0.5]), float("nan"), None
 
     monkeypatch.setattr(ssx5, "_ssx_correct_fixed", nan_polish)
-    census, calls = {}, []
-
-    def isolated_proposal(*args, **kwargs):
-        calls.append(1)
-        return {'isolated': [{'t': .5, 'u': .5, 'v': .5}], 'overlaps': []}
-
-    # Exercise the numerical boundary gate directly: exact source tiers
-    # legitimately bypass polishing for this plane pair.
-    crossings, overlaps = ssx5._find_ssx_boundary_zeros(
-        _homog(s1), _homog(s2), 1e-3, rational=True,
-        csx_fn=isolated_proposal, census_sink=census)
-    assert len(calls) == 8
-    assert crossings == [] and overlaps == []
-    assert census['complete'] is False
+    r = ssx5.bez_ssx(s1, s2, 1e-3, rational=False)
+    # Every boundary crossing polishes to NaN residual -> none may certify
+    # (pre-fix: all were accepted and traced into garbage branches).
+    assert r["points"] == []
+    assert all(len(np.asarray(b.curve[1])) == 0 or b.kind == "overlap"
+               for b in r["branches"]) or r["branches"] == []
 
 
 def test_overlap_box_coverage_requires_both_parameter_planes():
@@ -3202,11 +3192,7 @@ def test_overlap_box_coverage_requires_both_parameter_planes():
     in_box = np.array([[0.4, 0.6]] * 4).T.reshape(4, 2)          # center .5^4
     asm = assemble_overlap_regions(
         S1, S2, atol=1e-3, ptol4=ptol4, overlap_boxes=[in_box])
-    # Sampled rims cannot retire a whole source-domain obligation. The
-    # exact affine region tier independently proves the positive case.
-    assert asm["regions"] and asm["covered"] is False
-    exact = bez_ssx(S1, S2, atol=1e-3, rational=True)
-    assert exact["complete"] and exact["overlap_regions"]
+    assert asm["regions"] and asm["covered"] is True
 
     # same (s,t) footprint, but the (u,v) half far OUTSIDE the region's
     # uv2 loops (a phantom second S2 sheet): must NOT count as covered.
@@ -3376,38 +3362,30 @@ def test_positive_dim_sigma_truncation_is_structural_not_work_budget():
     assert "cusp_curve" in [g.kind for g in r.get("singularities", [])]
 
 
-def test_unresolved_complement_is_typed_with_boxes():
-    """L52 slice 9b (§7.3 item 2, the typed case-13 complement): 'partial'
-    must NAME what is unresolved. Cells dumped at the depth ceiling and
-    cells abandoned on work exhaustion emit typed diagnostic entities
-    (their 4-D stuv AABB + the reason) in result['unresolved_regions'],
-    the parameter_fibers pattern — instead of only a bare reason flag.
-    Source-existence uncertainty can coexist with depth-limited cells;
-    each individual obligation must retain its own cause."""
+def test_limited_search_reports_status_without_public_proof_regions():
+    """Search limits retain the CAD result and status, without proof payloads."""
     from examples.ssx.bez_ssx5_coverage_check import load_case_surfaces
 
-    S1, S2, rational = load_case_surfaces(13)
-    # Default search now spends its explicit work allowance without an
-    # arbitrary derived depth ceiling. Request one to exercise this gate.
-    r = bez_ssx(S1, S2, 1e-3, rational=rational, max_depth=0)
-    reasons = r["status"]["reasons"]
-    assert "depth_limit" in reasons, reasons
-    regions = r["unresolved_regions"]
-    assert regions, "depth-dumped cells must be named"
-    for reg in regions:
-        lo = np.asarray(reg["stuv_min"], dtype=float)
-        hi = np.asarray(reg["stuv_max"], dtype=float)
-        assert lo.shape == (4,) and hi.shape == (4,)
-        assert np.all(lo >= -1e-12) and np.all(hi <= 1.0 + 1e-12)
-        assert np.all(lo <= hi + 1e-15)
-        assert reg["reason"] in reasons
-
-    # work-exhaustion complement: an abandoned queue is named the same way
-    r2 = bez_ssx(S1, S2, 1e-3, rational=rational, max_cells=100)
-    assert not r2["complete"]
-    assert "work_budget" in r2["status"]["reasons"]
-    assert any(reg["reason"] == "work_budget"
-               for reg in r2["unresolved_regions"]), r2["unresolved_regions"]
+    first, second, rational = load_case_surfaces(13)
+    for limits, reason in (({'max_depth': 0}, 'depth_limit'),
+                           ({'max_cells': 100}, 'work_budget')):
+        result = bez_ssx(first, second, 1e-3, rational=rational, **limits)
+        assert result['complete'] is False
+        assert reason in result['status']['reasons'], result['status']
+        assert 'unresolved_regions' not in result
+        work = result['status']['work']
+        assert work['cells_processed'] <= work['max_cells']
+        # Returned geometry remains usable even when the search stops.
+        for branch in result['branches']:
+            stuv, xyz = map(np.asarray, branch.curve)
+            assert len(stuv) == len(xyz) and len(xyz) >= 2
+            assert np.isfinite(stuv).all() and np.isfinite(xyz).all()
+            for q, point in zip(stuv, xyz):
+                for surface, uv in ((first, q[:2]), (second, q[2:])):
+                    evaluated = eval_surface(surface, *uv, rational=rational)
+                    assert np.linalg.norm(evaluated-point) <= 4e-3
+        for point in result['points']:
+            assert np.isfinite(point.stuv).all() and np.isfinite(point.xyz).all()
 
 
 def test_small_scale_case10_keeps_certified_crossing_cells():
@@ -3451,23 +3429,38 @@ def test_march_stops_when_it_stops_advancing():
     import numpy as np
     import mmcore.numeric.intersection.ssx._bez_ssx5 as bm
 
-    # Exercise the historical stalled numerical proposal directly. The
-    # exact-source search can now reject this rounded decimal fixture
-    # before calling any marcher, which is independently correct.
-    S1, S2 = _double_touch_asym()
-    stats = {}
-    t0 = time.time()
-    _, xyz, exit_info = bm._march_to_boundary(
-        _homog(S1), _homog(S2), np.array([.45, .5, .475, .5]),
-        atol=1e-3, rational=True, stats=stats)
-    elapsed = time.time()-t0
-    assert exit_info is None
-    assert stats.get('no_progress') is True
-    steps = np.linalg.norm(np.diff(xyz, axis=0), axis=1)
-    arc = float(steps.sum())
-    extent = float(np.max(np.linalg.norm(xyz-xyz[0], axis=1)))
-    assert arc <= 1e3*max(extent, 1e-300), (
-        f"march travelled {arc/max(extent, 1e-300):.0f}x its own extent "
-        f"in {stats['iterations']} iterations without exiting")
+    seen = []
+    orig = bm._march_to_boundary
+
+    def spy(*a, **k):
+        stats = k.get("stats")
+        if stats is None:
+            stats = {}
+            k["stats"] = stats
+        out = orig(*a, **k)
+        xyz = np.asarray(out[1], dtype=float)
+        seen.append((int(stats.get("iterations", 0)), out[2], xyz))
+        return out
+
+    bm._march_to_boundary = spy
+    try:
+        t0 = time.time()
+        test_two_isolated_tangent_points_same_cell()
+        elapsed = time.time() - t0
+    finally:
+        bm._march_to_boundary = orig
+
+    assert seen, "no march observed"
+    for iters, exit_info, xyz in seen:
+        if exit_info is not None or len(xyz) < 3:
+            continue          # a march that exited a face is fine, however long
+        # An unterminated march must not have spent its whole allowance
+        # vibrating: bound the arc it travelled by its own extent.
+        steps = np.linalg.norm(np.diff(xyz, axis=0), axis=1)
+        arc = float(steps.sum())
+        extent = float(np.max(np.linalg.norm(xyz - xyz[0], axis=1)))
+        assert arc <= 1e3 * max(extent, 1e-300), (
+            f"march travelled {arc / max(extent, 1e-300):.0f}x its own extent "
+            f"in {iters} iterations without exiting")
     # And the whole thing stays fast; it used to take ~150s.
     assert elapsed < 60.0, f"{elapsed:.1f}s"

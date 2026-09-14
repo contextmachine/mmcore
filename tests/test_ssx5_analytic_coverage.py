@@ -162,3 +162,10 @@ def test_nearby_transverse_lines_survive_exact_knot_insertion(variant):
         result = solve_case("tight_lines", variant)
         report = audit_result("tight_lines", result)
     assert report["passed"], report
+
+
+@pytest.mark.parametrize('variant', ['identity', 'swap'])
+def test_nested_circles_preserve_complete_closed_components(variant):
+    result = solve_case('nested_circles',variant)
+    report = audit_result('nested_circles',result)
+    assert report['passed'],report

@@ -48,6 +48,47 @@ from mmcore.numeric.intersection._sq_dist_classify import (
 _subdivide_curve = subdivide_curve
 
 
+def _surface_fibers_at_point(surface, u, v, point, atol, rational):
+    """Free surface axes whose entire control hull fits the CAD tolerance.
+
+    At a pinched isoline, changing its free parameter produces more
+    representatives of the same geometric hit. Keep the boundary witnesses
+    but reuse their coverage while searching the remaining parameter box.
+    Positive rational weights give the same Cartesian convex-hull bound.
+    """
+    def fits(net):
+        if not np.all(np.isfinite(net)):
+            return False
+        if rational:
+            if np.any(net[..., -1] <= 0.):
+                return False
+            points = net[..., :-1]/net[..., -1:]
+        else:
+            points = net
+        return bool(np.all(np.linalg.norm(points-point, axis=-1) <= atol))
+
+    if fits(surface):
+        return ((1, 2),)
+    fibers = []
+    for fixed_axis, value in ((0, u), (1, v)):
+        left, _ = _subdivide_surface(surface, fixed_axis, float(value))
+        isoline = left[-1, :, :] if fixed_axis == 0 else left[:, -1, :]
+        if fits(isoline):
+            fibers.append((2-fixed_axis,))
+    return tuple(fibers)
+
+
+def _matching_surface_fiber(entry, root, point, atol, tolerances):
+    if np.linalg.norm(point-entry['point']) > atol:
+        return ()
+    parameters = (entry['t'], entry['u'], entry['v'])
+    for free_axes in entry.get('_surface_fibers', ()):
+        if all(axis in free_axes or abs(a-b) <= 2.*tol
+               for axis, (a, b, tol) in enumerate(zip(parameters, root, tolerances))):
+            return free_axes
+    return ()
+
+
 def _subdivide_surface(ctrl, axis, t=0.5):
     n = ctrl.shape[axis] - 1
     tmp = np.moveaxis(ctrl.copy(), axis, 0)
@@ -907,6 +948,7 @@ def _boundary_zero_from_tuv_like(bz: BoundaryZero, t, u, v) -> BoundaryZero:
 def _find_csx_boundary_zeros(
     F_3d, C, S, atol, ptol_t, ptol_u, ptol_v, rational,
     *, max_cells=50_000, max_results=4_096, diagnostics=None,
+    tolerance_tier=False,
 ):
     """Find precise intersection points on the boundary faces of the CSX domain.
 
@@ -1063,15 +1105,14 @@ def _find_csx_boundary_zeros(
         if cells.remaining <= 0:
             exhausted = True
             break
-        # L62: exact-only. This nested call consumes level-0 boundary zeros
-        # for the CSX boundary analysis; CCX's isolated tolerance tier
-        # (membership at atol) is a different contract, and whether CSX
-        # wants its own isolated-contact tier is a separate ledger item.
+        # Keep the nested solver on the caller's contract. CAD-tolerance
+        # CSX must not stop on an optional exact-root existence obligation;
+        # its candidates still pass the boundary polishing below.
         ccx_result = bez_ccx_v4(
             C, iso_curve, atol=atol, rational=rational,
             max_cells=cells.remaining,
             max_results=max(0, max_results - len(zeros)),
-            tolerance_tier=False,
+            tolerance_tier=tolerance_tier,
         )
         ccx_cells = int(ccx_result.get("cells_processed", 0))
         ccx_cells = min(ccx_cells, cells.remaining)
@@ -1609,6 +1650,16 @@ def _phase2_isolated_search(
                     and v0 >= _e["v"] - 2.0 * ptol_v and v1 <= _e["v"] + 2.0 * ptol_v):
                 _near_known = True
                 break
+            for free_axes in _e.get('_surface_fibers', ()):
+                if all(axis in free_axes or (lo >= p-2.*tol and hi <= p+2.*tol)
+                       for axis, (lo, hi, p, tol) in enumerate(zip(
+                           (t0, u0, v0), (t1, u1, v1),
+                           (_e['t'], _e['u'], _e['v']),
+                           (ptol_t, ptol_u, ptol_v)))):
+                    _near_known = True
+                    break
+            if _near_known:
+                break
         if exact_topology and not _near_known and depth >= max_depth:
             ownership = _certify_csx_owned_cell(
                 G_original,((t0,t1),(u0,u1),(v0,v1)),isolated,source_scale,
@@ -1821,6 +1872,13 @@ def _phase2_isolated_search(
                 is_new = not _is_duplicate(isolated, t_sol, u_sol, v_sol, pt,
                                            atol, ptol_t, ptol_u, ptol_v,
                                            exact_topology=exact_topology)
+                for known in isolated:
+                    free_axes = _matching_surface_fiber(
+                        known, root, pt, atol, (ptol_t, ptol_u, ptol_v))
+                    if free_axes:
+                        radii = tuple(1. if axis in free_axes else radius
+                                      for axis, radius in enumerate(radii))
+                        break
             if is_new:
                 # A genuine root. Record it regardless of which cell it
                 # lies in — _is_duplicate protects against a double add
@@ -2312,6 +2370,7 @@ def bez_csx(
         F, C, S, atol, ptol_t, ptol_u, ptol_v, rational,
         max_cells=cells.remaining, max_results=boundary_result_cap,
         diagnostics=boundary_diagnostics,
+        tolerance_tier=tolerance_tier,
     )
     cells.spend(boundary_cells)
     if boundary_exhausted:
@@ -2398,6 +2457,20 @@ def bez_csx(
                 # An isolated root resolves its (t,u,v) neighborhood,
                 # not this t slab across the entire surface. Phase 2
                 # receives it as a known point and cuts its product box.
+
+    if tolerance_tier:
+        # Recognize free target parameters before Phase2 fills its result
+        # budget with one geometric hit. Other surface preimages at the
+        # same curve parameter remain in the full-product search.
+        probe_work = max(1, (2*S.size+127)//128)
+        for entry in isolated:
+            if cells.remaining < probe_work:
+                break
+            cells.spend(probe_work)
+            fibers = _surface_fibers_at_point(
+                S, entry['u'], entry['v'], entry['point'], atol, rational)
+            if fibers:
+                entry['_surface_fibers'] = fibers
 
     # Valley check for overlap — only on a COMPLETE boundary-zero set: a
     # truncated set could pair the wrong endpoints into a false overlap
@@ -2709,7 +2782,13 @@ def bez_csx(
                     return False
             return True
 
-        verified = [r for r in runs if len(r) >= 3 and _run_is_continuum(r)]
+        # Many surface parameters can represent one geometric hit on C.
+        # A collapsed target isoline is not an overlap interval on C; its
+        # representatives must span more than the curve's CAD resolution
+        # before they can arm this continuum fallback.
+        verified = [r for r in runs if len(r) >= 3
+                    and r[-1][0]-r[0][0] > ptol_t
+                    and _run_is_continuum(r)]
         if verified:
             largest = max(verified, key=len)
             non_affine_overlap_span = (largest[0][0], largest[-1][0])
@@ -2731,6 +2810,7 @@ def bez_csx(
             truncation_cause = 'resolution'
     for entry in isolated:
         entry.pop('_boundary_root_proof', None)
+        entry.pop('_surface_fibers', None)
         entry.pop('_existence_established', None)
         box = entry.pop('_unique_box', None)
         if box is not None:
@@ -2778,6 +2858,9 @@ def _is_duplicate(isolated, t,u,v, pt, atol, ptol_t,ptol_u,ptol_v,
             if (entry['t'], entry['u'], entry['v']) == (t, u, v):
                 return True
             continue
+        if _matching_surface_fiber(entry, (t, u, v), pt, atol,
+                                   (ptol_t, ptol_u, ptol_v)):
+            return True
         # Two independently refined representatives of one root can each
         # sit up to one parametric tolerance from it (boundary vs Phase-2
         # is the common pairing), hence a 2*ptol comparison.  Retain the

@@ -34,7 +34,6 @@ def main():
     args = parser.parse_args()
     from mmcore.numeric.intersection.ssx import _bez_ssx5 as ssx
     from mmcore.numeric.intersection.csx import _bez_csx4 as csx
-    from mmcore.numeric.intersection.ssx import _ssx_planar_cut as planar
     from examples.ssx.ssx5_analytic_audit import distances_to_polylines
 
     files = sorted(set((ROOT/'mmcore/numeric/intersection').rglob('*.py'))
@@ -53,7 +52,7 @@ def main():
     matrices = [('identity', np.eye(3)),
                 ('mixed', np.array([[1., 1., 0.], [0., 1., 1.], [1., 0., 1.]])),
                 ('sheared', np.array([[1., 2., 1.], [0., 1., 1.], [1., 1., 1.]]))]
-    original = (ssx.bez_csx, csx.bez_ccx_v4, planar.exact_source_planar_cut)
+    original = (ssx.bez_csx, csx.bez_ccx_v4)
     def expired(*_):
         raise TimeoutError
     signal.signal(signal.SIGALRM, expired)
@@ -64,8 +63,7 @@ def main():
                 first, second = second, first
             row = dict(world_transform=label, matrix=matrix.tolist(), swapped=swap,
                        raw_csx_calls=0, raw_csx_cells=0, raw_csx_seconds=0.,
-                       nested_ccx_calls=0, nested_ccx_cells=0, nested_ccx_seconds=0.,
-                       source_cut_calls=0, source_cut_cells=0, source_cut_seconds=0.)
+                       nested_ccx_calls=0, nested_ccx_cells=0, nested_ccx_seconds=0.)
             def count(function, prefix):
                 def measured(*a, **kw):
                     row[prefix+'_calls'] += 1
@@ -80,7 +78,6 @@ def main():
                 return measured
             ssx.bez_csx = count(original[0], 'raw_csx')
             csx.bez_ccx_v4 = count(original[1], 'nested_ccx')
-            planar.exact_source_planar_cut = count(original[2], 'source_cut')
             started = time.perf_counter()
             signal.alarm(args.timeout)
             try:
@@ -94,7 +91,7 @@ def main():
                 row['timeout'] = True
             finally:
                 signal.alarm(0)
-                ssx.bez_csx, csx.bez_ccx_v4, planar.exact_source_planar_cut = original
+                ssx.bez_csx, csx.bez_ccx_v4 = original
                 row['solve_seconds'] = time.perf_counter()-started
             if result is not None:
                 paths = [np.asarray(branch.curve[1]) for branch in result['branches']]

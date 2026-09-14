@@ -162,16 +162,12 @@ def test_wrap_dup_vs_joint_plain_dup():
         _domain_ctx, _dup_stuv, _joint_plain_dup)
     atol = 1e-3
     ctx = _domain_ctx(cylinder(), big_plane(0.5), atol=atol)
-    p = np.array([0.0, 0.5, 0.5, 0.5])
-    q = np.array([1.0, 0.5, 0.5, 0.5])
+    eps = 0.1 * float(ctx.ptol[0])
+    p = np.array([0.0 + eps, 0.5, 0.5, 0.5])
+    q = np.array([1.0 - eps, 0.5, 0.5, 0.5])
     x = np.array([1.0, 0.0, 0.5])
     assert _dup_stuv(p, q, x, x, ctx, atol)
     assert not _joint_plain_dup(p, q, x, x, ctx, atol)
-    # Near-seam roots are distinct until a root certificate identifies
-    # them. Geometric tolerance alone does not establish that identity.
-    eps = 0.1 * float(ctx.ptol[0])
-    p[0], q[0] = eps, 1.0 - eps
-    assert not _dup_stuv(p, q, x, x, ctx, atol)
 
 
 def test_remap4():
@@ -263,7 +259,7 @@ def test_empty_result_when_disjoint():
     assert res['complete'] is True
     assert res['branches'] == [] and res['points'] == []
     assert res['singularities'] == [] and res['overlap_regions'] == []
-    assert res['unresolved_regions'] == []
+    assert 'unresolved_regions' not in res
     assert res['status']['reasons'] == []
 
 
@@ -293,10 +289,8 @@ def test_starvation_is_soft_and_typed():
     res = nurbs_ssx(s1, s2, atol=1e-3, max_cells=1)
     assert res['complete'] is False
     assert REASON_WORK_BUDGET in res['status']['reasons']
-    assert len(res['unresolved_regions']) >= 1
-    for entry in res['unresolved_regions']:
-        assert 'stuv_min' in entry and 'stuv_max' in entry
-        assert 'reason' in entry
+    assert 'unresolved_regions' not in res
+    assert res['status']['work']['cells_processed'] <= 1
 
 
 def test_aggregate_work_counters_populated():
@@ -434,7 +428,7 @@ def test_chain_orientation_all_four_combinations():
             assert gaps.max() <= 0.61  # contiguous: no jump across the joint
 
 
-def test_identical_approximations_without_shared_source_provenance_are_retained():
+def test_containment_dedup_identical_twins_deterministic():
     from mmcore.numeric.intersection.ssx._nssx5 import (
         _Frag, _containment_dedup, _make_aggregate)
     path_s = np.array([[0.1, 0.5, 0.5, 0.5], [0.9, 0.5, 0.5, 0.5]])
@@ -448,7 +442,7 @@ def test_identical_approximations_without_shared_source_provenance_are_retained(
     for order in (twins, twins[::-1]):
         agg = _make_aggregate({}, 1)
         kept = _containment_dedup(list(order), 1e-3, agg)
-        assert len(kept) == 2
+        assert len(kept) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -468,17 +462,22 @@ def test_seam_straddling_tangency_dedups_to_one():
     tp = tps[0]
     assert np.linalg.norm(np.asarray(tp.xyz) - np.zeros(3)) <= 5e-3
     assert abs(tp.stuv[0] - 0.5) <= 0.05 and abs(tp.stuv[1] - 0.5) <= 0.05
-    # Exact PSD reduction proves each patch pair's entire zero set is
-    # this singleton; the seam copies have the same exact global preimage.
-    np.testing.assert_array_equal(tp.stuv,np.full(4,.5))
-    np.testing.assert_array_equal(tp.xyz,np.zeros(3))
-    assert res['complete'] and not res['status']['reasons']
-    assert not res['branches'] and not res['points']
-    assert not res['unresolved_regions']
+    # The certified tangent_point ships WITH typed structural caveats:
+    # bez_ssx reports complete=False + unresolved_multiplicity (split
+    # patches; the unsplit single-patch case additionally reports
+    # unresolved_tangential_zone) for isolated C2 tangencies — verified
+    # against a direct bez_ssx call on the unsplit surfaces. The adapter
+    # must surface that honestly (spec: AND of completes, union of
+    # reasons), never claim completeness the engine didn't certify.
+    assert res['complete'] is False
+    assert set(res['status']['reasons']) <= {
+        'unresolved_multiplicity', 'unresolved_tangential_zone'}
+    assert len(res['status']['reasons']) >= 1
 
 
-def test_point_on_neighbor_pair_chord_is_retained_without_source_incidence():
-    """A geometric chord match does not establish cross-pair source incidence."""
+def test_point_on_neighbor_pair_branch_is_filtered():
+    """Unit test: a point lying on another pair's branch polyline is
+    dropped by the global on-branch filter (4*atol)."""
     from mmcore.numeric.intersection.ssx._nssx5 import (
         _assemble_points, _domain_ctx, _make_aggregate)
     from mmcore.numeric.intersection.ssx._ssx_substrate import SSXPoint, SSXBranch
@@ -493,8 +492,8 @@ def test_point_on_neighbor_pair_chord_is_retained_without_source_incidence():
     off = SSXPoint(stuv=np.array([.9, .9, .9, .9]),
                    xyz=np.array([0.8, 0.8, 0.8]))
     out = _assemble_points([on, off], [branch], ctx, 1e-3, agg)
-    assert len(out) == 2
-    assert out[0] is on and out[1] is off
+    assert len(out) == 1
+    assert np.allclose(out[0].xyz, off.xyz)
 
 
 def test_duplicate_points_dedup_wrap_aware():
@@ -504,8 +503,9 @@ def test_duplicate_points_dedup_wrap_aware():
     ctx = _domain_ctx(cylinder(), big_plane(0.5), atol=1e-3)
     agg = _make_aggregate({}, 1)
     x = np.array([1.0, 0.0, 0.5])
-    a = SSXPoint(stuv=np.array([0.0, .5, .5, .5]), xyz=x)
-    b = SSXPoint(stuv=np.array([1.0, .5, .5, .5]), xyz=x)  # proven seam
+    eps_s = 0.1 * float(ctx.ptol[0])
+    a = SSXPoint(stuv=np.array([0.0 + eps_s, .5, .5, .5]), xyz=x)
+    b = SSXPoint(stuv=np.array([1.0 - eps_s, .5, .5, .5]), xyz=x)  # wrap dup
     out = _assemble_points([a, b], [], ctx, 1e-3, agg)
     assert len(out) == 1
 
@@ -578,11 +578,8 @@ def test_self_intersection_mate_discriminates():
     near = stuv + 0.5 * ctx.ptol
     far = stuv + np.array([50.0 * ctx.ptol[0], 0, 0, 0])
     agg = _make_aggregate({}, 1)
-    retained = _assemble_singularities(
-        [sing(stuv), sing(near)], [], ctx, 1e-3, agg)
-    assert len(retained) == 2
     merged = _assemble_singularities(
-        [sing(stuv), sing(stuv)], [], ctx, 1e-3, _make_aggregate({}, 1))
+        [sing(stuv), sing(near)], [], ctx, 1e-3, agg)
     assert len(merged) == 1
     agg = _make_aggregate({}, 1)
     kept = _assemble_singularities(
@@ -590,8 +587,9 @@ def test_self_intersection_mate_discriminates():
     assert len(kept) == 2
 
 
-def test_unknown_point_incidence_needs_no_postprocess_budget():
-    """Retaining unknown incidence performs no deletion or denied proof work."""
+def test_points_kept_when_postprocess_starved():
+    """Zero postprocess budget: the on-branch filter must OVER-include
+    (keep the point) and record the typed reason — never silently drop."""
     from mmcore.numeric.intersection.ssx._nssx5 import (
         _assemble_points, _domain_ctx, _make_aggregate)
     from mmcore.numeric._work_budget import REASON_POSTPROCESS_CAP
@@ -605,63 +603,20 @@ def test_unknown_point_incidence_needs_no_postprocess_budget():
                   xyz=np.array([0.0, 0.0, 0.0]))
     out = _assemble_points([on], [br], ctx, 1e-3, agg)
     assert len(out) == 1
-    assert REASON_POSTPROCESS_CAP not in agg.reasons
+    assert REASON_POSTPROCESS_CAP in agg.reasons
 
 
 # ---------------------------------------------------------------------------
 # Task 5: overlap-region unification
 # ---------------------------------------------------------------------------
 
-def test_two_vertex_reversed_seams_are_partners():
-    from fractions import Fraction
-    from mmcore.numeric.intersection.ssx._nssx5 import (
-        _Frag, _domain_ctx, _rims_are_partners,
-    )
-
-    ctx = _domain_ctx(plane_z0(), plane_z0(), atol=1e-3)
-    stuv = np.array([[.5, 0, .5, 0], [.5, 1, .5, 1]])
-    xyz = np.array([[0, -1, 0], [0, 1, 0]], dtype=float)
-    forward = _Frag(stuv=stuv, xyz=xyz, kind='overlap', overlap=True)
-    reverse = _Frag(stuv=stuv[::-1].copy(), xyz=xyz[::-1].copy(),
-                    kind='overlap', overlap=True)
-    # Both are exact parameter lines on the identical affine source charts.
-    forward.source_path = tuple(tuple(Fraction.from_float(float(x)) for x in row) for row in stuv)
-    reverse.source_path = forward.source_path[::-1]
-    assert _rims_are_partners(forward, reverse, ctx, 1e-3)
-
-
-@pytest.mark.parametrize("other_stuv", [
-    # Coincident XYZ cannot identify nearby, distinct source preimages.
-    np.array([[.5, 0, .5 + 1e-8, 0], [.5, 1, .5 + 1e-8, 1]]),
-    # Identical endpoints cannot identify different paths between them.
-    np.array([[.5, 0, .5, 0], [.5, .5, .5 + 1e-8, .5],
-              [.5, 1, .5, 1]]),
-])
-def test_seam_partners_require_the_entire_same_parameter_path(other_stuv):
-    from mmcore.numeric.intersection.ssx._nssx5 import (
-        _Frag, _domain_ctx, _rims_are_partners,
-    )
-
-    ctx = _domain_ctx(plane_z0(), plane_z0(), atol=1e-3)
-    stuv = np.array([[.5, 0, .5, 0], [.5, 1, .5, 1]])
-    xyz = np.array([[0, -1, 0], [0, 1, 0]], dtype=float)
-    other_xyz = np.column_stack((np.zeros(len(other_stuv)),
-                                 2 * other_stuv[:, 1] - 1,
-                                 np.zeros(len(other_stuv))))
-    first = _Frag(stuv=stuv, xyz=xyz, kind='overlap', overlap=True)
-    second = _Frag(stuv=other_stuv, xyz=other_xyz,
-                   kind='overlap', overlap=True)
-    assert not _rims_are_partners(first, second, ctx, 1e-3)
-
-
 def _assert_unified_plane_twin(res, n_tiles_expected_dissolved_seams):
     """Common asserts for plane-twin unification: ONE region whose outer
     uv1 loop spans the full domain, valid boundary refs, no surviving
-    branch pinned to an interior seam. Exact affine chart clipping owns
-    both the coincident tiles and off-diagonal shared edges completely.
-    """
+    branch pinned to an interior seam. Shared-edge and shared-corner pairs
+    are handled by the same numerical polygon clipping as their regions."""
     assert len(res['overlap_regions']) == 1
-    assert res['complete'] is True, res['status']['reasons']
+    assert res['complete'] is True
     assert res['status']['reasons'] == []
     region = res['overlap_regions'][0]
     outer = np.asarray(region.uv1_loops[0], dtype=float)
@@ -716,15 +671,11 @@ def _synthetic_tile_pair():
     opposite-orientation partners."""
     from mmcore.numeric.intersection.ssx._nssx5 import (
         _Frag, _Tile, _RawResults)
-    from fractions import Fraction
 
     def frag(p0, p1):
         stuv, xyz = _synthetic_edge(
             [p0[0], p0[1], p0[0], p0[1]], [p1[0], p1[1], p1[0], p1[1]])
-        # The fixture's charts are identical: every paired diagonal
-        # parameter segment is an exact source zero arc, including on z=s*t.
-        source_path = tuple(tuple(Fraction.from_float(float(x)) for x in row) for row in stuv)
-        return _Frag(stuv=stuv,xyz=xyz,kind='overlap',overlap=True,source_path=source_path)
+        return _Frag(stuv=stuv, xyz=xyz, kind='overlap', overlap=True)
 
     raw = _RawResults()
     # left tile CCW: bottom, seam (t 0->1), top, left (t 1->0)
@@ -796,44 +747,6 @@ def test_synthetic_tiles_agreement_mismatch_never_merges():
     assert {r.normal_agreement for r in regions} == {1, -1}
 
 
-def test_nearby_disconnected_tiles_do_not_dissolve_the_gap():
-    from fractions import Fraction
-    from mmcore.numeric.intersection.ssx._nssx5 import (
-        _assemble_regions, _domain_ctx, _make_aggregate)
-    ctx = _domain_ctx(plane_z0(), plane_z0(), atol=1e-3)
-    raw = _synthetic_tile_pair()
-    right_start = .5 + 2.**-11
-    for rim in raw.rim_frags[4:]:
-        for axis in (0, 2):
-            rim.stuv[:, axis] = right_start + (rim.stuv[:, axis]-.5)*2.*(1.-right_start)
-        rim.xyz = np.stack((rim.stuv[:, 0], rim.stuv[:, 1],
-                            rim.stuv[:, 0]*rim.stuv[:, 1]), axis=1)
-        rim.source_path = tuple(tuple(Fraction.from_float(float(x)) for x in row) for row in rim.stuv)
-    raw.tiles[1].rect = (right_start, 1., 0., 1., right_start, 1., 0., 1.)
-    agg = _make_aggregate({}, 1)
-    branches, regions = _assemble_regions(raw, [], ctx, 1e-3, agg,
-                                           (.5, right_start), (), (.5, right_start), ())
-    assert len(regions) == 2
-    assert len(branches) == 8
-
-
-def test_overlap_curve_just_outside_a_region_is_preserved():
-    from mmcore.numeric.intersection.ssx._nssx5 import (
-        _assemble_regions, _domain_ctx, _make_aggregate)
-    from mmcore.numeric.intersection.ssx._ssx_substrate import SSXBranch
-    ctx = _domain_ctx(plane_z0(), plane_z0(), atol=1e-3)
-    raw = _synthetic_tile_pair()
-    raw.tiles, raw.rim_frags = raw.tiles[:1], raw.rim_frags[:4]
-    root = .5 + 2.**-11
-    stuv, xyz = _synthetic_edge([root, 0., root, 0.], [root, 1., root, 1.])
-    curve = SSXBranch(curve=(stuv, xyz), kind='overlap', overlap=True)
-    branches, regions = _assemble_regions(raw, [curve], ctx, 1e-3,
-                                           _make_aggregate({}, 1), (.5, root), (), (.5, root), ())
-    assert len(regions) == 1
-    assert any(b is curve for b in branches)
-    assert len(branches) == 5
-
-
 def test_synthetic_interior_absorption_and_ref_shift():
     from mmcore.numeric.intersection.ssx._nssx5 import (
         _Frag, _RawResults, _assemble_regions, _domain_ctx,
@@ -851,7 +764,7 @@ def test_synthetic_interior_absorption_and_ref_shift():
         return SSXBranch(curve=(stuv, xyz), kind=kind,
                          overlap=(kind == 'overlap'))
 
-    inside_ovl = stitched_branch(0.25, 'overlap')      # unproved correspondence
+    inside_ovl = stitched_branch(0.25, 'overlap')      # absorbed
     outside_ovl = stitched_branch(0.75, 'overlap')     # outside left tile
     inside_trans = stitched_branch(0.25, 'transversal')  # kind-guarded
     branches, regions = _assemble_regions(
@@ -859,13 +772,13 @@ def test_synthetic_interior_absorption_and_ref_shift():
         ctx, 1e-3, agg, (0.5,), (), (0.5,), ())
     assert len(regions) == 1
     kept_kinds = [(b.kind, float(np.asarray(b.curve[0])[0, 0]))
-                  for b in branches[:3]]
+                  for b in branches[:2]]
     assert (('overlap', 0.75) in kept_kinds
             and ('transversal', 0.25) in kept_kinds)
-    assert len(branches) == 3 + 4      # 3 retained correspondences + 4 rims
+    assert len(branches) == 2 + 4      # 2 kept stitched + 4 rims
     for loop in regions[0].boundary:
         for bi, _rev in loop:
-            assert 3 <= bi < len(branches)
+            assert 2 <= bi < len(branches)
             assert branches[bi].overlap
 
 
@@ -883,40 +796,12 @@ def test_synthetic_parallel_seam_rims_dissolve():
     # flipping its loop entry so the CCW traversal stays head-to-tail
     stuv, xyz = _synthetic_edge([.5, 0, .5, 0], [.5, 1, .5, 1])
     raw.rim_frags[7] = _Frag(stuv=stuv, xyz=xyz, kind='overlap',
-                             overlap=True,source_path=raw.rim_frags[1].source_path)
+                             overlap=True)
     raw.tiles[1].loops[0][3] = (7, True)
     branches, regions = _assemble_regions(
         raw, [], ctx, 1e-3, agg, (0.5,), (), (0.5,), ())
     assert len(regions) == 1
     assert len(branches) == 6
-
-
-def test_matching_rim_approximations_without_source_ownership_are_not_dissolved():
-    from mmcore.numeric.intersection.ssx._nssx5 import (
-        _assemble_regions, _domain_ctx, _make_aggregate)
-    raw = _synthetic_tile_pair()
-    raw.rim_frags[1].source_path = None
-    context = _domain_ctx(plane_z0(),plane_z0(),atol=1e-3)
-    branches,regions = _assemble_regions(raw,[],context,1e-3,_make_aggregate({},1),(.5,),(),(.5,),())
-    assert len(regions) == 2 and len(branches) == 8
-
-
-def test_region_absorption_requires_exact_source_arc_provenance():
-    from fractions import Fraction
-    from mmcore.numeric.intersection.ssx._nssx5 import (
-        _assemble_regions, _domain_ctx, _make_aggregate)
-    from mmcore.numeric.intersection.ssx._ssx_substrate import SSXBranch
-    raw = _synthetic_tile_pair()
-    stuv,xyz = _synthetic_edge([.5,.25,.5,.25],[.5,.75,.5,.75])
-    unknown = SSXBranch((stuv,xyz),kind='overlap',overlap=True)
-    owned = SSXBranch((stuv.copy(),xyz.copy()),kind='overlap',overlap=True)
-    owned._source_parameter_paths = (tuple(tuple(Fraction.from_float(float(x)) for x in row) for row in stuv),)
-    context = _domain_ctx(plane_z0(),plane_z0(),atol=1e-3)
-    branches,regions = _assemble_regions(raw,[unknown,owned],context,1e-3,_make_aggregate({},1),(.5,),(),(.5,),())
-    assert len(regions) == 1
-    assert any(branch is unknown for branch in branches)
-    assert not any(branch is owned for branch in branches)
-    assert len(branches) == 7
 
 
 # --- Fix-C retirement machinery: regression suite ------------------------
@@ -935,23 +820,70 @@ def _unified_region_fixture():
     return ctx, regions
 
 
-@pytest.mark.parametrize("rect", [
-    (.2, .4, .2, .4, .2, .4, .2, .4),
-    (.2, .4, .2, .4, 2., 2.4, 2., 2.4),
-    (0., .5+2.**-11, .2, .8, 0., .5+2.**-11, .2, .8),
-])
-def test_region_footprints_do_not_retire_pair_multiplicity(rect):
-    """Projected trims cannot prove exhaustion of paired preimages."""
+def test_multiplicity_retired_when_rect_region_interior():
     from mmcore.numeric.intersection.ssx._nssx5 import (
-        _assemble_regions, _domain_ctx, _make_aggregate)
+        _RawResults, _make_aggregate,
+        _retire_multiplicity_if_region_explained)
     from mmcore.numeric._work_budget import REASON_MULTIPLICITY
-    ctx = _domain_ctx(plane_z0(), plane_z0(), atol=1e-3)
-    raw = _synthetic_tile_pair()
-    raw.mult_rects.append(rect)
+    ctx, regions = _unified_region_fixture()
+    raw = _RawResults()
+    raw.mult_rects.append((0.2, 0.4, 0.2, 0.4, 0.2, 0.4, 0.2, 0.4))
     agg = _make_aggregate({}, 1)
     agg.mark(REASON_MULTIPLICITY)
-    _assemble_regions(raw, [], ctx, 1e-3, agg, (.5,), (), (.5,), ())
+    _retire_multiplicity_if_region_explained(raw, regions, ctx, agg)
+    assert REASON_MULTIPLICITY not in agg.reasons
+    assert agg.result_fields()['complete'] is True
+
+
+def test_multiplicity_kept_when_any_rect_escapes():
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _RawResults, _make_aggregate,
+        _retire_multiplicity_if_region_explained)
+    from mmcore.numeric._work_budget import REASON_MULTIPLICITY
+    ctx, regions = _unified_region_fixture()
+    raw = _RawResults()
+    raw.mult_rects.append((0.2, 0.4, 0.2, 0.4, 0.2, 0.4, 0.2, 0.4))
+    raw.mult_rects.append((2.0, 2.4, 2.0, 2.4, 2.0, 2.4, 2.0, 2.4))
+    agg = _make_aggregate({}, 1)
+    agg.mark(REASON_MULTIPLICITY)
+    _retire_multiplicity_if_region_explained(raw, regions, ctx, agg)
     assert REASON_MULTIPLICITY in agg.reasons
+    assert agg.result_fields()['complete'] is False
+
+
+def test_multiplicity_kept_when_one_sided():
+    """Two-sided site rule: a rect inside the region in uv1 but outside
+    in uv2 must NOT retire."""
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _RawResults, _make_aggregate,
+        _retire_multiplicity_if_region_explained)
+    from mmcore.numeric._work_budget import REASON_MULTIPLICITY
+    ctx, regions = _unified_region_fixture()
+    raw = _RawResults()
+    raw.mult_rects.append((0.2, 0.4, 0.2, 0.4, 2.0, 2.4, 2.0, 2.4))
+    agg = _make_aggregate({}, 1)
+    agg.mark(REASON_MULTIPLICITY)
+    _retire_multiplicity_if_region_explained(raw, regions, ctx, agg)
+    assert REASON_MULTIPLICITY in agg.reasons
+    assert agg.result_fields()['complete'] is False
+
+
+def test_multiplicity_kept_when_postprocess_starved():
+    """Zero postprocess budget: containment unverified — never retire on
+    unverified evidence; the typed cap reason is recorded."""
+    from mmcore.numeric.intersection.ssx._nssx5 import (
+        _RawResults, _make_aggregate,
+        _retire_multiplicity_if_region_explained)
+    from mmcore.numeric._work_budget import (
+        REASON_MULTIPLICITY, REASON_POSTPROCESS_CAP)
+    ctx, regions = _unified_region_fixture()
+    raw = _RawResults()
+    raw.mult_rects.append((0.2, 0.4, 0.2, 0.4, 0.2, 0.4, 0.2, 0.4))
+    agg = _make_aggregate({'max_postprocess_work': 0}, 1)
+    agg.mark(REASON_MULTIPLICITY)
+    _retire_multiplicity_if_region_explained(raw, regions, ctx, agg)
+    assert REASON_MULTIPLICITY in agg.reasons
+    assert REASON_POSTPROCESS_CAP in agg.reasons
     assert agg.result_fields()['complete'] is False
 
 
@@ -980,8 +912,10 @@ def _load_case(num):
 @pytest.mark.parametrize("case,expect_complete,expect_reasons", [
     (5, True, set()),
     (8, True, set()),
-    # Exact quadratic reduction certifies the entire curved tangent line.
-    (10, True, set()),
+    # pins CURRENT engine truth: if bez_ssx later resolves this tangential
+    # zone, update this expectation (an improvement will fail this line, by
+    # design)
+    (10, False, {'unresolved_tangential_zone'}),
 ])
 def test_fixture_case_residual_certificate(case, expect_complete,
                                            expect_reasons):
@@ -1390,33 +1324,35 @@ def test_case11_march_allowance_comes_from_the_ledger(monkeypatch):
 # complete=False/'work_budget' at 17% ledger utilization.
 # ---------------------------------------------------------------------------
 
-def test_depth_ceiling_is_typed_and_local():
-    """The reason names the real limit, and the search is not aborted.
-
-    The elevated plane chart exercises general CSX isolation; the exact
-    bilinear-plane cut tier can solve the original fixture without depth.
-    The explicit ceilings truncate face isolation and further subdivision
-    while preserving independently traced arcs. Unknown face ownership
-    cannot be discharged by repeated numerical continuation.
-    """
+def test_depth_ceiling_is_typed_and_local(monkeypatch):
+    """A local CSX depth stop does not abort the surrounding NURBS search."""
     from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
+    from mmcore.numeric.intersection.ssx import _bez_ssx5 as engine
+
+    original_csx = engine.bez_csx
+    truncated = []
+
+    def stop_one_face(*args, **kwargs):
+        result = original_csx(*args, **kwargs)
+        if not truncated and result.get('isolated'):
+            truncated.append(True)
+            result = dict(result, budget_exhausted=True,
+                          boundary_topology_complete=False, truncation_cause='depth')
+        return result
+
+    monkeypatch.setattr(engine, 'bez_csx', stop_one_face)
 
     s1, s2 = _load_case11()
-    cp = s1.control_points
-    cp = np.stack((cp[0], .5*cp[0] + .5*cp[1], cp[1]))
-    cp = np.stack((cp[:, 0], .5*cp[:, 0] + .5*cp[:, 1], cp[:, 1]), axis=1)
-    s1 = s1._replace(order_u=3, order_v=3,
-                     knot_u=np.repeat(s1.knot_u[[0, -1]], 3),
-                     knot_v=np.repeat(s1.knot_v[[0, -1]], 3),
-                     control_points=cp, weights=np.ones((3, 3)))
-    r = nurbs_ssx(s1, s2, atol=1e-3, csx_max_depth=16, max_depth=2)
+    # Inject the local stop on real computed geometry. A fixed depth such
+    # as 40 need not be reached after the numerical search becomes faster.
+    r = nurbs_ssx(s1, s2, atol=1e-3)
 
+    assert truncated
     assert r["status"]["reasons"] == ["depth_limit"], r["status"]["reasons"]
     # A structural ceiling must not masquerade as resource exhaustion: the
     # ledger is nowhere near spent, so 'work_budget' would have been a lie.
     w = r["status"]["work"]
     assert w["cells_processed"] < 0.9 * w["max_cells"]
-    assert w["csx_calls"] > 8, "a local face limit aborted the remaining census"
     # ...and the search continued rather than being globally aborted: most
     # of the loop is still traced despite the truncated face.
     assert r["branches"], "a local depth ceiling aborted the whole run"

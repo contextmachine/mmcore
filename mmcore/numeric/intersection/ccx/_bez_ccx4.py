@@ -1335,10 +1335,9 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
     (exact) tier cannot accept contribute net-certified minimum candidates
     ``(d_hat, eps_d, u, v)`` to the pool.  The pool is drained ONCE by the
     caller (component merge + membership), so this function never decides
-    tolerance membership on its own.  With ``tol_pool=None`` the legacy
-    exact-only behavior is preserved bit-for-bit (nested engine callers
-    consume exact boundary zeros; their own tolerance semantics are a
-    separate contract).
+    tolerance membership on its own. With ``tol_pool=None`` the caller
+    requests the separate exact-only acceptance path. CAD callers also
+    accept polished roots without an algebraic existence certificate.
     """
     from mmcore.numeric.intersection._sq_dist_classify import (
         _check_min_of_net, _check_lipschitz, _weight_max_product,
@@ -1350,6 +1349,28 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
     exhausted = False
     component_scale = _ccx_exactness_context(
         C1_orig, C2_orig, rational)
+    # A constant input curve contributes a free parameter, so its contacts
+    # cannot be isolated in the two-parameter product.  In the modeling
+    # tier, retain the ordinary point representatives and resolve the
+    # varying curve by subdivision and distance measurement.  Requiring a
+    # square root certificate here turns every valid fiber representative
+    # into a spurious resolution failure.  Test the ORIGINAL control
+    # polygon, not a small current piece: a folded nonconstant curve still
+    # needs its separate parameter preimages searched and retained.
+    constant_parameter = False
+    if tol_pool is not None:
+        for source in (C1_orig, C2_orig):
+            points = _cartesian_curve_controls_for_exactness(source, rational)
+            if (points is not None and len(points)
+                    and np.all(points == points[0])):
+                constant_parameter = True
+                break
+        # CAD contacts are validated by numerical polishing and the
+        # modeling distance test. An optional exact-root certificate is
+        # not a prerequisite for a tangential or rounded endpoint contact.
+        # Keep these obligations only for the explicitly exact-only API;
+        # cell, output and depth limits still apply to both modes.
+        unresolved_root_boxes = None
     if rational:
         left = C1_orig[:, None, :-1] * C2_orig[None, :, -1:]
         right = C2_orig[None, :, :-1] * C1_orig[:, None, -1:]
@@ -1361,6 +1382,8 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
     residual_error = residual_roundoff_bound(root_net, depth=4, source_scale=root_source)
 
     def root_neighborhood_resolved(u, v, record=True):
+        if tol_pool is not None:
+            return None, None, None
         box = unique_root_box(root_net, (u, v), (ptol_u, ptol_v), root_source)
         certificate = root_existence_certificate(
             C1_orig, C2_orig, (u, v), box, root_net, rational, root_source)
@@ -1401,8 +1424,9 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
         if box is not None:
             entry['parameter_uniqueness_box'] = box
 
-    # Known boundary roots own only proved product neighborhoods. Their
-    # first-curve parameter alone says nothing about other partner sheets.
+    # Attach optional exact-mode certificates to known boundary roots.
+    # Neither mode removes the entire first-curve parameter slab: other
+    # partner parameters can contain separate contacts.
     for entry in isolated:
         box, certificate, known = root_neighborhood_resolved(entry['u'], entry['v'], record=False)
         attach_certificate(entry, box, certificate, known)
@@ -1423,9 +1447,8 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
 
         seg1, seg2, F_cell, pw, qw, u0, u1, v0, v1, depth = stack.pop()
         #print(f"CCX: {cells} cells: {( ( u0, u1), (v0, v1), depth)}")
-        # The public modeling tier also preserves exact-root obligations.
-        # A rounded distance/derivative gate may only delete a cell after
-        # the original-source residual has excluded every exact zero.
+        # Use the unsquared source residual to guard the distance and
+        # derivative pruning against cancellation in the squared net.
         residual_cell = restrict_net_axis_v(root_net, 0, u0, u1, 0., 1.)
         residual_cell = restrict_net_axis_v(residual_cell, 1, v0, v1, 0., 1.)
         zero_free = residual_hull_excludes_zero(residual_cell, residual_error)
@@ -1666,10 +1689,12 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
                         unresolved_root_boxes[-1]['v_range'] = (v0, v1)
                         root_found = True
                         break
-                    # An unproved neighborhood remains explicitly reserved
-                    # in exact mode. With a proof, the same product cutout
-                    # applies to both new roots and known boundary roots.
-                    if box is not None or (unresolved_root_boxes is not None and tol_pool is None):
+                    # CAD mode cuts only the paired modeling neighborhood
+                    # of a polished root. Exact mode requires its optional
+                    # certificate; a constant curve keeps its free axis.
+                    if (box is not None
+                            or (tol_pool is not None and not constant_parameter)
+                            or (unresolved_root_boxes is not None and tol_pool is None)):
                         sub_cells = _cutout_2d(
                             F_cell, seg1, seg2, pw, qw, u0, u1, v0, v1, depth,
                             float(u_sol), float(v_sol), ptol_u, ptol_v, rational,
@@ -1783,9 +1808,11 @@ def bez_ccx(
     ``isolated`` entry carries ``certification`` (``'exact'`` = agreement
     inside the strict roundoff envelope; ``'tolerance'`` = a certified
     near-miss minimum) and ``d_min`` (the net-certified measured distance;
-    0.0 for exact roots).  The tag is metadata — membership never depends
-    on it.  Per component of ``{D <= atol}``: certified zeros inside →
-    exact roots only; zero-free and compact → exactly ONE contact at the
+    0.0 for numerically polished roots). The tag is metadata — membership
+    never depends on an algebraic existence proof. Numerically polished
+    roots retain distinct parameter preimages beyond the modeling radii;
+    roots inside one modeling neighborhood may share a representative.
+    Per component of ``{D <= atol}``: zero-free and compact → ONE contact at the
     certified argmin (there is no "band" outcome — a long sub-``atol``
     graze is still one tangent contact); touching a domain edge → an
     endpoint contact from the lifted Phase-1 boundary analysis;
@@ -1793,9 +1820,8 @@ def bez_ccx(
     candidate whose measurement envelope straddles the ``atol`` boundary at
     decision scale returns typed ``uncertified_contacts`` (cannot-decide,
     never a guess) with ``boundary_topology_complete=False``.
-    ``tolerance_tier=False`` restores exact-only acceptance for engine
-    callers that consume level-0 boundary zeros (the nested CSX call; its
-    own tolerance semantics are a separate ledger item).
+    ``tolerance_tier=False`` requests the separate exact-only acceptance
+    path. Nested CAD CSX calls use the default tolerance contract.
     """
     C1 = np.asarray(C1, dtype=np.float64)
     C2 = np.asarray(C2, dtype=np.float64)
@@ -1809,7 +1835,7 @@ def bez_ccx(
             "overlaps": overlaps,
             "budget_exhausted": bool(budget_exhausted),
             "cells_processed": int(cells.processed),
-            "boundary_topology_complete": bool(topology_complete),
+            "boundary_topology_complete": bool(topology_complete and not budget_exhausted),
         }
 
     if cells.remaining <= 0:
@@ -2250,6 +2276,12 @@ def bez_ccx(
             span = uncertified_span_evidence or (0.0, 1.0)
             res["uncertified_overlap_span"] = (
                 float(span[0]), float(span[1]))
+            if (cells.remaining > 0 and len(isolated) < max_results
+                    and non_affine_overlap_cells_remaining <= 0):
+                # The internal non-affine-overlap fallback ended; neither
+                # public allowance ran out. Preserve this distinction for
+                # nested CSX/SSX instead of asking callers for more work.
+                res["truncation_cause"] = "overlap"
         if tol_undecided:
             # L62 typed cannot-decide (the |coords| >~ atol/eps tail):
             # membership at these candidates is not measurable at the atol
