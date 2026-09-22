@@ -72,6 +72,12 @@ inconsistency by moving the default-mode examples into exact mode.
 
 ## Verification
 
+The subsequent case11 check replaces its fixed 32-vertex minimum with
+bidirectional coverage of the supplied Rhino reference and paired-source
+residuals. The positive-gap endpoint-touch controls retain their two analytic
+contact locations and allow completion when corner classification resolves
+their local arcs. The source fix and these checks passed 17 tests.
+
 - Isoline, matched-isoline, and probe tests: **41 passed** (3.93 seconds).
 - Initial focused public NURBS, singular, and six transformed-circle cases:
   **12 passed, 2 failed** (89.44 seconds).

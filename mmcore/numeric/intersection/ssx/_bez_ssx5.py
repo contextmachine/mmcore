@@ -5663,19 +5663,21 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
             # Both directions failed (genuine corner touch or marcher
             # failure). Surface the crossing as an isolated point instead
             # of silently dropping it.
+            clipped_corner = _clipped_corner(start_local)
             if (start_cx.multiplicity_polished
+                    and not clipped_corner
                     and work_budget is not None):
-                # High-precision polishing proves this point is a root but
-                # collapsing a CSX tolerance cluster does not prove whether
-                # a branch leaves it.  A successful strict trace above would
-                # resolve that ambiguity; a point-only fallback remains
-                # explicitly partial (positive-gap endpoint-touch control).
+                # Numerical polishing located this contact, but collapsing
+                # a CSX tolerance cluster does not establish whether
+                # a branch leaves it. A successful trace or a local corner
+                # classification resolves that question; only an unexplained
+                # point-only fallback remains partial.
                 work_budget.structural_sites.append(
                     (REASON_MULTIPLICITY,
                      np.asarray(start_cx.stuv, dtype=np.float64).copy()))
                 work_budget.mark_incomplete(REASON_MULTIPLICITY)
             points.append(SSXPoint(stuv=start_cx.stuv, xyz=start_cx.xyz))
-            if not _clipped_corner(start_local):
+            if not clipped_corner:
                 cell.trace_incomplete = True
 
     if work_budget is not None and work_budget.exhausted:

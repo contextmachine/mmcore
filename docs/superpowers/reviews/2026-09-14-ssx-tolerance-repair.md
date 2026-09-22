@@ -1,6 +1,7 @@
 # SSX tolerance repair
 
-Status: implementation and validation in progress; not yet integrated into `tiny`.
+Repair implementation for [PR #48](https://github.com/contextmachine/mmcore/pull/48).
+The PR records integration and the final GitHub validation outcome.
 
 ## September 23: case 16 and test-contract correction
 
@@ -26,7 +27,7 @@ touch-plus-ring controls also pass with the corrected CAD contact admission.
 The accompanying [test audit](2026-09-23-ssx-test-contract.md) replaces excessive
 output precision with physical-distance checks, while retaining coverage,
 paired-source geometry, and actual work-limit checks. These focused results
-do not replace the pending complete integration run.
+do not replace complete integration validation.
 
 ## Regression and responsibility
 
@@ -138,8 +139,28 @@ decreased by approximately 31–38% in that comparison.
 
 ## Validation
 
-Final full-suite results, clean Linux build results, and integration commit are
-pending. Focused results are diagnostic evidence only until those gates finish.
+The integration gates are `python -m pytest tests -m 'not slow'`, import health,
+layering, and the GitHub build matrix. The [PR checks](https://github.com/contextmachine/mmcore/pull/48/checks)
+record the final run outcomes; focused checks alone do not establish a green
+integration result.
+
+After the September 23 corrections, focused checks passed:
+
+- 260 raw CCX family tests, including both near-coincident CAD spans.
+- 24 nested CSX/SSX controls after the CCX change.
+- 28 combined real case16, nonlinear-chart, transformed-circle, and cut-face
+  controls; 19 additional contact/boundary checks.
+- 17 case11 and regular-normal/corner tests. Case11 is compared against its
+  supplied Rhino reference in both directions, replacing a fixed vertex count.
+  Its false multiplicity flag came from regular corners already classified as
+  having no arc inside the child; the classification now precedes the flag.
+- Import health: six optional dependencies allowlisted, no unexpected failures.
+  Layering: no upward import edges.
+
+The near-coincident CCX recovery supplies a whole-span distance-bounded overlap
+after the existing limited root search fails to return geometry. It retains
+partial status for unsearched tails; it does not claim that this remaining
+search cost or all difficult-case completeness limitations are solved.
 
 The first broad repair run at `9cea23c` was not green: macOS reported 6 failures
 and 1241 passes; Linux aarch64 reported 7 failures, 1239 passes, and one xpass.
@@ -148,8 +169,8 @@ exposed the cone-census scheduling defect, Linux overlap-sidedness defect,
 sheared-circle search cost, and two stale test-path/status expectations. The
 case-10 expectation now includes an independent analytic check of its entire
 curved tangential ruling; the boundary fault-injection test explicitly selects
-general continuation and verifies that its injected calls occur. The remaining
-production corrections require another complete run before integration.
+general continuation and verifies that its injected calls occur. Complete
+validation is required for the corrected implementation before integration.
 
 The local clean Linux environment is Python 3.12 on Linux aarch64, not the
 GitHub-hosted x86_64 runner. A local pass must not be described as a successful

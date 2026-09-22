@@ -239,7 +239,13 @@ def test_positive_gap_between_endpoint_touches_is_not_a_branch(h):
 
     assert result["branches"] == []
     assert len(result["points"]) == 2
-    assert result["complete"] is False
+    expected = np.array([[.5, 0., 0.], [.5, 1., 0.]])
+    found = np.asarray([point.xyz for point in result["points"]])
+    found = found[np.argsort(found[:, 1])]
+    assert np.max(np.linalg.norm(found-expected, axis=1)) <= 1e-3
+    # For h>0, (s-.5)^2+4*h*t*(1-t) vanishes only at these two
+    # boundary contacts. A regular corner classification can resolve them
+    # completely; do not require the former polishing fallback's partial flag.
 
 
 def test_zero_gap_control_remains_a_tangent_line():

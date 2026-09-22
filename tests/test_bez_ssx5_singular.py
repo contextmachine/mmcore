@@ -16,27 +16,37 @@ def test_result_has_singularities_key_and_branch_kind():
 
 
 def test_case11_default_nested_csx_budget_preserves_closed_loop():
-    """A sound global budget must not make the historical case 11 partial.
+    """The shared budget preserves the complete CAD reference loop."""
+    from examples.ssx.bez_ssx5_case11 import S1, S2, EXPECTED_BRANCH_CURVE
+    from examples.ssx.ssx5_analytic_audit import distances_to_polylines
+    from mmcore.nurbs._nurbs_eval import evaluate_nurbs_curve
 
-    One internal line/surface cut needs just over 20k CSX cells.  The former
-    per-call default stopped at 20k even though the call-wide SSX allowance
-    still had more than 200k cells available, discarded the two certified
-    cut roots, and returned zero branches flagged incomplete.
-    """
-    from examples.ssx.bez_ssx5_case11 import S1, S2
-
-    # This is deliberately tight enough that paying for a discarded 20k
-    # attempt and then restarting cannot complete, while one topology-critical
-    # CSX call with the established allowance finishes the whole SSX solve.
+    atol = 1e-3
     result = bez_ssx(
-        S1, S2, 1e-3, rational=False, max_cells=60_000)
+        S1, S2, atol, rational=False, max_cells=60_000)
 
     assert result["complete"], result["status"]
     assert len(result["branches"]) == 1, result
-    xyz = np.asarray(result["branches"][0].curve[1], dtype=float)
-    assert np.linalg.norm(xyz[0] - xyz[-1]) <= 2e-3
-    assert len(xyz) >= 32
+    branch = result["branches"][0]
+    parameters, xyz = map(np.asarray, branch.curve)
+    assert branch.closed and len(xyz) >= 3
+    assert np.linalg.norm(xyz[0] - xyz[-1]) <= 2*atol
     assert np.linalg.norm(np.diff(xyz, axis=0), axis=1).sum() > 1.0
+    # Reference sampling measures the physical loop, not the implementation's
+    # choice of output vertex count. The Rhino fit has CAD accuracy and the
+    # SSX polyline allows 2*atol chord deviation: compare with their combined
+    # 3*atol allowance in both directions, so partial loops cannot pass.
+    reference = np.array([
+        evaluate_nurbs_curve(EXPECTED_BRANCH_CURVE, float(t), d_order=0)["C"]
+        for t in np.linspace(*EXPECTED_BRANCH_CURVE.interval(), 1025)
+    ])
+    assert distances_to_polylines(reference, [xyz]).max() <= 3*atol
+    assert distances_to_polylines(xyz, [reference]).max() <= 3*atol
+    for parameter, point in zip(parameters, xyz):
+        first = eval_surface(S1, *parameter[:2], rational=False)
+        second = eval_surface(S2, *parameter[2:], rational=False)
+        assert np.linalg.norm(first-point) <= atol
+        assert np.linalg.norm(second-point) <= atol
 
 
 # ---------------------------------------------------------------------------
