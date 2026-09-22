@@ -34,6 +34,11 @@ def test_pinched_incident_branches_keep_both_sides_in_changed_charts(variant):
 
     result = bez_ssx(first, second, atol=1e-3, rational=False)
     assert 'cusp_curve' in [item.kind for item in result['singularities']]
+    # The collapsed ruling is a C1 parameter fiber. It has no surface
+    # normal and must not acquire an ordinary C2 tangent-point marker
+    # merely because a chart transpose changes derivative roundoff.
+    assert not any(item.kind == 'tangent_point'
+                   for item in result['singularities'])
     assert not {'work_budget', 'output_cap', 'depth_limit'} & set(result['status']['reasons'])
     polylines = [branch.curve[1]@rotation for branch in result['branches']]
     assert len(polylines) == 2

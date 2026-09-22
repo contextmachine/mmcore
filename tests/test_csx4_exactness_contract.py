@@ -1,7 +1,6 @@
-"""Exact-topology contracts for curve/surface intersections."""
+"""CAD contact tolerance and optional exact-mode regression contracts."""
 
 import numpy as np
-import sys
 import pytest
 
 from mmcore.numeric.intersection.csx._bez_csx4 import bez_csx
@@ -102,57 +101,73 @@ def test_exact_curved_affine_parameter_overlap_is_preserved():
     assert result["budget_exhausted"] is False
 
 
-def test_collapsed_rational_curve_requires_exact_surface_membership():
-    point = np.array([0.5, 0.5, 5e-4])
+@pytest.mark.parametrize("gap, expected", [(0., 1), (5e-4, 1), (2e-3, 0)])
+@pytest.mark.parametrize("origin", [0., 1e8])
+def test_collapsed_rational_curve_uses_cad_surface_membership(gap, expected, origin):
+    from mmcore.numeric._bezier_common import eval_curve, eval_surface
+
+    point = np.array([0.5, 0.5, origin + gap])
     curve = _homogeneous_curve([point, point], weights=[1.0, 2.0])
-    result = bez_csx(
-        curve, _homogeneous_surface(_plane()),
-        atol=1e-3, rational=True)
+    surface = _plane()
+    surface[..., 2] += origin
+    surface = _homogeneous_surface(surface)
+    result = bez_csx(curve, surface, atol=1e-3, rational=True)
 
-    assert result["parameter_fibers"] == []
-    assert result["isolated"] == []
+    assert len(result["parameter_fibers"]) == expected
+    assert result["isolated"] == [] and result["overlaps"] == []
     assert result["budget_exhausted"] is False
+    for fiber in result["parameter_fibers"]:
+        assert fiber["t_range"] == (0., 1.)
+        assert 0. <= fiber["u"] <= 1. and 0. <= fiber["v"] <= 1.
+        for t in (0., .5, 1.):
+            assert np.linalg.norm(
+                eval_curve(curve, t, rational=True)
+                - eval_surface(surface, fiber["u"], fiber["v"], rational=True)) <= 1e-3
 
-    exact = point.copy()
-    exact[2] = 0.0
-    exact_curve = _homogeneous_curve([exact, exact], weights=[1.0, 2.0])
-    exact_result = bez_csx(
-        exact_curve, _homogeneous_surface(_plane()),
-        atol=1e-3, rational=True)
-    assert len(exact_result["parameter_fibers"]) == 1
-    assert exact_result["budget_exhausted"] is False
+    strict = bez_csx(curve, surface, atol=1e-3, rational=True,
+                     tolerance_tier=False)
+    assert len(strict["parameter_fibers"]) == int(gap == 0.)
+    assert strict["isolated"] == [] and strict["overlaps"] == []
+    assert strict["budget_exhausted"] is False
 
 
-def test_exterior_boundary_root_rejection_is_translation_invariant():
-    """A large common origin must not turn an exterior root into a root."""
-    origin = 1.0e6
-    surface = np.array([
-        [[origin, 0.0, 0.0], [origin, 1.0, 0.0]],
-        [[origin + 1.0, 0.0, 0.0], [origin + 1.0, 1.0, 0.0]],
-    ])
-    # The polynomial continuation meets the plane at u=-1e-8, outside the
-    # surface domain.  On u=0 the residual remains exactly nonzero.
-    curve = np.array([
-        [origin - 1.0e-8, 0.5, -1.0],
-        [origin - 1.0e-8, 0.5, 1.0],
-    ])
+@pytest.mark.parametrize("gap, expected", [(1e-8, 1), (5e-4, 1), (2e-3, 0)])
+@pytest.mark.parametrize("origin", [0., 1e6])
+def test_exterior_boundary_contact_respects_cad_tolerance(gap, expected, origin):
+    from mmcore.numeric._bezier_common import eval_curve, eval_surface
 
+    surface = _plane()
+    surface[..., 0] += origin
+    # The exact continuation root is outside the patch. CAD keeps a
+    # contact on its edge when the actual geometric gap is within atol.
+    curve = np.array([[origin - gap, .5, -1.], [origin - gap, .5, 1.]])
     result = bez_csx(curve, surface, atol=1e-3, rational=False)
 
-    assert result["isolated"] == []
-    assert result["overlaps"] == []
+    assert len(result["isolated"]) == expected
+    assert result["overlaps"] == [] and result["parameter_fibers"] == []
     assert result["budget_exhausted"] is False
+    for root in result["isolated"]:
+        assert root["certification"] == "tolerance"
+        assert root["d_min"] <= 1e-3
+        assert all(0. <= root[p] <= 1. for p in ("t", "u", "v"))
+        assert np.linalg.norm(eval_curve(curve, root["t"], rational=False)
+                              - eval_surface(surface, root["u"], root["v"],
+                                             rational=False)) <= 1e-3
+        assert np.linalg.norm(root["point"] - [origin, .5, 0.]) <= 1e-3
+
+    strict = bez_csx(curve, surface, atol=1e-3, rational=False,
+                     tolerance_tier=False)
+    assert strict["isolated"] == [] and strict["overlaps"] == []
+    assert strict["budget_exhausted"] is False
 
 
-@pytest.mark.xfail(sys.platform == "linux", strict=False, reason=
-    "Platform sensitivity, measured on CI's first-ever suite run (2026-08-18, x86-64 linux/gcc): the certified measurement drifts 3.8e-6 under translation (tol 5e-7) while arm64 darwin/clang holds exactly. The e0ab4a0 invariance contract is FP-pipeline-dependent — derived-envelope program follow-up; needs a linux box to localize.")
 def test_translated_sub_tolerance_line_certification_is_translation_invariant():
-    """L59: certification must not use world magnitude (the CCX-L56 twin).
+    """Translation preserves CAD classification within input resolution.
 
-    The 5e-4-gap line promotes as 'tolerance' (never 'exact') with the
-    SAME residual at the origin and at 2e10 (measured identical to the
-    digit: 0.00049973); the exactly-coincident variant stays a certified
-    overlap.
+    At 2e10 one float64 ULP is about 3.8e-6, already larger than the
+    old 5e-7 residual-comparison requirement. A few input ULPs are an
+    appropriate allowance for this measurement; the public residual
+    must still remain below the unchanged 1e-3 CAD tolerance.
     """
     origin = 2.0e10
     gap = 5.0e-4
@@ -177,7 +192,10 @@ def test_translated_sub_tolerance_line_certification_is_translation_invariant():
     surface0 = surface.copy(); surface0[..., 0] -= origin
     near = bez_csx(curve0, surface0, atol=1e-3, rational=False)["overlaps"][0]
     assert near["certification"] == "tolerance"
-    assert far["residual_max"] == pytest.approx(near["residual_max"], rel=1e-3)
+    measurement_allowance = 4. * np.spacing(origin)
+    assert measurement_allowance < 0.02 * 1e-3
+    assert abs(far["residual_max"] - near["residual_max"]) <= measurement_allowance
+    assert max(far["residual_max"], near["residual_max"]) <= 1e-3
 
     exact_curve = curve.copy()
     exact_curve[:, 0] = origin
@@ -185,26 +203,6 @@ def test_translated_sub_tolerance_line_certification_is_translation_invariant():
         exact_curve, surface, atol=1e-3, rational=False)
     assert len(exact_result["overlaps"]) == 1
     assert exact_result["budget_exhausted"] is False
-
-
-def test_collapsed_fiber_identity_is_translation_invariant():
-    """A relative-to-world-origin envelope cannot type a tolerance gap."""
-    origin = 1.0e8
-    gap = 5.0e-4
-    surface_xyz = np.array([
-        [[origin, 0.0, 0.0], [origin, 1.0, 0.0]],
-        [[origin, 0.0, 1.0], [origin, 1.0, 1.0]],
-    ])
-    point = np.array([origin + gap, 0.5, 0.5])
-    curve = _homogeneous_curve([point, point], weights=[1.0, 2.0])
-
-    result = bez_csx(
-        curve, _homogeneous_surface(surface_xyz),
-        atol=1e-3, rational=True)
-
-    assert result["parameter_fibers"] == []
-    assert result["isolated"] == []
-    assert result["budget_exhausted"] is False
 
 
 def test_in_axis_drift_beyond_float_built_floor_is_not_certified():

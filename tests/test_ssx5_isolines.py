@@ -22,16 +22,30 @@ def _solve(first, second, atol=1e-3, cells=10000, outputs=100):
     return result,budget
 
 
+def _assert_paired_source_accuracy(branch, first, second, atol):
+    # The geometry contract is in model units, not parameter digits.
+    for parameters, point in zip(*branch.curve):
+        sources = [eval_surface(net, *uv, rational=True)
+                   for net, uv in ((first, parameters[:2]),
+                                   (second, parameters[2:]))]
+        assert np.linalg.norm(sources[0]-sources[1]) <= atol
+        assert all(np.linalg.norm(source-point) <= atol for source in sources)
+
+
 @pytest.mark.parametrize('degree',[2,4,8,10,12])
 def test_multiple_root_yields_one_complete_ruling(degree):
     graph=_h(np.array([[[s,j/degree,(-1.)**(degree-j)*2.**-degree]
                          for j in range(degree+1)] for s in (0.,1.)]))
-    result,budget=_solve(graph,_plane(),atol=min(1e-3,.1*2.**-degree))
+    atol = min(1e-3, .1*2.**-degree)
+    result,budget=_solve(graph,_plane(),atol=atol)
     assert result is not None and not budget.incomplete
     assert len(result['branches'])==1
     branch=result['branches'][0]
     assert branch.kind=='tangential'
-    np.testing.assert_allclose(branch.curve[1],[[0.,.5,0.],[1.,.5,0.]],atol=1e-10)
+    assert np.max(np.linalg.norm(
+        branch.curve[1][[0, -1]]-[[0., .5, 0.], [1., .5, 0.]], axis=1)) <= atol
+    assert np.max(np.linalg.norm(branch.curve[1][:, 1:]-[.5, 0.], axis=1)) <= atol
+    _assert_paired_source_accuracy(branch, graph, _plane(), atol)
 
 
 @pytest.mark.parametrize('same_image',[False,True])
@@ -50,8 +64,11 @@ def test_nonbinary_ruling_is_clipped_at_both_plane_sides():
     result,budget=_solve(graph,_plane())
     assert result is not None and not budget.incomplete
     assert len(result['branches'])==1
-    np.testing.assert_allclose(result['branches'][0].curve[1],
-                               [[0.,1/3,0.],[1.,1/3,0.]],atol=1e-11)
+    branch = result['branches'][0]
+    assert np.max(np.linalg.norm(
+        branch.curve[1][[0, -1]]-[[0., 1/3, 0.], [1., 1/3, 0.]], axis=1)) <= 1e-3
+    assert np.max(np.linalg.norm(branch.curve[1][:, 1:]-[1/3, 0.], axis=1)) <= 1e-3
+    _assert_paired_source_accuracy(branch, graph, _plane(), 1e-3)
 
 
 @pytest.mark.parametrize('swap',[False,True])
@@ -172,13 +189,15 @@ def test_public_collapsed_isoline_is_a_point_and_nearby_ruling_stays_a_curve(swa
     if width:
         assert result['points'] == []
         branch, = result['branches']
-        np.testing.assert_allclose(branch.curve[1][[0, -1]],
-                                   [[0., 0., 0.], [0., width, 0.]],
-                                   atol=1e-10, rtol=0.)
+        assert np.max(np.linalg.norm(
+            branch.curve[1][[0, -1]]-[[0., 0., 0.], [0., width, 0.]], axis=1)) <= 1e-3
+        _assert_paired_source_accuracy(branch, *map(_h, pair), 1e-3)
     else:
         assert result['branches'] == []
         point, = result['points']
-        np.testing.assert_allclose(point.xyz, np.zeros(3), atol=1e-10, rtol=0.)
+        assert np.linalg.norm(point.xyz) <= 1e-3
+        for surface, uv in ((pair[0], point.stuv[:2]), (pair[1], point.stuv[2:])):
+            assert np.linalg.norm(eval_surface(surface, *uv, rational=False)-point.xyz) <= 1e-3
         assert 'parameter_fiber' in result['status']['reasons']
         owner = 2 if swap else 0
         curves = [g for g in result['singularities']

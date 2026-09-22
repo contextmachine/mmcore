@@ -255,10 +255,11 @@ def test_float_built_quadratic_subcurve_remains_an_overlap():
         whole, part, (lo, hi), (0.0, 1.0), rational=False)
 
 
-def test_tolerant_non_affine_overlap_candidate_returns_typed_partial():
-    # L47: an overlap-class candidate the tolerance certificate cannot
-    # promote exhausts its bounded fallback and ships the TYPED span —
-    # never a bare budget flag with a complete-looking topology claim.
+def test_tolerant_fitted_overlap_retains_geometry_when_search_is_partial():
+    # Rounded fitted copies differ far below the requested CAD accuracy.
+    # A search limit may retain partial status, but cannot substitute an
+    # empty diagnostic span for the overlap geometry already established.
+    from tests.test_bez_ccx4 import _assert_cubic_cad_overlap
     first = np.array([
         [-19.77608536, 23.10065701, 0.0],
         [-14.86834768, 28.69713066, 0.0],
@@ -274,13 +275,13 @@ def test_tolerant_non_affine_overlap_candidate_returns_typed_partial():
 
     result = bez_ccx(first, second, atol=ATOL, rational=False)
 
-    assert result["overlaps"] == []
-    assert result["budget_exhausted"] is True
-    assert result["boundary_topology_complete"] is False
+    _assert_cubic_cad_overlap(result, first, second,
+                             (0., 0.827597762202295),
+                             (0.1906907548416867, 1.), ATOL)
     assert result["cells_processed"] < 5_000
-    span = result["uncertified_overlap_span"]
-    assert span[0] == pytest.approx(0.0, abs=1e-9)
-    assert span[1] == pytest.approx(0.8276, abs=5e-3)
+    if not result["boundary_topology_complete"]:
+        assert result["budget_exhausted"]
+        assert result.get("truncation_cause")
 
 
 # ---------------------------------------------------------------------------

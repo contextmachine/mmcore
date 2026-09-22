@@ -33,9 +33,12 @@ def test_curved_tangent_ruling_is_complete_in_both_parameter_charts(swap,flip,tr
     branch,=result['branches']
     assert branch.kind=='tangential'
     q,xyz=branch.curve
-    assert xyz[0,1]==0. and xyz[-1,1]==3.
+    # Endpoint coverage and curve accuracy use the requested model units.
+    assert np.max(np.linalg.norm(
+        xyz[[0, -1]]-[[.5, 0., 0.], [.5, 3., 0.]], axis=1)) <= 1e-3
     t=xyz[:,1]/3
-    np.testing.assert_allclose(xyz[:,0],.5+3*t*(1-t),atol=1e-12)
+    reference = np.column_stack((.5+3*t*(1-t), 3*t, np.zeros(len(t))))
+    assert np.max(np.linalg.norm(xyz-reference, axis=1)) <= 1e-3
     for i in range(len(q)-1):
         for fraction in np.linspace(0.,1.,9):
             parameters=(1-fraction)*q[i]+fraction*q[i+1]
@@ -52,8 +55,14 @@ def test_common_chart_survives_world_axis_mixing():
     result=try_matched_isoline_ssx(*pair,1e-3,budget)
     assert result is not None and not budget.incomplete
     assert len(result['branches'])==1
-    xyz=result['branches'][0].curve[1]@np.linalg.inv(matrix).T
-    np.testing.assert_allclose(xyz[[0,-1]],[[.5,0.,0.],[.5,3.,0.]],atol=1e-11)
+    parameters, xyz = result['branches'][0].curve
+    reference = np.array([[.5, 0., 0.], [.5, 3., 0.]])@matrix.T
+    assert np.max(np.linalg.norm(xyz[[0, -1]]-reference, axis=1)) <= 1e-3
+    for q, point in zip(parameters, xyz):
+        sources = [eval_surface(net, *uv, rational=True)
+                   for net, uv in zip(pair, (q[:2], q[2:]))]
+        assert np.linalg.norm(sources[0]-sources[1]) <= 1e-3
+        assert all(np.linalg.norm(source-point) <= 1e-3 for source in sources)
 
 
 def test_noninjective_common_projection_uses_general_search():

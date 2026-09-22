@@ -1331,6 +1331,18 @@ def _normals_degenerate_at(S1h, S2h, x4) -> bool:
     crossing is TRANSVERSAL (bilinear cone apex vs plane). A vanishing
     normal is a C1 parameterization-cusp candidate, not a C2 tangency —
     c1_pass reports it as cusp/cusp_curve with its `surface` tag."""
+    # A collapsed interior isoline is a positive-dimensional preimage of
+    # one point, just like a collapsed boundary edge. Evaluating its zero
+    # derivative can leave a roundoff-sized vector with an arbitrary
+    # direction, so a relative angle test alone can mislabel it as C2.
+    # Use the same control-polygon collapse test as the boundary-fiber path;
+    # this recognizes the C1 geometry without imposing a normal-size cutoff
+    # on otherwise regular, poorly conditioned charts.
+    for surface, parameters in ((S1h, x4[:2]), (S2h, x4[2:])):
+        for axis, value in enumerate(parameters):
+            if _curve_geometry_collapsed(
+                    _extract_isoline(surface, axis, value), rational=True):
+                return True
     _, du1, dv1 = eval_surface_d1(S1h, x4[0], x4[1], rational=True)
     _, du2, dv2 = eval_surface_d1(S2h, x4[2], x4[3], rational=True)
     n1 = float(np.linalg.norm(np.cross(du1, dv1)))
@@ -2147,18 +2159,15 @@ _MARCH_MAX_BOX_TRAVERSALS = 4.0
 _MARCH_PROGRESS_WINDOW = 32
 _MARCH_PROGRESS_RATIO = 8.0
 
-# Dimensionless factors converting a measured/estimated chord SAGITTA into
-# the slack a predicate must grant a polyline that carries it. Both exist
-# because a chord is not the curve: the marcher may leave a sagitta of up
+# Dimensionless factor converting an estimated chord SAGITTA into
+# the slack a containment predicate must grant a polyline that carries it.
+# A chord is not the curve: the marcher may leave a sagitta of up
 # to `sag_tol = 2*atol`, so any predicate measuring a chord against the
-# curve is measuring discretization and must price it. Neither is a
-# tolerance — each multiplies an operand measured from the geometry, so a
+# curve is measuring discretization and must price it. This is not a
+# tolerance — it multiplies an operand measured from the geometry, so a
 # finely sampled polyline keeps a tight bar and only a coarse one earns a
 # loose one.
 #
-# VALLEY: ratio between `res / sin_ang` at the parametric midpoint and the
-# sagitta itself; measured 1.9-4.0 on the toroidal SSI fixture.
-_VALLEY_SAGITTA_CREDIT = 4.0
 # CONTAINMENT: the duplicate test measures samples that lie ON the curve
 # against a KEEPER'S POLYLINE, so the gap it sees is the keeper's sagitta
 # (measured 9.602e-4 observed vs 9.620e-4 true — they agree). The factor
@@ -3073,35 +3082,6 @@ def _mid_chord_deviates(S1, S2, stuv_a, stuv_b, xyz_a, xyz_b, atol, sag_tol,
         return False
     tt = float(np.clip(np.dot(xm - a3, ab) / denom, 0.0, 1.0))
     return float(np.linalg.norm(a3 + tt * ab - xm)) > sag_tol
-
-
-def _mid_chord_sagitta(S1, S2, stuv_a, stuv_b, xyz_a, xyz_b, atol, rational):
-    """Measured chord sagitta, or None when the midpoint correction is
-    unreliable.
-
-    Same quantity `_mid_chord_deviates` compares against `sag_tol`, returned
-    as a number. A polyline vertex lies ON the curve; its chords do not, and
-    the marcher is explicitly ALLOWED to leave them a sagitta of up to
-    `sag_tol = 2*atol`. Any downstream predicate that measures a chord
-    against the curve is therefore measuring discretization, and must size
-    its envelope by this value rather than assume the chord is exact.
-    """
-    mid = 0.5 * (np.asarray(stuv_a, dtype=np.float64)
-                 + np.asarray(stuv_b, dtype=np.float64))
-    ms, mt, mu, mv, mres, msin = _ssx_correct(S1, S2, *mid, rational=rational)
-    # Accept-if (ledger L45): an unreliable correction measures nothing, so
-    # it earns no discretization credit — the conservative direction.
-    if not (np.isfinite(mres) and mres <= atol * max(msin, 1e-3)):
-        return None
-    xm = eval_surface(S1, ms, mt, rational=rational)
-    a3 = np.asarray(xyz_a, dtype=np.float64)
-    b3 = np.asarray(xyz_b, dtype=np.float64)
-    ab = b3 - a3
-    denom = float(np.dot(ab, ab))
-    if denom < 1e-30:
-        return None
-    tt = float(np.clip(np.dot(xm - a3, ab) / denom, 0.0, 1.0))
-    return float(np.linalg.norm(a3 + tt * ab - xm))
 
 
 def _polyline_sagitta_bound(xyz) -> float:
@@ -5100,14 +5080,15 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
             eval_bezier_surface_homog_with_derivs,
             project_surface_homog_to_cartesian,
         )
-        derivatives = []
-        for surface, parameters in ((cell.g1.surface, point[:2]),
-                                    (cell.g2.surface, point[2:])):
-            derivatives.append(project_surface_homog_to_cartesian(
-                *eval_bezier_surface_homog_with_derivs(
-                    surface, *parameters, True)))
-        _, ds, dt, dss, dst, dtt = derivatives[0]
-        _, du, dv, duu, duv, dvv = derivatives[1]
+        def evaluate(q):
+            return [project_surface_homog_to_cartesian(
+                *eval_bezier_surface_homog_with_derivs(surface, *uv, True))
+                for surface, uv in ((cell.g1.surface, q[:2]),
+                                    (cell.g2.surface, q[2:]))]
+
+        derivatives = evaluate(point)
+        p1, ds, dt, dss, dst, dtt = derivatives[0]
+        p2, du, dv, duu, duv, dvv = derivatives[1]
         jacobian = np.column_stack((ds, dt, -du, -dv))
         try:
             left_vectors, singular_values, vectors = np.linalg.svd(
@@ -5116,6 +5097,33 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
             return False
         margin = 4e-10 * singular_values[0]
         regular = bool(singular_values[-1] > margin)
+        if regular:
+            # A CSX witness can retain a small numerical residual. After
+            # mapping into a narrow child this is larger than the affine
+            # conversion roundoff used to recognize its faces. Correct a
+            # local copy before classifying tangent/curvature; enlarging
+            # the face tolerance would instead misclassify interior points.
+            correction = vectors[:3].T @ (
+                (left_vectors.T @ (p2 - p1)) / singular_values)
+            candidate = np.asarray(point) + correction
+            if (np.all(np.isfinite(candidate))
+                    and np.all((0. <= candidate) & (candidate <= 1.))):
+                updated = evaluate(candidate)
+                a, b = updated[0][0], updated[1][0]
+                if (np.linalg.norm(a - b) < np.linalg.norm(p1 - p2)
+                        and max(np.linalg.norm(a - p1),
+                                np.linalg.norm(b - p2)) <= atol):
+                    point = candidate
+                    p1, ds, dt, dss, dst, dtt = updated[0]
+                    p2, du, dv, duu, duv, dvv = updated[1]
+                    jacobian = np.column_stack((ds, dt, -du, -dv))
+                    try:
+                        left_vectors, singular_values, vectors = np.linalg.svd(
+                            jacobian, full_matrices=True)
+                    except np.linalg.LinAlgError:
+                        return False
+                    margin = 4e-10 * singular_values[0]
+                    regular = bool(singular_values[-1] > margin)
         tangent = vectors[-1]
         if not regular:
             # At an incident point of a collapsed isoline, the free fiber
@@ -6341,87 +6349,12 @@ def _assemble_fragments(
                 kept_idx.append(idx)
         branches = [branches[k] for k in sorted(kept_idx)]
 
-    # --- Drop valley-fiction branches (grazing-gap bridges) ---
-    # A march seeded at a near-touch grazing corner can exit-commit a single
-    # chord that slides along a sub-atol valley from the touch to the loop
-    # (the exit-commit gate bypasses the mid-chord check when there is no
-    # interior progress): every SAMPLE is Ψ-valid at tolerance, but the
-    # chord is not ON the intersection set. Per _ssx_correct's own contract
-    # the true-curve distance at a point is ≈ residual / sin_ang; drop a
-    # branch only when EVERY chord midpoint fails. Cheap: real branches
-    # exit at their first good chord.
-    #
-    # The bar is an ENVELOPE, not a constant. `res / sin_ang` is evaluated
-    # at the chord's PARAMETRIC midpoint, which by construction is not on
-    # the curve — it is off it by the chord's sagitta, which the marcher is
-    # allowed to grow to `sag_tol = 2*atol`. Judging it against a bare
-    # 2*atol therefore prices the verifier at exactly the producer's own
-    # allowance while measuring a quantity 1.9-4x larger, leaving NEGATIVE
-    # margin: measured on a toroidal SSI pair whose chords all cross at
-    # sin_ang = 0.9996 (~87 deg, maximally transversal — no valley at all)
-    # and whose sagittas were 0.42-0.76 of the allowance, all five chords
-    # scored 2.0-6.0e-3 against a 2.0e-3 bar and the arc was deleted. The
-    # loss was non-monotonic in atol (survives 2e-3, dies at 1e-3, survives
-    # 5e-4) and flipped under swapping the two surfaces, because which side
-    # of the knife edge a chord lands on is decided by the step sizes the
-    # adaptive marcher happens to pick.
-    #
-    # So credit each chord the discretization it actually carries. The
-    # credit is capped at the marcher's own `sag_tol` budget: a chord that
-    # exceeds its contract earns no more slack than one that honours it,
-    # and a valley bridge — whose corrected midpoint stays on the chord, so
-    # whose sagitta is ~0 — keeps the original bare 2*atol bar and is still
-    # rejected. `_VALLEY_SAGITTA_CREDIT` covers the measured 1.9-4x ratio
-    # between this estimator and the sagitta itself.
-    if S1_full is not None and branches:
-        _kept_v = []
-        for b in branches:
-            stuv_b = np.asarray(b.curve[0], dtype=np.float64)
-            xyz_b = np.asarray(b.curve[1], dtype=np.float64)
-            if len(stuv_b) < 2:
-                _kept_v.append(b)
-                continue
-            sag_tol = 2.0 * atol_full
-            all_bad = True
-            for k in range(len(stuv_b) - 1):
-                if not _assembly_spend(work_budget):
-                    # No remaining cleanup work is not evidence that a
-                    # traced branch is invalid. Keep its existing samples.
-                    all_bad = False
-                    break
-                mid = 0.5 * (stuv_b[k] + stuv_b[k + 1])
-                p1, du1, dv1 = eval_surface_d1(S1_full, mid[0], mid[1],
-                                               rational=rational_full)
-                p2, du2, dv2 = eval_surface_d1(S2_full, mid[2], mid[3],
-                                               rational=rational_full)
-                res = float(np.linalg.norm(p1 - p2))
-                N1 = np.cross(du1, dv1)
-                N2 = np.cross(du2, dv2)
-                n1 = float(np.linalg.norm(N1))
-                n2 = float(np.linalg.norm(N2))
-                sin_ang = (float(np.linalg.norm(np.cross(N1, N2))) / (n1 * n2)
-                           if n1 > 1e-30 and n2 > 1e-30 else 1.0)
-                metric = res / max(sin_ang, 1e-3)
-                if metric <= sag_tol:
-                    all_bad = False
-                    break
-                sag = _mid_chord_sagitta(
-                    S1_full, S2_full, stuv_b[k], stuv_b[k + 1],
-                    xyz_b[k], xyz_b[k + 1], atol_full, rational_full)
-                if sag is None:
-                    # A failed correction provides no distance estimate.
-                    # In particular, a stationary midpoint can lie between
-                    # two genuine nearby arcs while both are within the
-                    # chord tolerance. It cannot justify deleting a trace.
-                    all_bad = False
-                    break
-                if metric <= sag_tol + _VALLEY_SAGITTA_CREDIT * min(
-                        sag, sag_tol):
-                    all_bad = False
-                    break
-            if not all_bad:
-                _kept_v.append(b)
-        branches = _kept_v
+    # Parameter midpoints from two charts need not represent the same
+    # physical point, even along an exact straight intersection. Their
+    # residual (with or without an angle or sagitta factor) therefore
+    # cannot justify deleting an assembled branch. Chord accuracy belongs
+    # to continuation, where an excessive geometric deviation can trigger
+    # refinement rather than erase an entire component after tracing.
 
     # --- Drop short slivers that lie on top of another branch ---
     # When the fragment graph has a Y-junction (≥3 fragments meeting at the
@@ -6559,6 +6492,14 @@ _build_outer_partitions = _build_cell_partitions
 
 def _on_axis_local(global_val: float, lo: float, hi: float, tol: float = 1e-8) -> Optional[int]:
     """Return 0 if `global_val` equals `lo`, 1 if it equals `hi`, else None."""
+    if global_val == lo:
+        return 0
+    if global_val == hi:
+        return 1
+    # The two face neighborhoods must stay disjoint even after repeated
+    # subdivision; a narrow interval's upper endpoint is never its lower
+    # face merely because the global matching tolerance exceeds its width.
+    tol = min(tol, .25 * max(0., hi - lo))
     if abs(global_val - lo) < tol:
         return 0
     if abs(global_val - hi) < tol:
@@ -6591,7 +6532,7 @@ def _classify_boundary_point(point: BoundaryPoint, cell: "_Cell") -> None:
         target_value = cell.box[i][local_param]
         match = None
         for p in cell.partitions:
-            if p.axis == i and abs(p.value - target_value) < 1e-8:
+            if p.axis == i and p.value == target_value:
                 match = p
                 break
         if match is None:
@@ -6742,6 +6683,111 @@ def _split_tensor_multi(T, axis_4d, cut_values, cell_box):
     return pieces
 
 
+def _cut_face_contacts(csx_result):
+    """Point proposals, including contacts absorbed into CSX spans."""
+    yield from csx_result.get('isolated', ())
+    for overlap in csx_result.get('overlaps', ()):
+        # A range box has no paired endpoint information and cannot seed
+        # continuation. Preserve the paired contacts CSX actually found;
+        # tagged proximity contacts are refined before registration.
+        yield from overlap.get('boundary_contacts', ())
+
+
+def _query_cut_face_contacts(csx_fn, curve, surface, pieces, split_axis,
+                             local_cuts, atol, budget):
+    """Query a parent face once, refining only a locally depth-limited solve."""
+    can_refine = len(pieces) > 1
+    result = csx_fn(curve, surface, atol=atol, rational=True,
+                    defer_local_depth=can_refine)
+    _surface_cut_face_fibers(result, budget)
+    contacts = list(_cut_face_contacts(result))
+    if not (can_refine and result.get('budget_exhausted')
+            and result.get('truncation_cause') == 'depth'):
+        return contacts
+    boundaries = [0., *local_cuts, 1.]
+    for index, piece in enumerate(pieces):
+        if budget.exhausted:
+            break
+        child = csx_fn(curve, piece, atol=atol, rational=True)
+        _surface_cut_face_fibers(child, budget)
+        low, high = boundaries[index:index + 2]
+        key = 'u' if split_axis == 0 else 'v'
+        for point in _cut_face_contacts(child):
+            mapped = dict(point)
+            mapped[key] = low + float(point[key]) * (high - low)
+            contacts.append(mapped)
+    return contacts
+
+
+def _register_cut_contacts(cell, contacts, own_axis, cut_value, cut_index,
+                            other_axis, other_cuts, grid):
+    """Share each paired root across its closed incident child domains."""
+    other_start = 2 if own_axis < 2 else 0
+    free_axis = own_axis ^ 1
+    boundaries = [cell.box[other_axis][0], *other_cuts,
+                  cell.box[other_axis][1]]
+    for point in contacts:
+        if not all(np.isfinite(point[key]) and 0. <= point[key] <= 1.
+                   for key in ('t', 'u', 'v')):
+            continue
+        xyz = np.asarray(point['point'], dtype=np.float64)
+        if not np.all(np.isfinite(xyz)):
+            continue
+        stuv = np.empty(4, dtype=np.float64)
+        stuv[own_axis] = cut_value
+        for axis, key in ((free_axis, 't'), (other_start, 'u'),
+                          (other_start + 1, 'v')):
+            low, high = cell.box[axis]
+            stuv[axis] = low + float(point[key]) * (high - low)
+        local = _global_to_local(stuv, cell.box)
+        multiplicity_polished = False
+        if point.get('certification') == 'tolerance':
+            # A CAD nearest contact is a useful proposal, but its gap
+            # does not determine an SSI crossing direction. Refine on
+            # this fixed face, just as for an original domain boundary,
+            # before turning it into a continuation registration.
+            work_budget = getattr(cell, 'work_budget', None)
+            if (work_budget is not None
+                    and not work_budget.charge_cells(1, 'cut_contact_refine')):
+                break
+            raw_local = local.copy()
+            local, residual, _ = _ssx_correct_fixed(
+                cell.g1.surface, cell.g2.surface, local,
+                fixed_axis=own_axis, fixed_value=float(local[own_axis]),
+                rational=True)
+            if not (np.all(np.isfinite(local))
+                    and np.all((0. <= local) & (local <= 1.))
+                    and np.isfinite(residual)
+                    and residual <= _strict_ssx_root_tol(
+                        cell.g1.surface, cell.g2.surface, rational=True)):
+                continue
+            for axis, (low, high) in enumerate(cell.box):
+                stuv[axis] = low + float(local[axis]) * (high - low)
+            stuv[own_axis] = cut_value
+            xyz = eval_surface(cell.g1.surface, local[0], local[1],
+                               rational=True)
+            multiplicity_polished = bool(np.max(np.abs(local - raw_local))
+                                          > 64. * np.finfo(float).eps)
+        tangent, _, _ = _ssx_tangent_4d(
+            cell.g1.surface, cell.g2.surface, *local, rational=True)
+        crossing = BoundaryPoint(stuv=stuv, xyz=xyz,
+                                 face=(own_axis, -1), tangent_raw=tangent,
+                                 multiplicity_polished=multiplicity_polished)
+        for index, (low, high) in enumerate(zip(boundaries, boundaries[1:])):
+            # Share a face root across rounding differences at a common
+            # cut, without assigning a nearby exterior root to that child.
+            margin = (64. * np.finfo(float).eps
+                      * max(1., abs(low), abs(high), abs(stuv[other_axis])))
+            if not low - margin <= stuv[other_axis] <= high + margin:
+                continue
+            if own_axis < 2:
+                grid[cut_index][index].append(crossing)
+                grid[cut_index + 1][index].append(crossing)
+            else:
+                grid[index][cut_index].append(crossing)
+                grid[index][cut_index + 1].append(crossing)
+
+
 def _surface_cut_face_fibers(csx_result, work_budget):
     """Ledger L49: name positive-dimensional cut-face preimages, never drop them.
 
@@ -6760,11 +6806,11 @@ def _surface_cut_face_fibers(csx_result, work_budget):
 
 
 def _discover_c1_singularities(S1_h, S2_h, atol, ptol4, budget, existing=()):
-    """Locate parameter singularities before regular continuation spends its allowance.
+    """Locate parameter singularities within the call's remaining allowance.
 
     C1 is a property of the supplied surfaces, independent of tracing.
     Its existing shared tier runs once; publication is charged immediately
-    so a later trace or cleanup stop cannot erase already found cusps.
+    so a later cleanup stop cannot erase already found cusps.
     Branch links are attached only after branch assembly. Geometry already
     found by a reduction is retained; duplicate observations enrich those
     records before allocating any additional output item.
@@ -6853,7 +6899,7 @@ def _link_c1_and_discover_c3(S1_h_top, S2_h_top, all_branches,
                              atol, ptol4_global, budget):
     """Apply the same singularity postprocessing to every geometry path."""
     # Attach C1 links after branch filters; the singularities themselves
-    # were discovered and published before continuation began.
+    # have already been published by their discovery path.
     for singularity in c1_singularities:
         if singularity.kind != "cusp":
             continue
@@ -7213,7 +7259,8 @@ def bez_ssx(
     uncertified_overlap_spans = []
 
     def _run_csx(
-        curve, surface, *, local_truncation_is_soft=False, **kwargs,
+        curve, surface, *, local_truncation_is_soft=False,
+        defer_local_depth=False, **kwargs,
     ):
         """Bounded adapter used by every boundary and cut-face CSX call."""
         if budget.remaining_cells <= 0 or not budget.charge_csx_call():
@@ -7294,14 +7341,14 @@ def bez_ssx(
             _cause = result.get('truncation_cause')
             _structural_depth = (_cause == 'depth' and not span_only)
             if _structural_depth:
-                budget.mark_incomplete(REASON_DEPTH_LIMIT)
-                return {
-                    'isolated': [], 'overlaps': [],
-                    'parameter_fibers': [],
-                    'budget_exhausted': True,
-                    'boundary_topology_complete': False,
-                    'cells_processed': used,
-                }
+                if not defer_local_depth:
+                    budget.mark_incomplete(REASON_DEPTH_LIMIT)
+                # A parent cut can be retried on its already constructed
+                # child pieces. Keep its found roots in either case; only
+                # that parent's local depth reason is deferred, never a
+                # resource stop or an earlier unrelated reason.
+                return dict(result, boundary_topology_complete=False,
+                            cells_processed=used)
             if local_truncation_is_soft and not budget.exhausted:
                 budget.mark_incomplete(
                     REASON_OVERLAP_REGION if span_only
@@ -7518,9 +7565,6 @@ def bez_ssx(
     all_singularities: list[SSXSingularity] = []
     ptol4_global = np.maximum(np.array(
         [float(_gp_s), float(_gp_t), float(_gp_u), float(_gp_v)]), 1e-9)
-    c1_singularities = _discover_c1_singularities(
-        S1_h_top, S2_h_top, atol, ptol4_global, budget)
-    all_singularities.extend(c1_singularities)
     # A failed parent's output is provisional while descendants search the
     # same domain. Charge it when found, but publish it only if that search
     # remains partial; a completed replacement must not duplicate its prefix.
@@ -8192,114 +8236,39 @@ def bez_ssx(
             else:
                 F_sq_pieces.append([None] * (len(s2_cuts) + 1))
 
-        # --- CSX: cut_line vs each piece of the opposite surface ---
-        # Split first, then CSX. Each cut line is intersected with each
-        # piece of the opposite surface separately, so crossings are found
-        # on the refined geometry and map deterministically to sub-cells.
-        s1_other = 1 - s1_axis if s1_axis < 2 else 1 - (s1_axis - 2)
-        s1_local_axis = s1_axis if s1_axis < 2 else s1_axis - 2
-        s2_other_global = ({2: 3, 3: 2})[s2_axis]
-        s2_local_axis = s2_axis - 2
-
-        # Per-sub-cell new crossings: new_cx_grid[i1][i2] = list
-        n1 = len(g1_pieces)
-        n2 = len(g2_pieces)
+        # Query each new isoline against the opposite parent once. A local
+        # CSX depth stop falls back to the already constructed pieces.
+        n1, n2 = len(g1_pieces), len(g2_pieces)
         new_cx_grid = [[[] for _ in range(n2)] for _ in range(n1)]
-
-        # a/b: CSX(cut_line_s1, S2_piece) for each S1 cut × each S2 piece
-        for cut_idx, cv in enumerate(s1_cuts):
+        s1_local_cuts = [(value - cell.box[s1_axis][0])
+                         / (cell.box[s1_axis][1] - cell.box[s1_axis][0])
+                         for value in s1_cuts]
+        s2_local_cuts = [(value - cell.box[s2_axis][0])
+                         / (cell.box[s2_axis][1] - cell.box[s2_axis][0])
+                         for value in s2_cuts]
+        for cut_index, (value, local) in enumerate(zip(s1_cuts, s1_local_cuts)):
             if budget.exhausted:
                 break
-            s1_lo_box, s1_hi_box = cell.box[s1_axis]
-            cut_local_s1 = (cv - s1_lo_box) / (s1_hi_box - s1_lo_box)
-            isoline_s1 = _extract_isoline(cell.g1.surface, s1_local_axis, cut_local_s1)
-
-            for s2_idx in range(n2):
-                if budget.exhausted:
-                    break
-                s2_piece_surf = g2_pieces[s2_idx].surface
-                csx_r = _run_csx(
-                    isoline_s1, s2_piece_surf, atol=atol, rational=True)
-                _surface_cut_face_fibers(csx_r, budget)
-
-                s2_lo = cell.box[s2_axis][0] if s2_idx == 0 else s2_cuts[s2_idx - 1]
-                s2_hi = s2_cuts[s2_idx] if s2_idx < len(s2_cuts) else cell.box[s2_axis][1]
-                s2_other_lo, s2_other_hi = cell.box[s2_other_global]
-
-                for iso_pt in csx_r.get('isolated', []):
-                    # The cut face is closed. Its endpoint roots belong
-                    # to the adjoining children just like interior roots.
-                    if not all(np.isfinite(iso_pt[key]) and 0. <= iso_pt[key] <= 1.
-                               for key in ('t', 'u', 'v')):
-                        continue
-                    stuv = np.zeros(4, dtype=np.float64)
-                    stuv[s1_axis] = cv
-                    s1_other_lo, s1_other_hi = cell.box[s1_other]
-                    stuv[s1_other] = s1_other_lo + float(iso_pt['t']) * (s1_other_hi - s1_other_lo)
-                    if s2_local_axis == 0:
-                        stuv[s2_axis] = s2_lo + float(iso_pt['u']) * (s2_hi - s2_lo)
-                        stuv[s2_other_global] = s2_other_lo + float(iso_pt['v']) * (s2_other_hi - s2_other_lo)
-                    else:
-                        stuv[s2_other_global] = s2_other_lo + float(iso_pt['u']) * (s2_other_hi - s2_other_lo)
-                        stuv[s2_axis] = s2_lo + float(iso_pt['v']) * (s2_hi - s2_lo)
-
-                    xyz = np.asarray(iso_pt['point'], dtype=np.float64)
-                    stuv_local = _global_to_local(stuv, cell.box)
-                    tang, _, _ = _ssx_tangent_4d(
-                        cell.g1.surface, cell.g2.surface,
-                        stuv_local[0], stuv_local[1], stuv_local[2], stuv_local[3],
-                        rational=True)
-                    bp = BoundaryPoint(stuv=stuv, xyz=xyz, face=(s1_axis, -1), tangent_raw=tang)
-                    new_cx_grid[cut_idx][s2_idx].append(bp)
-                    new_cx_grid[cut_idx + 1][s2_idx].append(bp)
+            curve = _extract_isoline(cell.g1.surface, s1_axis, local)
+            contacts = _query_cut_face_contacts(
+                _run_csx, curve, cell.g2.surface,
+                [piece.surface for piece in g2_pieces], s2_axis - 2,
+                s2_local_cuts, atol, budget)
+            _register_cut_contacts(cell, contacts, s1_axis, value, cut_index,
+                                    s2_axis, s2_cuts, new_cx_grid)
 
         if budget.exhausted:
             break
-
-        # c/d: CSX(cut_line_s2, S1_piece) for each S2 cut × each S1 piece
-        for cut_idx, cv in enumerate(s2_cuts):
+        for cut_index, (value, local) in enumerate(zip(s2_cuts, s2_local_cuts)):
             if budget.exhausted:
                 break
-            s2_lo_box, s2_hi_box = cell.box[s2_axis]
-            cut_local_s2 = (cv - s2_lo_box) / (s2_hi_box - s2_lo_box)
-            isoline_s2 = _extract_isoline(cell.g2.surface, s2_local_axis, cut_local_s2)
-
-            for s1_idx in range(n1):
-                if budget.exhausted:
-                    break
-                s1_piece_surf = g1_pieces[s1_idx].surface
-                csx_r = _run_csx(
-                    isoline_s2, s1_piece_surf, atol=atol, rational=True)
-                _surface_cut_face_fibers(csx_r, budget)
-
-                s1_lo = cell.box[s1_axis][0] if s1_idx == 0 else s1_cuts[s1_idx - 1]
-                s1_hi = s1_cuts[s1_idx] if s1_idx < len(s1_cuts) else cell.box[s1_axis][1]
-                s1_other_lo, s1_other_hi = cell.box[s1_other]
-
-                for iso_pt in csx_r.get('isolated', []):
-                    if not all(np.isfinite(iso_pt[key]) and 0. <= iso_pt[key] <= 1.
-                               for key in ('t', 'u', 'v')):
-                        continue
-                    stuv = np.zeros(4, dtype=np.float64)
-                    stuv[s2_axis] = cv
-                    s2_other_lo2, s2_other_hi2 = cell.box[s2_other_global]
-                    stuv[s2_other_global] = s2_other_lo2 + float(iso_pt['t']) * (s2_other_hi2 - s2_other_lo2)
-                    if s1_local_axis == 0:
-                        stuv[s1_axis] = s1_lo + float(iso_pt['u']) * (s1_hi - s1_lo)
-                        stuv[s1_other] = s1_other_lo + float(iso_pt['v']) * (s1_other_hi - s1_other_lo)
-                    else:
-                        stuv[s1_other] = s1_other_lo + float(iso_pt['u']) * (s1_other_hi - s1_other_lo)
-                        stuv[s1_axis] = s1_lo + float(iso_pt['v']) * (s1_hi - s1_lo)
-
-                    xyz = np.asarray(iso_pt['point'], dtype=np.float64)
-                    stuv_local = _global_to_local(stuv, cell.box)
-                    tang, _, _ = _ssx_tangent_4d(
-                        cell.g1.surface, cell.g2.surface,
-                        stuv_local[0], stuv_local[1], stuv_local[2], stuv_local[3],
-                        rational=True)
-                    bp = BoundaryPoint(stuv=stuv, xyz=xyz, face=(s2_axis, -1), tangent_raw=tang)
-                    new_cx_grid[s1_idx][cut_idx].append(bp)
-                    new_cx_grid[s1_idx][cut_idx + 1].append(bp)
+            curve = _extract_isoline(cell.g2.surface, s2_axis - 2, local)
+            contacts = _query_cut_face_contacts(
+                _run_csx, curve, cell.g1.surface,
+                [piece.surface for piece in g1_pieces], s1_axis,
+                s1_local_cuts, atol, budget)
+            _register_cut_contacts(cell, contacts, s2_axis, value, cut_index,
+                                    s1_axis, s1_cuts, new_cx_grid)
 
         if budget.exhausted:
             break
@@ -8378,6 +8347,14 @@ def bez_ssx(
         for fragments, points in provisional_trace_batches:
             all_fragments.extend(fragments)
             all_points.extend(points)
+
+    # Trace the intersection geometry before the independent C1 census.
+    # A positive-dimensional singular set can consume its entire remaining
+    # allowance; it must not prevent already seeded branches from being
+    # followed. C1 output is still published before optional cleanup.
+    c1_singularities = _discover_c1_singularities(
+        S1_h_top, S2_h_top, atol, ptol4_global, budget)
+    all_singularities.extend(c1_singularities)
 
     # --- §9 assembly: chain fragments by shared BoundaryPoint endpoints ---
     # Pass the original surfaces so the assembly can march any small chain

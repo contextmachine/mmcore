@@ -572,6 +572,51 @@ def _project_point_on_curve(C, pt, rational, seed=None):
     return _invert_point_on_curve(C, pt, seed, rational)
 
 
+def _cad_affine_overlap_bound(C1, C2, u_range, v_range, rational):
+    """Bound the whole paired span's distance, including rational weights.
+
+    Both parameters vary affinely over their proposed ranges. The numerator
+    of their difference is a Bernstein curve; its control hull bounds its
+    norm, while positive weight minima bound the denominator from below.
+    This proves CAD proximity, without asserting an exact root census.
+    """
+    points = _cartesian_curve_controls_for_exactness(C1, rational)
+    if points is None:
+        return None
+    sources = []
+    for curve, parameter_range in ((C1, u_range), (C2, v_range)):
+        homogeneous, operands = _homogeneous_curve_for_identity(
+            curve, rational, points[0], with_source_scale=True)
+        if homogeneous is None:
+            return None
+        if np.all(homogeneous[:, -1] < 0.):
+            homogeneous = -homogeneous
+        if np.any(homogeneous[:, -1] <= 0.):
+            return None
+        source_size = np.max(np.abs(homogeneous[:, :-1]) + operands, axis=0)
+        weight_size = np.max(homogeneous[:, -1])
+        restricted = _restrict_curve_interval(homogeneous, *parameter_range)
+        if restricted is None:
+            return None
+        sources.append((restricted, source_size, weight_size))
+    (first, first_size, first_weight), (second, second_size, second_weight) = sources
+    w1, w2 = first[:, -1], second[:, -1]
+    denominator = np.min(w1) * np.min(w2)
+    if not np.isfinite(denominator) or denominator <= 0.:
+        return None
+    difference = np.column_stack([
+        _bernstein_product_1d(first[:, axis], w2)
+        - _bernstein_product_1d(second[:, axis], w1)
+        for axis in range(first.shape[1] - 1)])
+    # Restriction, centering and Bernstein products all use source
+    # floating data. Add their operand-sized roundoff to this upper bound.
+    operations = 32. * (len(first) + len(second)) ** 2
+    error = (operations * np.finfo(float).eps
+             * (first_size * second_weight + second_size * first_weight))
+    bound = np.max(np.linalg.norm(np.abs(difference) + error, axis=1)) / denominator
+    return float(bound) if np.isfinite(bound) else None
+
+
 def _tolerance_overlap_certificate(C1, C2, atol, rational, ptol_u, ptol_v,
                                    n_samples=65):
     """L47 residual-certified overlap tier (user decision 2026-07-12).
@@ -1349,6 +1394,19 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
     exhausted = False
     component_scale = _ccx_exactness_context(
         C1_orig, C2_orig, rational)
+    # Sibling cells repeatedly propose the same dyadic corners. Polishing
+    # depends only on that exact parameter pair and these original curves,
+    # not on the cell or the roots found so far. Reuse both successes and
+    # failures within this search; keep memory bounded independently of
+    # max_cells. Eviction changes cost only, never a geometric decision.
+    from functools import lru_cache
+
+    @lru_cache(maxsize=256)
+    def polish_seed(u, v):
+        return _strict_polish_ccx(
+            C1_orig, C2_orig, u, v, rational,
+            component_scale=component_scale, require_newton=True)
+
     # A constant input curve contributes a free parameter, so its contacts
     # cannot be isolated in the two-parameter product.  In the modeling
     # tier, retain the ordinary point representatives and resolve the
@@ -1574,9 +1632,7 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
             v_mid = 0.5 * (v0 + v1)
             polished = None
             if not zero_free:
-                polished = _strict_polish_ccx(
-                    C1_orig, C2_orig, u_mid, v_mid, rational,
-                    component_scale=component_scale, require_newton=True)
+                polished = polish_seed(u_mid, v_mid)
             if polished is not None:
                 u_sol, v_sol, pt = polished
                 box, certificate, known = root_neighborhood_resolved(u_sol, v_sol)
@@ -1661,9 +1717,7 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
             for u_mid, v_mid in uv_candidates:
                 if root_found:
                     break
-                polished = _strict_polish_ccx(
-                    C1_orig, C2_orig, u_mid, v_mid, rational,
-                    component_scale=component_scale, require_newton=True)
+                polished = polish_seed(u_mid, v_mid)
                 if polished is not None:
                     u_sol, v_sol, pt = polished
                 else:
@@ -2209,6 +2263,37 @@ def bez_ccx(
         return accepted, undecided
 
     def _finalize(topology_complete=True):
+        # Fitting-noise crossings can defeat isolated-root polishing even
+        # though a whole paired span follows the same CAD geometry. Give
+        # the ordinary bounded root search its full chance first: actual
+        # isolated crossings must remain available to nested CSX callers.
+        # If it found none, a control-hull distance bound can still preserve
+        # useful overlap geometry. The search's partial status is retained;
+        # unvisited complementary spans are not declared empty.
+        if (tolerance_tier and non_affine_overlap_fallback
+                and budget_exhausted and not isolated and not overlaps
+                and non_affine_overlap_cells_remaining <= 0
+                and int(max_results) > 0):
+            pairs = [(a, b) for i, a in enumerate(band_anchors)
+                     for b in band_anchors[i + 1:]]
+            pairs.sort(key=lambda pair: -abs(pair[1][0] - pair[0][0]))
+            n, m = len(C1_orig), len(C2_orig)
+            bound_work = max(1, (3 * n * m + n * n + m * m + 127) // 128)
+            for (ua, va), (ub, vb) in pairs:
+                if cells.remaining < bound_work:
+                    break
+                cells.spend(bound_work)
+                distance_bound = _cad_affine_overlap_bound(
+                    C1_orig, C2_orig, (ua, ub), (va, vb), rational)
+                if distance_bound is not None and distance_bound <= atol:
+                    overlaps.append({
+                        'boundary_zeros': [], 'overlap_endpoints': [],
+                        'u_range': (float(ua), float(ub)),
+                        'v_range': (float(va), float(vb)),
+                        'certification': 'tolerance',
+                        'residual_max': distance_bound,
+                    })
+                    break
         # A singular curve/line root need not admit a square Jacobian
         # certificate. Its exact GCD/Sturm census can resolve those root
         # obligations independently of the completed modeling search.

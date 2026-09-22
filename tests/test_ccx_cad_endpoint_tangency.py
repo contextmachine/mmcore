@@ -33,18 +33,26 @@ def test_surface_endpoint_tangency_uses_the_same_cad_contract():
                    entry['t_range'][1] == 1. for entry in result['overlaps'])
 
 
-@pytest.mark.parametrize('gap', [2.**-12, 2.**-16, 2.**-20])
+@pytest.mark.parametrize('gap', [2.**-7, 2.**-9, 2.**-11])
 def test_metric_separated_close_parameter_roots_remain_distinct(gap):
-    scale = 1e10
+    # A CAD-sized domain with parameter-near but spatially separated roots.
+    # Dyadic data keeps the stated analytic roots faithful to the actual
+    # float control net. The old 1e10 fixture's rounded coefficients moved
+    # its intended roots by up to .12 model units at an atol of .001.
+    # Even the closest pair here has a valley deeper than atol, so these
+    # are two contacts, not one connected tolerance-coincidence span.
+    scale = 2.**14
+    atol = 1e-3
     first = np.array([[0., 0., 0.], [.5*scale, 0., 0.], [scale, 0., 0.]])
     low, high = .5-gap, .5+gap
     second = first.copy()
     second[:, 1] = scale*np.array([low*high, low*high-(low+high)/2,
                                    (1-low)*(1-high)])
-    result = bez_ccx(first, second, atol=1e-3, rational=False, max_cells=2000)
+    assert scale*gap*gap > atol
+    result = bez_ccx(first, second, atol=atol, rational=False)
     assert len(result['isolated']) == 2, result
     roots = sorted(entry['u'] for entry in result['isolated'])
-    assert np.allclose(roots, [low, high], atol=1e-9, rtol=0)
+    assert np.max(np.abs(np.asarray(roots)-[low, high])*scale) <= atol
     assert np.linalg.norm(result['isolated'][0]['point']-
                           result['isolated'][1]['point']) > 1e-3
     for root in result['isolated']:

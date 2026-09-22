@@ -2,6 +2,32 @@
 
 Status: implementation and validation in progress; not yet integrated into `tiny`.
 
+## September 23: case 16 and test-contract correction
+
+The user's new `case16.py` cases were compared using the same Python environment,
+native extensions, and committed `_case16_data.py`. Local `tiny` returned the
+whole curve for all five pairs. The repair initially lost 725–925 model units
+from one end while reporting a complete result.
+
+The loss happened inside Bézier assembly, before NURBS stitching. A cleanup
+filter compared the two surface evaluations at interpolated parameter midpoints
+and treated their residual as distance from the intersection. This is not a
+geometric chord-error measure: different surface charts need not interpolate
+corresponding physical points. It deleted correctly traced fragments, including
+ordinary transverse intersections. The filter and its empirical sagitta-credit
+constant are removed. Geometry must be refined during tracing; deleting the
+whole recovered component cannot repair an inaccurate chord.
+
+All five real cases now pass endpoint and original-source residual checks at
+`1e-3`. Twelve independent straight-intersection cases with nonlinear parameter
+correspondence reproduce the old deletion and pass after removal. The original
+touch-plus-ring controls also pass with the corrected CAD contact admission.
+
+The accompanying [test audit](2026-09-23-ssx-test-contract.md) replaces excessive
+output precision with physical-distance checks, while retaining coverage,
+paired-source geometry, and actual work-limit checks. These focused results
+do not replace the pending complete integration run.
+
 ## Regression and responsibility
 
 The working reference is `76735f9fc11a5e8149fb60d171f46cacd0ff4ec9`.
@@ -51,6 +77,13 @@ algebraic policy:
 - Default CAD CCX/CSX no longer wait for optional exact-root certificates.
   Constant curves and collapsed target isolines no longer fill the root list
   with duplicate representatives of one geometric contact.
+- General continuation runs before the independent parameter-singularity
+  census, so an extended singular set cannot consume all remaining work before
+  an already seeded intersection branch is traced.
+- CSX overlap sidedness tests the signed normal gap itself. Tangential
+  projection error no longer turns normal rounding noise into a false crossing.
+- Validated point contacts absorbed into a CSX overlap remain available to
+  internal SSX cut faces, with their paired parameters intact.
 
 ## Test contract
 
@@ -95,10 +128,28 @@ The endpoint-CSX example also does more work after repair because it now
 continues past the former early stop. Source hashes and call/cell measurements
 are recorded by the benchmark scripts; elapsed times depend on the machine.
 
+A separate CCX cost was repeated polishing of identical subdivision-corner
+starts against unchanged original curves. A bounded cache local to each search
+reuses those calculations without changing tolerances, cell traversal, or
+results. Four captured cut-face queries produced byte-identical serialized
+results and identical cell counts with caching enabled and disabled. Their
+polish counts changed from 353/853/1391/1390 to 179/422/683/682; elapsed time
+decreased by approximately 31–38% in that comparison.
+
 ## Validation
 
 Final full-suite results, clean Linux build results, and integration commit are
 pending. Focused results are diagnostic evidence only until those gates finish.
+
+The first broad repair run at `9cea23c` was not green: macOS reported 6 failures
+and 1241 passes; Linux aarch64 reported 7 failures, 1239 passes, and one xpass.
+The original reported singular/overlap regressions passed. These broader runs
+exposed the cone-census scheduling defect, Linux overlap-sidedness defect,
+sheared-circle search cost, and two stale test-path/status expectations. The
+case-10 expectation now includes an independent analytic check of its entire
+curved tangential ruling; the boundary fault-injection test explicitly selects
+general continuation and verifies that its injected calls occur. The remaining
+production corrections require another complete run before integration.
 
 The local clean Linux environment is Python 3.12 on Linux aarch64, not the
 GitHub-hosted x86_64 runner. A local pass must not be described as a successful

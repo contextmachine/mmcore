@@ -868,15 +868,20 @@ def _tolerance_csx_overlap_certificate(C, S, atol, rational, ptol_t,
             return (min(u, 1.0 - u) <= 1e-6 or min(v, 1.0 - v) <= 1e-6)
         if not (_pinned(t_lo, -1.0) and _pinned(t_hi, +1.0)):
             continue
-        # (3) flip guard on the gap samples INSIDE the span: root-like
-        # samples (res <= tiny) are bridged; consecutive gap samples with
+        # (3) flip guard on the normal gaps INSIDE the span: root-like
+        # samples (abs(signed) <= tiny) are bridged; consecutive gap samples with
         # opposite normal-side signs = crossing structure -> refuse.
         # END-ADJACENT flips are exempt: a genuine touch AT a pinned span
         # end (real-world-inexact data sits above the roundoff floor, so
         # bridging cannot cover it) is the span's own endpoint root — the
         # theorem terminates the overlap there anyway. INTERIOR flips
         # still refuse (the never-merge-crossings invariant).
-        idx = [k for k in range(k0, k1 + 1) if res[k] > tiny]
+        # A stopped projection can retain a tangential residual larger
+        # than this floor even on a planar overlap. Its normal component
+        # can still be pure rounding noise, so the total distance must
+        # not make that component's sign meaningful (or BLAS rounding
+        # alone can reject a full overlap).
+        idx = [k for k in range(k0, k1 + 1) if abs(signed[k]) > tiny]
         flip = any(signed[a] * signed[b] < 0.0
                    for a, b in zip(idx, idx[1:])
                    if a != k0 and b != k1)
@@ -1248,12 +1253,17 @@ def _project_point_on_surface(pt, S, u_seed, v_seed, atol, rational, max_it=20):
 
 
 def _collapsed_point_surface_membership(
-    C, S, t, u, v, atol, rational, strict_context,
+    C, S, t, u, v, atol, rational, strict_context, *, tolerance_tier=False,
 ):
-    """Certify one representative of a collapsed curve parameter fiber.
+    """Validate one representative of a collapsed curve parameter fiber.
 
-    General CSX roots and overlaps use the roundoff-scale certificate in
-    :func:`_strict_csx_residual_ok`.  Collapsed fibers need one additional,
+    The modeling tier uses the same geometric tolerance as an ordinary
+    curve/surface contact. The curve is identically a point, so every
+    curve parameter represents that contact; no surface neighborhood is
+    inferred from the tolerance.
+
+    The optional exact-only tier uses the roundoff-scale certificate in
+    :func:`_strict_csx_residual_ok`. Collapsed fibers retain its additional,
     deliberately narrower notion of numerical identity: independently
     rounded CAD parameterizations can describe the same singular point with
     a few ulps of the *source decimal data* between them (case 14's two
@@ -1267,6 +1277,11 @@ def _collapsed_point_surface_membership(
     point = eval_curve(C, float(t), rational=rational)
     u, v, _dist = _project_point_on_surface(
         point, S, u, v, atol, rational, max_it=64)
+    if tolerance_tier:
+        residual = point - eval_surface(S, u, v, rational=rational)
+        return (bool(np.all(np.isfinite(residual))
+                     and np.linalg.norm(residual) <= atol),
+                float(u), float(v), residual)
     strict, residual = _strict_csx_residual_ok(
         C, S, t, u, v, rational, strict_context)
     if strict:
@@ -2151,7 +2166,7 @@ def bez_csx(
         result. Positive-dimensional sets must be classified separately;
         this cap prevents an unrecognized set from turning dedup quadratic.
     tolerance_tier : bool
-        Allow residual-certified curve/surface overlaps within ``atol``.
+        Allow curve/surface contacts and overlaps within ``atol``.
         This modeling mode may merge isolated events at its parameter
         resolution; complete status is not an exhaustive exact-root census.
         Set False when a caller needs only exact intersection topology;
@@ -2282,11 +2297,11 @@ def bez_csx(
             kind = entity.get("kind", "min")
             if kind == "degenerate_surface":
                 if surface_collapsed:
-                    exact_member, u_member, v_member, _ = (
+                    member, u_member, v_member, _ = (
                         _collapsed_point_surface_membership(
                             C, S, 0.5, 0.5, 0.5, atol, rational,
-                            strict_root_tol))
-                    if not exact_member:
+                            strict_root_tol, tolerance_tier=tolerance_tier))
+                    if not member:
                         continue
                     if not _append_fiber({
                         "t_range": (0.0, 1.0),
@@ -2309,11 +2324,11 @@ def bez_csx(
                 continue
             u_entity = float(entity.get("u", 0.5))
             v_entity = float(entity.get("v", 0.5))
-            exact_member, u_entity, v_entity, _ = (
+            member, u_entity, v_entity, _ = (
                 _collapsed_point_surface_membership(
                     C, S, 0.5, u_entity, v_entity, atol, rational,
-                    strict_root_tol))
-            if not exact_member:
+                    strict_root_tol, tolerance_tier=tolerance_tier))
+            if not member:
                 continue
             if not _append_fiber({
                 "t_range": (0.0, 1.0),
@@ -2393,6 +2408,27 @@ def bez_csx(
         csx_boundary_zeros = []
 
     t_exclude = []  # t-intervals to cut from the curve
+
+    def _absorb_boundary_contacts(overlap, low, high):
+        # A tolerance span can surround an isolated boundary contact.
+        # Keep its already-polished parameters for consumers such as SSX
+        # cut faces, which need that contact even when CSX represents the
+        # surrounding tolerance neighborhood as an overlap. These entries
+        # were admitted under max_results; no new roots are generated here.
+        nonlocal isolated
+        contacts, remaining = [], []
+        for entry in isolated:
+            if low <= entry['t'] <= high:
+                contacts.append({key: entry[key]
+                                 for key in ('t', 'u', 'v', 'point',
+                                             'certification', 'd_min')
+                                 if key in entry})
+            else:
+                remaining.append(entry)
+        if contacts:
+            overlap['boundary_contacts'] = contacts
+        isolated = remaining
+
     exact_topology = not tolerance_tier
     source_scale = _csx_residual_source_scale(C, S, rational)
     search_unresolved_boxes = list(boundary_diagnostics.get('unresolved_parameter_boxes', []))
@@ -2412,6 +2448,7 @@ def bez_csx(
             truncation_cause = truncation_cause or 'results'
             break
         t_bz, u_bz, v_bz = _boundary_zero_to_tuv(bz, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0)
+        tolerance_contact = False
         boundary_proof = getattr(bz, '_root_proof', None) if exact_topology else None
         if boundary_proof is not None:
             t_r, u_r, v_r = boundary_proof['parameters']
@@ -2420,6 +2457,19 @@ def bez_csx(
             t_r, u_r, v_r, G_r, root_ok = _polish_csx_boundary_root(
                 C, S, bz, t_bz, u_bz, v_bz, rational,
                 strict_root_tol)
+            if tolerance_tier and not root_ok:
+                # A face-constrained closest contact is valid CAD
+                # geometry even when its exact continuation root lies
+                # just outside the patch. Keep the bounded parameters;
+                # an isolated contact alone does not imply an overlap.
+                residual = (eval_curve(C, t_r, rational=rational)
+                            - eval_surface(S, u_r, v_r, rational=rational))
+                root_ok = bool(
+                    np.all(np.isfinite([t_r, u_r, v_r]))
+                    and all(0. <= p <= 1. for p in (t_r, u_r, v_r))
+                    and np.all(np.isfinite(residual))
+                    and np.linalg.norm(residual) <= atol)
+                tolerance_contact = root_ok
 
         if root_ok:
             pt_r = (boundary_proof['point'] if boundary_proof is not None else
@@ -2430,6 +2480,12 @@ def bez_csx(
                     "t": float(t_r), "u": float(u_r), "v": float(v_r),
                     "point": pt_r,
                 }
+                if tolerance_contact:
+                    # Downstream continuation must distinguish a nearest
+                    # CAD contact from an equation root: the former alone
+                    # does not establish a transversal crossing direction.
+                    entry['certification'] = 'tolerance'
+                    entry['d_min'] = float(np.linalg.norm(residual))
                 if exact_topology:
                     if boundary_proof is not None:
                         entry['_boundary_root_proof'] = boundary_proof
@@ -2524,9 +2580,8 @@ def bez_csx(
                      t_hi_ovl + (0. if exact_topology else ptol_t)))
                 # Remove isolated points inside the certified overlap.
                 padding = 0. if exact_topology else atol
-                isolated = [iso for iso in isolated
-                            if not (t_lo_ovl - padding
-                                    <= iso["t"] <= t_hi_ovl + padding)]
+                _absorb_boundary_contacts(
+                    overlaps[-1], t_lo_ovl - padding, t_hi_ovl + padding)
             elif root_a and root_b:
                 # Ledger L42: a valley-confirmed pair whose affine identity
                 # cannot be certified is either a curved-UV EXACT overlap
@@ -2604,9 +2659,7 @@ def bez_csx(
                     overlaps.append(_o)
                     _t_lo, _t_hi = _o["t_range"]
                     t_exclude.append((_t_lo - ptol_t, _t_hi + ptol_t))
-                    isolated = [iso for iso in isolated
-                                if not (_t_lo - atol
-                                        <= iso["t"] <= _t_hi + atol)]
+                    _absorb_boundary_contacts(_o, _t_lo - atol, _t_hi + atol)
                 # the span(s) are certified: the L42 uncertified-span
                 # fallback no longer applies to them.
                 non_affine_overlap_span = None

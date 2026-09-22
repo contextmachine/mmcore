@@ -47,8 +47,9 @@ def test_near_unit_weight_valley_is_excluded_without_probe_queue_explosion(swap,
         second = to_homogeneous_2d(plane, np.ones((2, 2)))
     if swap:
         first, second = second, first
-    result = (nurbs_ssx(first, second, atol=1e-5, max_cells=15000) if adapter
-              else bez_ssx(first, second, atol=1e-5, rational=True, max_cells=15000))
+    atol = 1e-5
+    result = (nurbs_ssx(first, second, atol=atol, max_cells=15000) if adapter
+              else bez_ssx(first, second, atol=atol, rational=True, max_cells=15000))
     assert result["complete"], result["status"]
     assert len(result["branches"]) == 2
     assert not result["singularities"]
@@ -57,7 +58,21 @@ def test_near_unit_weight_valley_is_excluded_without_probe_queue_explosion(swap,
     positions = []
     for branch in result["branches"]:
         xyz = np.asarray(branch.curve[1])
-        assert np.ptp(xyz[:, 0]) < 1e-9
-        assert np.ptp(xyz[:, 1]) == 2.
+        # Measure line coverage in world coordinates at the requested atol.
+        # The two roots remain over 300 tolerances apart.
+        assert np.ptp(xyz[:, 0]) <= atol
+        np.testing.assert_allclose(np.sort(xyz[[0, -1], 1]), [-1., 1.], atol=atol, rtol=0.)
+        assert np.max(np.abs(xyz[:, 2])) <= atol
+        for q, point in zip(branch.curve[0], xyz):
+            if adapter:
+                from mmcore.nurbs._nurbs_eval import evaluate_nurbs_surface
+                sources = [evaluate_nurbs_surface(net, *uv)['S']
+                           for net, uv in ((first, q[:2]), (second, q[2:]))]
+            else:
+                from mmcore.numeric._bezier_common import eval_surface
+                sources = [eval_surface(net, *uv, rational=True)
+                           for net, uv in ((first, q[:2]), (second, q[2:]))]
+            assert np.linalg.norm(sources[0]-sources[1]) <= atol
+            assert all(np.linalg.norm(source-point) <= atol for source in sources)
         positions.append(float(xyz[:, 0].mean()))
-    np.testing.assert_allclose(sorted(positions), [-expected, expected], atol=1e-9, rtol=0.)
+    np.testing.assert_allclose(sorted(positions), [-expected, expected], atol=atol, rtol=0.)

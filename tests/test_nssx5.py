@@ -319,9 +319,8 @@ def test_multispan_crossing_stitches_to_one_branch():
     # continuity: no vertex gap wildly above the largest in-fragment step
     gaps = np.linalg.norm(np.diff(xyz, axis=0), axis=1)
     assert gaps.max() <= 10 * np.median(gaps) + 1e-12
-    # full extent: line x=0,z=0 runs y in [-1,1] -> t from 0 to 1
-    ts = stuv[:, 1]
-    assert ts.min() <= 1e-6 and ts.max() >= 1 - 1e-6
+    # Full extent is a model-space requirement, not six parameter digits.
+    np.testing.assert_allclose(np.sort(xyz[[0, -1], 1]), [-1., 1.], atol=1e-3, rtol=0.)
     # geometry: on both planes
     assert np.abs(xyz[:, 0]).max() <= 2e-3
     assert np.abs(xyz[:, 2]).max() <= 2e-3
@@ -462,17 +461,10 @@ def test_seam_straddling_tangency_dedups_to_one():
     tp = tps[0]
     assert np.linalg.norm(np.asarray(tp.xyz) - np.zeros(3)) <= 5e-3
     assert abs(tp.stuv[0] - 0.5) <= 0.05 and abs(tp.stuv[1] - 0.5) <= 0.05
-    # The certified tangent_point ships WITH typed structural caveats:
-    # bez_ssx reports complete=False + unresolved_multiplicity (split
-    # patches; the unsplit single-patch case additionally reports
-    # unresolved_tangential_zone) for isolated C2 tangencies — verified
-    # against a direct bez_ssx call on the unsplit surfaces. The adapter
-    # must surface that honestly (spec: AND of completes, union of
-    # reasons), never claim completeness the engine didn't certify.
-    assert res['complete'] is False
-    assert set(res['status']['reasons']) <= {
-        'unresolved_multiplicity', 'unresolved_tangential_zone'}
-    assert len(res['status']['reasons']) >= 1
+    # A solver improvement may finish this geometry. Partial child-status
+    # propagation is tested separately with forced failures; this case must
+    # not require an old search limitation to remain in the public result.
+    assert res['complete'] == (not res['status']['reasons'])
 
 
 def test_point_on_neighbor_pair_branch_is_filtered():
@@ -912,10 +904,9 @@ def _load_case(num):
 @pytest.mark.parametrize("case,expect_complete,expect_reasons", [
     (5, True, set()),
     (8, True, set()),
-    # pins CURRENT engine truth: if bez_ssx later resolves this tangential
-    # zone, update this expectation (an improvement will fail this line, by
-    # design)
-    (10, False, {'unresolved_tangential_zone'}),
+    # The common projected chart reduces this contact to its full s=u=.5
+    # isoline; the analytic coverage check below verifies that resolution.
+    (10, True, set()),
 ])
 def test_fixture_case_residual_certificate(case, expect_complete,
                                            expect_reasons):
@@ -931,8 +922,8 @@ def test_fixture_case_residual_certificate(case, expect_complete,
     coverage runs in examples/ssx/nurbs_ssx5_coverage_check.py (Task 7)
     against an isoline x nurbs_csx reference cloud.
 
-    Case 10 is a genuine tangential contact (s1 has z>=5, s2 has z<=5,
-    touching at z=5): typed-partial per established engine truth.
+    Case 10 has a common injective XY chart and height difference
+    40*(s-.5)**2. Its complete contact is the curved s=u=.5 ruling.
     """
     from mmcore.numeric.intersection.ssx._nssx5 import nurbs_ssx
     atol = 1e-3
@@ -941,6 +932,25 @@ def test_fixture_case_residual_certificate(case, expect_complete,
     assert res['branches'], f"case {case}: no branches"
     assert res['complete'] is expect_complete, res['status']['reasons']
     assert set(res['status']['reasons']) == expect_reasons
+    if case == 10:
+        branch, = res['branches']
+        assert branch.kind == 'tangential' and not branch.closed
+        xyz = np.asarray(branch.curve[1])
+        # The common contact is x=5+15*t*(1-t), y=15*t, z=5.
+        # Check its physical location rather than extra parameter digits.
+        sample_t = xyz[:, 1]/15.
+        contact = np.column_stack((5.+15.*sample_t*(1.-sample_t),
+                                   xyz[:, 1], np.full(len(xyz), 5.)))
+        assert np.max(np.linalg.norm(xyz-contact, axis=1)) <= atol
+        np.testing.assert_allclose(np.sort(xyz[[0, -1], 1]), [0., 15.], atol=atol, rtol=0.)
+        t = np.linspace(0., 1., 101)
+        reference = np.column_stack([5.+15.*t*(1.-t), 15.*t, np.full_like(t, 5.)])
+        delta = np.diff(xyz, axis=0)
+        offsets = reference[:, None, :]-xyz[None, :-1, :]
+        fraction = np.clip(np.einsum('ijk,jk->ij', offsets, delta)
+                           / np.einsum('ij,ij->i', delta, delta), 0., 1.)
+        distance = np.linalg.norm(offsets-fraction[..., None]*delta, axis=-1)
+        assert np.max(np.min(distance, axis=1)) <= atol
     for b in res['branches']:
         stuv = np.asarray(b.curve[0], dtype=float)
         xyz = np.asarray(b.curve[1], dtype=float)
@@ -1083,8 +1093,13 @@ def test_boundary_coincidence_two_edge_branches():
     for b in res["branches"]:
         xyz = np.asarray(b.curve[1], dtype=float)
         assert len(xyz) >= 2, b.kind
-        # The whole locus is the z=0 plane.
-        assert np.max(np.abs(xyz[:, 2])) <= 1e-6, np.max(np.abs(xyz[:, 2]))
+        # The whole locus is the z=0 plane, at the requested model tolerance.
+        assert np.max(np.abs(xyz[:, 2])) <= 1e-3, np.max(np.abs(xyz[:, 2]))
+        for q, point in zip(b.curve[0], xyz):
+            sources = [evaluate_nurbs_surface(surface, *uv)['S']
+                       for surface, uv in ((s1, q[:2]), (s2, q[2:]))]
+            assert np.linalg.norm(sources[0]-sources[1]) <= 1e-3
+            assert all(np.linalg.norm(source-point) <= 1e-3 for source in sources)
         got.append(xyz)
 
     # Match each analytic segment to one branch by endpoint proximity, then
