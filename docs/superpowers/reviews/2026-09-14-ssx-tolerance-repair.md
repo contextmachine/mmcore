@@ -29,6 +29,37 @@ output precision with physical-distance checks, while retaining coverage,
 paired-source geometry, and actual work-limit checks. These focused results
 do not replace complete integration validation.
 
+## Tangent components and the remaining domain
+
+An independent polynomial family exposed another real loss after the earlier
+integration run was green: a tangent line through the cell center caused a
+disjoint ordinary circle to disappear. The tangency arm traced the line,
+searched only for other tangencies, and then discarded the whole cell. A
+regular loop does not belong to that tangency system, so this exit could never
+find it. The same defect also lost two separate regular loops.
+
+Finding a tangent component now retains the remaining domain for ordinary
+subdivision. Known seeds are reused only when their paired parameters and XYZ
+match an existing path. Numerical Bernstein clipping bounds the remaining
+domain, and a cell can be covered by existing geometry only when both source
+control graphs fit the same published segment at the CAD tolerance. This uses
+floating-point geometry internally and adds no rational public diagnostics.
+Failed or interrupted coverage checks leave the ordinary search available.
+
+Tangent paths use half-atol chord sampling so reuse is consistent with their
+geometric accuracy. A later Phi-seeded retrace is classified over its whole
+path before assembly, preventing a regular-backend retrace from replacing the
+correct tangential label. Microscopic regular corner arcs are bounded against
+both source hulls before being represented by an already found CAD point.
+
+The independent line/loop family passes with surface order reversed, parameter
+direction reversed, and two disjoint loops. Coverage controls also check gaps,
+different parameter sheets, endpoint caps, nonuniform weights, and work denial.
+The final focused remainder/singularity run passed 47 tests; the analytic
+coverage and boundary/case16 runs passed 36 and 34 tests respectively. Curved
+tangency remainder searches still cost more than the former incorrect early
+exit; this repair does not claim a universal speed improvement.
+
 ## Regression and responsibility
 
 The working reference is `76735f9fc11a5e8149fb60d171f46cacd0ff4ec9`.

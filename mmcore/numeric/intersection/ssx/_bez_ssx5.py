@@ -1700,13 +1700,11 @@ def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
     With no fragments (nothing traced), this degrades to the plain
     budget-bounded full enumeration.
 
-    KNOWN LIMIT (review 2d030bb+7ed47c0): this enumeration recovers only
-    Δ-ROOTS (tangencies). A coexisting TRANSVERSAL feature that is not on
-    Δ — e.g. a small transversal LOOP with no boundary crossings sharing
-    this crossing-bearing cell — is still lost: the arm `continue`s
-    without subdividing, and the Φ∩L loop seeding runs only on the
-    crossing-LESS arm (the Mexican-hat treatment). Subdividing instead
-    costs 1349x on tangent curves (see the arm's comment); accepted gap.
+    This enumeration recovers only Δ-roots (tangencies). It cannot find a
+    coexisting regular component that does not lie on Δ, such as a closed
+    transversal loop. The caller therefore retains the ordinary remainder
+    search after this pass; finding a tangent component does not resolve
+    the whole cell.
     """
     from mmcore.numeric.intersection.ssx._ssx5_singular import (
         ShiftedPositiveNet, VectorBoxNet, psi_vector_net, solve_zero_dim,
@@ -2308,6 +2306,7 @@ def _march_intersection_curve(
     atol=1e-3,
     rational=True,
     h_max=None,
+    sag_tol=None,
     min_step=1e-6,
     max_step=0.25,
     angle_threshold=0.1,   # radians — target angle between consecutive tangents
@@ -2346,7 +2345,8 @@ def _march_intersection_curve(
     xyz_start = eval_surface(S1, stuv_start[0], stuv_start[1], rational=rational)
     xyz_pts = [xyz_start]
 
-    sag_tol = 2.0 * atol
+    if sag_tol is None:
+        sag_tol = 2.0 * atol
     if h_max is None:
         h_max = max(0.05 * _local_diag(S1, rational=rational), 4.0 * atol)
     h = 0.25 * h_max
@@ -3557,6 +3557,7 @@ def _march_phi_curve(
     atol=1e-3,
     rational=True,
     h_max=None,
+    sag_tol=None,
     min_step=1e-6,
     max_step=0.25,
     angle_threshold=0.1,
@@ -3576,7 +3577,8 @@ def _march_phi_curve(
     xyz_start = eval_surface(S1, stuv_start[0], stuv_start[1], rational=rational)
     xyz_pts = [xyz_start]
 
-    sag_tol = 2.0 * atol
+    if sag_tol is None:
+        sag_tol = 2.0 * atol
     if h_max is None:
         h_max = max(0.05 * _local_diag(S1, rational=rational), 4.0 * atol)
     h = 0.25 * h_max
@@ -4435,6 +4437,16 @@ def _phi_slice_loop_fragments(cell, roots, atol, h_max, all_singularities):
                 if frag is not None or phantom:
                     break
         if frag is not None:
+            if not frag.tangential:
+                # A seed slightly off a repeated root can select the Psi
+                # backend even though its completed path lies on the
+                # tangent locus. Measure the whole path before publishing
+                # its kind; otherwise a longer numerical retrace can erase
+                # correctly typed tangent pieces during containment dedup.
+                kind_work = max(1, len(frag.stuv_path))
+                if (cell.work_budget is None or cell.work_budget.charge_cells(
+                        kind_work, "singular_kind")):
+                    frag.tangential = _fragment_on_tangent_locus(cell, frag, atol)
             fragments.append(frag)
     return fragments
 
@@ -4525,6 +4537,9 @@ def _deflate_tangent_cell(S1, S2, T1, T2, T3, T4, box, crossings, atol,
         # three surface-residual equations.  The regulated Phi fallback is
         # still required for harder singularities (notably case 14), where
         # the rank-deficient Psi continuation cannot choose the branch.
+        # Retained tangent paths also guide later remainder searches. Match
+        # the closed-loop marcher's half-atol chord budget so an on-curve
+        # witness remains within the coverage predicate's atol of the path.
         for start_idx, target_idx in ((i, j), (j, i)):
             start = np.asarray(
                 crossings[start_idx].stuv, dtype=np.float64)
@@ -4541,6 +4556,7 @@ def _deflate_tangent_cell(S1, S2, T1, T2, T3, T4, box, crossings, atol,
             stuv_path, xyz_path = _march_intersection_curve(
                 S1, S2, start, target,
                 atol=atol, rational=rational, h_max=h_max,
+                sag_tol=0.5 * atol,
                 max_points=trace_limit, stats=trace_stats,
             )
             if cell is not None and cell.work_budget is not None:
@@ -4597,6 +4613,7 @@ def _deflate_tangent_cell(S1, S2, T1, T2, T3, T4, box, crossings, atol,
                     stuv_path, xyz_path = _march_phi_curve(
                         S1, S2, T_arrs[t_idx], psi_rows, start, target,
                         atol=atol, rational=rational, h_max=h_max,
+                        sag_tol=0.5 * atol,
                         max_points=trace_limit, stats=trace_stats,
                     )
                     if cell is not None and cell.work_budget is not None:
@@ -5013,6 +5030,39 @@ def _cell_has_unused_direction(point: BoundaryPoint, cell, direction: str) -> bo
     )
 
 
+def _cell_geometry_confined_to_point(cell, point, xyz, ptol, atol):
+    """Bound all possible paired roots by one already found CAD point.
+
+    A numerical cut can leave a microscopic regular arc near a corner.
+    Residual control-hull clipping bounds the entire remaining parameter
+    domain; both restricted surface hulls must fit the found point.
+    """
+    from mmcore.numeric.intersection.ssx._ssx_bernstein_clip import (
+        clip_residual_box, residual_coordinate_scale, restrict_source_pair,
+    )
+    first, second = cell.g1.surface, cell.g2.surface
+    originals = getattr(cell, 'trace_surfaces', (first, second))
+    scale = residual_coordinate_scale(*originals)
+    bounds, stats = clip_residual_box(
+        first, second, source_scale=scale,
+        charge=_charge_hook(getattr(cell, 'work_budget', None), 'point_extent'))
+    if bounds is None or not stats['valid'] or stats['denied']:
+        return False
+    bounds = np.asarray(bounds)
+    if np.any(np.abs(bounds - np.asarray(point)[:, None]) > np.asarray(ptol)[:, None]):
+        return False
+    for surface in restrict_source_pair(first, second, bounds):
+        if not (np.all(np.isfinite(surface)) and np.all(surface[..., 3] > 0.)):
+            return False
+        controls = (surface[..., :3] / surface[..., 3:]).reshape(-1, 3)
+        error = (64. * np.finfo(float).eps
+                 * max(1., float(np.max(np.abs(controls))),
+                       float(np.max(np.abs(xyz)))))
+        if np.max(np.linalg.norm(controls - xyz, axis=1)) + error > atol:
+            return False
+    return True
+
+
 def _trace_cell_by_registrations(cell, atol, h_max=None):
     """Trace all branch segments inside a certified cell.
 
@@ -5076,6 +5126,8 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
         if (work_budget is not None
                 and not work_budget.charge_cells(1, "branch_trace")):
             return False
+        original_point = np.asarray(point).copy()
+        original_xyz = eval_surface(cell.g1.surface, *original_point[:2], rational=True)
         from mmcore.numeric._bern_homog import (
             eval_bezier_surface_homog_with_derivs,
             project_surface_homog_to_cartesian,
@@ -5218,10 +5270,13 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
         except np.linalg.LinAlgError:
             return False
         curvature_margin = 4e-10*max(1., float(np.linalg.norm(acceleration)))
-        return any(abs(tangent[axis]) <= 1e-10
-                   and (regular or axis != fiber_axis)
-                   and sign*acceleration[axis] < -curvature_margin
-                   for axis, sign in faces)
+        if any(abs(tangent[axis]) <= 1e-10
+               and (regular or axis != fiber_axis)
+               and sign*acceleration[axis] < -curvature_margin
+               for axis, sign in faces):
+            return True
+        return regular and _cell_geometry_confined_to_point(
+            cell, original_point, original_xyz, ptol_local, atol)
 
     for i, start_cx in enumerate(cell.crossings):
         if work_budget is not None and work_budget.exhausted:
@@ -7020,6 +7075,10 @@ class _Cell:
     # Continuation can produce a useful prefix without resolving the cell.
     # The caller must then keep the unsearched remainder in the frontier.
     trace_incomplete: bool = False
+    # A tangent component has already been traced in an ancestor. The
+    # remaining domain still needs searching; this flag only enables
+    # coverage checks against geometry that has actually been retained.
+    tangency_remainder: bool = False
 
 
 def _probe_children(cell):
@@ -7072,6 +7131,7 @@ def _probe_children(cell):
                 new_crossings=[], F_sq=Fs[i1][i2], w_scale=cell.w_scale,
                 probe_only=True, work_budget=cell.work_budget,
                 csx_fn=cell.csx_fn,
+                tangency_remainder=cell.tangency_remainder,
             ))
     return out
 
@@ -7574,11 +7634,11 @@ def bez_ssx(
     if promoted_fiber_fragment is not None:
         budget.append_output(
             all_fragments, promoted_fiber_fragment, "fragment")
-    # Crossing-less Phi seeding is complete for the whole cell it slices;
-    # descendant reconfirmations must not repay the 4-plane search. Keep
-    # ancestor boxes rather than keying on emitted points: a 1-D tangent
-    # loop deliberately emits no isolated tangent_point but still needs one
-    # Phi seed pass (the case13 dedup fix must not suppress that path).
+    # Memoize productive Phi seeding passes so descendants do not repeat
+    # the same four-plane search. These boxes are not absence or coverage
+    # proofs: the ordinary domain search still owns the remaining geometry.
+    # A tangent loop need not emit an isolated tangent_point, so productive
+    # passes cannot be identified only by those point records.
     phi_seeded_boxes: list[tuple] = []
     phi_seed_attempts: list[NDArray[np.float64]] = []
     # NOTE no per-cell C3 gate here (ledger L8): Theorem 3 is a PER-BOX
@@ -7605,10 +7665,30 @@ def bez_ssx(
         queue.extend(_probe_children(parent))
         return True
 
+    from mmcore.numeric.intersection.ssx._ssx_bernstein_clip import residual_coordinate_scale
+    from mmcore.numeric.intersection.ssx._ssx_trace_coverage import TangentialTraceCoverage
+    tangent_coverage = TangentialTraceCoverage(
+        atol, unify_tol, residual_coordinate_scale(S1_h_top, S2_h_top),
+        charge=lambda amount: budget.charge_cells(amount, "tangent_coverage"))
+
+    def _known_tangent_crossings(cell):
+        return bool(cell.tangency_remainder and cell.crossings
+                    and tangent_coverage.covers_points(
+                        [point.stuv for point in cell.crossings],
+                        [point.xyz for point in cell.crossings]))
+
     while queue:
         if not budget.charge_cells(1, "ssx"):
             break
         cell = queue.popleft()
+        if cell.tangency_remainder:
+            tangent_coverage.update(all_fragments)
+            if tangent_coverage.covers_cell(
+                    cell.g1.surface, cell.g2.surface, cell.box,
+                    allow_empty=not cell.crossings):
+                continue
+        if budget.exhausted:
+            break
 
         # P1c soundness guard (2026-07-21): a cell carrying registered
         # crossings holds strict-certified Psi roots ON it — any exclusion
@@ -7944,7 +8024,8 @@ def bez_ssx(
                     is_clearly_transversal = True
                     break
 
-        if cell.trace_incomplete or is_clearly_transversal:
+        if (cell.trace_incomplete or is_clearly_transversal
+                or _known_tangent_crossings(cell)):
             tangency = False
         else:
             local_box = ((0.0, 1.0),) * 4
@@ -7993,6 +8074,15 @@ def bez_ssx(
             _phi_already_attempted = any(
                 np.all(np.abs(_seed_anchor - prior) <= unify_tol)
                 for prior in phi_seed_attempts)
+            if cell.tangency_remainder and _root_globals:
+                # Reuse a known tangent path only for these actual roots.
+                # Do not mark its whole ancestor box searched: another
+                # unknown tangent loop can coexist in the same domain.
+                _phi_already_attempted = (
+                    _phi_already_attempted or tangent_coverage.covers_points(
+                        _root_globals,
+                        [eval_surface(S1_h_top, point[0], point[1], rational=True)
+                         for point in _root_globals]))
             if (ok and not _phi_already_seeded
                     and not _phi_already_attempted and not budget.exhausted):
                 # Paper §5.3.2: slice the regulated Φ curve with the four
@@ -8127,39 +8217,21 @@ def bez_ssx(
             # pt_local's SSXPoint.stuv is already global — we passed
             # `originals` so _deflate_tangent_cell copied from them.
             budget.extend_output(all_points, pt_local, "point")
-            # Tracing the Φ curve between this cell's crossings does NOT by
-            # itself resolve the cell: the deflation only reaches features
-            # ON Φ through the boundary crossings, and the center witness
-            # converges into the CURVE's basin — a coexisting ISOLATED
-            # touch in the same cell (z = (2t-1)^2*((s-0.7)^2+(t-0.2)^2):
-            # tangent line at t=0.5 PLUS a touch at (0.7,0.2)) is off every
-            # traced fragment and the plain `continue` deleted it with NO
-            # descendants ever seeing it (this cell was the only holder —
-            # there is no "some other cell covers it" on this path).
-            # Subdividing instead (the crossing-less arm's e1db506
-            # treatment) is correct but measured 1349x slower on the legacy
-            # crossed-saddles case (0.15 s -> 200 s): cells along a
-            # 1-dimensional tangent curve can never be certified away, so
-            # the size gate forces a full dyadic descent along the curve's
-            # length. Enumerate the cell's REMAINING Δ-roots here instead:
-            # hull-exclusion subdivision with the Newton attempts SKIPPED
-            # inside the traced fragments' tube (those roots are curve
-            # samples the subsumption filter would delete anyway),
-            # far-from-tube boxes explored FIRST, and only Newton attempts
-            # charged against the budget (skip-exempt charging — under
-            # per-pop charging the flood's excluded siblings starved the
-            # budget and touches at 5-15*atol from the curve fell into a
-            # blind band).
-            # KNOWN LIMIT: this recovers only Δ-roots. A coexisting
-            # TRANSVERSAL loop (not on Δ) with no boundary crossings in
-            # this cell is still lost — the `continue` below skips
-            # subdivision, and the Φ∩L loop seeding runs only on the
-            # crossing-LESS arm. Accepted (the subdivision alternative is
-            # the 1349x path above).
+            # The traced tangency is one component, not the solution of
+            # this whole cell. Search for off-curve isolated touches, then
+            # retain the ordinary subdivision frontier for regular branches
+            # or closed loops that do not lie on the deflated system.
             _emit_offcurve_tangent_roots(cell, fr_local, atol, unify_tol,
                                          all_singularities,
                                          overlap_boxes=overlap_boxes)
-            continue
+            cell.tangency_remainder = True
+            tangent_coverage.update(all_fragments)
+            if tangent_coverage.covers_cell(
+                    cell.g1.surface, cell.g2.surface, cell.box,
+                    allow_empty=not cell.crossings):
+                continue
+            if budget.exhausted:
+                break
 
         if cell.depth >= max_depth:
             for c in cell.crossings:
@@ -8335,6 +8407,7 @@ def bez_ssx(
                     F_sq=F_sq_pieces[i1][i2] if F_sq_pieces[i1] else None,
                     w_scale=cell.w_scale,
                     work_budget=budget, csx_fn=_run_csx,
+                    tangency_remainder=cell.tangency_remainder,
                 )
                 scell.partitions = _build_cell_partitions(scell)
                 for c in sub_cx:
