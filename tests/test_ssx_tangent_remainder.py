@@ -4,6 +4,7 @@ from math import comb
 import numpy as np
 
 from examples.ssx.ssx5_analytic_audit import distances_to_polylines
+from mmcore.numeric._bezier_common import eval_surface
 from mmcore.numeric.intersection.ssx._bez_ssx5 import bez_ssx
 
 
@@ -31,20 +32,28 @@ def _line_and_circle():
 
 
 def test_tangent_line_does_not_consume_a_disjoint_regular_circle():
+    atol = 1e-3
     graph, plane, ring, tangent = _line_and_circle()
-    result = bez_ssx(graph, plane, atol=1e-3, rational=False)
+    result = bez_ssx(graph, plane, atol=atol, rational=False)
     branches = result['branches']
     assert len(branches) == 2
     assert sum(branch.closed and branch.kind == 'transversal' for branch in branches) == 1
     assert sum(not branch.closed and branch.kind == 'tangential' for branch in branches) == 1
-    paths = [np.asarray(branch.curve[1]) for branch in branches]
-    for reference in (ring, tangent):
-        assert distances_to_polylines(reference, paths).max() <= 1e-3
+    ring_path = next(np.asarray(b.curve[1]) for b in branches if b.closed)
+    line_path = next(np.asarray(b.curve[1]) for b in branches if not b.closed)
+    # General continuation has always allowed 2*atol chord sagitta.
+    # This checks the polyline representation, not the source accuracy of
+    # its vertices. A straight tangent line needs no sagitta allowance.
+    assert distances_to_polylines(ring, [ring_path]).max() <= 2*atol
+    assert distances_to_polylines(tangent, [line_path]).max() <= atol
     for branch in branches:
         points = np.asarray(branch.curve[1])
         circle_distance = abs(np.linalg.norm(points[:, :2] - [.3125, .1875], axis=1) - .125)
         line_distance = abs(points[:, 1] - .5)
-        assert np.maximum(np.minimum(circle_distance, line_distance), abs(points[:, 2])).max() <= 1e-3
+        assert np.maximum(np.minimum(circle_distance, line_distance), abs(points[:, 2])).max() <= atol
+        for q, point in zip(branch.curve[0], points):
+            assert np.linalg.norm(eval_surface(graph, *q[:2], rational=False) - point) <= atol
+            assert np.linalg.norm(eval_surface(plane, *q[2:], rational=False) - point) <= atol
 
 
 def test_whole_known_tangent_line_can_resolve_before_depth_limit(monkeypatch):

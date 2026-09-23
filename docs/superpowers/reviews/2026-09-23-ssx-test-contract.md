@@ -72,6 +72,16 @@ inconsistency by moving the default-mode examples into exact mode.
 
 ## Verification
 
+The new tangent-line/regular-circle regression initially imposed `atol` on
+the circle's polyline coverage. General continuation already allowed
+`2*atol` chord sagitta at the working baseline `76735f9`; this was an
+inappropriate new assertion. Linux returned both complete, correctly typed
+components with `1.568*atol` maximum circle-to-polyline distance. The circle
+coverage check now uses the existing `2*atol` chord allowance. Straight-line
+coverage and analytic vertex accuracy remain at `atol`, and both-source
+vertex residual checks at `atol` are added. Component counts and kinds are
+unchanged; the solver and its tolerances are unchanged by this correction.
+
 The subsequent case11 check replaces its fixed 32-vertex minimum with
 bidirectional coverage of the supplied Rhino reference and paired-source
 residuals. The positive-gap endpoint-touch controls retain their two analytic
