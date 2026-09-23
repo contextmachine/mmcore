@@ -187,14 +187,11 @@ def main():
     from examples.ssx.bez_ssx5_case11 import S1, S2
     signal.alarm(args.timeout)
     started = time.perf_counter()
-    ssx_row = {'name': 'case11-end-to-end', 'mode': 'current-exact',
+    ssx_row = {'name': 'case11-end-to-end', 'mode': 'current-cad',
                'raw_csx_calls': 0, 'raw_csx_cells': 0, 'raw_csx_seconds': 0.,
-               'nested_ccx_calls': 0, 'nested_ccx_cells': 0, 'nested_ccx_seconds': 0.,
-               'source_cut_calls': 0, 'source_cut_cells': 0, 'source_cut_seconds': 0.}
-    from mmcore.numeric.intersection.ssx import _ssx_planar_cut as source_cut_module
+               'nested_ccx_calls': 0, 'nested_ccx_cells': 0, 'nested_ccx_seconds': 0.}
     original_raw_csx = ssx.bez_csx
     original_nested_ccx = current.bez_ccx_v4
-    original_source_cut = source_cut_module.exact_source_planar_cut
 
     def count_engine(function, prefix):
         def measured(*call_args, **call_kwargs):
@@ -211,7 +208,6 @@ def main():
 
     ssx.bez_csx = count_engine(original_raw_csx, 'raw_csx')
     current.bez_ccx_v4 = count_engine(original_nested_ccx, 'nested_ccx')
-    source_cut_module.exact_source_planar_cut = count_engine(original_source_cut, 'source_cut')
     try:
         result = ssx.bez_ssx(S1, S2, atol=1e-3, rational=False,
                             max_cells=60_000, max_csx_calls=10_000)
@@ -224,7 +220,6 @@ def main():
         signal.alarm(0)
         ssx.bez_csx = original_raw_csx
         current.bez_ccx_v4 = original_nested_ccx
-        source_cut_module.exact_source_planar_cut = original_source_cut
         ssx_row['seconds'] = time.perf_counter()-started
     print(json.dumps(ssx_row), flush=True)
     final_hashes = source_hashes()
@@ -249,8 +244,7 @@ def main():
         output = previous
         output.setdefault('ssx_history', []).append(output['ssx'])
         output['ssx'] = ssx_row
-    output['call_graph'] = ['SSX -> exact source cut or source-residual CSX',
-                            'public/default CSX -> boundary CCX', 'CCX does not call CSX']
+    output['call_graph'] = ['SSX -> CSX -> boundary CCX', 'CCX does not call CSX']
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(output, indent=2)+'\n')

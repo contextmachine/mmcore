@@ -1,5 +1,12 @@
 # SSX branch preservation and intersection search audit
 
+> Historical report of the withdrawn exact-topology implementation. Its
+> mandatory algebraic acceptance rules regressed working CAD intersections.
+> SSX has returned to numerical acceptance at the caller's geometric tolerance;
+> rational source certificates and `unresolved_regions` are not its public
+> result contract. The passing subsets recorded below did not establish a
+> passing integration: the separate singular suite had known failures.
+
 Work branch: `codex/ssx-completeness`, based on `76735f9`.
 
 The main checkout and its unrelated `mmcore/numeric/bern.py` edit are preserved.

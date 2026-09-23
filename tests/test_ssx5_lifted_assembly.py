@@ -105,25 +105,6 @@ def test_containment_cap_returns_unknown():
                               charge=lambda _: False) is None
 
 
-def test_distinct_parallel_roots_inside_tolerance_are_not_coalesced():
-    """Two exact roots remain two components even inside geometric ptol.
-
-    These are the lifted lines of graph/plane intersections at s=u=.5
-    and s=u=.5+2**-11. Continuous proximity of the output polylines
-    proves approximation quality, but does not prove root identity.
-    """
-    separation = 2.**-11
-    s = np.array([[.5, 0., .5, 0.], [.5, 1., .5, 1.]])
-    x = np.array([[.5, 0., 0.], [.5, 1., 0.]])
-    nearby_s, nearby_x = s.copy(), x.copy()
-    nearby_s[:, [0, 2]] += separation
-    nearby_x[:, 0] += separation
-    frags = [_Frag(s, x, 'transversal', False),
-             _Frag(nearby_s, nearby_x, 'transversal', False)]
-    ctx = _DomainCtx(np.zeros(4), np.ones(4), np.ones(4),
-                     np.full(4, .001), (False,) * 4)
-    kept = _containment_dedup(frags, .001, _make_aggregate({}, 1), ctx=ctx)
-    assert len(kept) == 2
 
 
 def test_periodic_seam_jump_does_not_absorb_an_interior_preimage():
@@ -143,53 +124,5 @@ def test_periodic_seam_jump_does_not_absorb_an_interior_preimage():
                      np.full(4, .001), (True, False, False, False))
     kept = _assemble_points([interior, endpoint], [branch], ctx, .001,
                              _make_aggregate({}, 1))
-    # Neither point carries source-root incidence with the mapped branch.
-    # Equal endpoint floats alone cannot replace that missing ownership.
-    assert len(kept) == 2
-    assert kept[0] is interior and kept[1] is endpoint
-
-
-def test_nearby_point_preimage_is_not_absorbed_by_a_curve():
-    s = np.array([[.5, 0., .5, 0.], [.5, 1., .5, 1.]])
-    x = np.array([[.5, 0., 0.], [.5, 1., 0.]])
-    branch = SSXBranch(curve=(s, x), closed=False, overlap=False,
-                       kind='transversal')
-    separation = 2.**-11
-    point = SSXPoint(stuv=np.array([.5+separation, .5, .5+separation, .5]),
-                     xyz=np.array([.5+separation, .5, 0.]))
-    ctx = _DomainCtx(np.zeros(4), np.ones(4), np.ones(4),
-                     np.full(4, .001), (False,) * 4)
-    kept = _assemble_points([point], [branch], ctx, .001,
-                             _make_aggregate({}, 1))
-    assert len(kept) == 1 and kept[0] is point
-
-
-def test_nearby_distinct_isolated_points_are_not_coalesced():
-    # Exact zero set of z=((x-a)*(x-b))**2+(y-.5)**2 against z=0.
-    roots = (.5, .5 + 2.**-11)
-    points = [SSXPoint(stuv=np.array([r, .5, r, .5]),
-                       xyz=np.array([r, .5, 0.])) for r in roots]
-    ctx = _DomainCtx(np.zeros(4), np.ones(4), np.ones(4),
-                     np.full(4, .001), (False,) * 4)
-    kept = _assemble_points(points, [], ctx, .001, _make_aggregate({}, 1))
-    assert len(kept) == 2
-    assert all(a is b for a, b in zip(kept, points))
-
-
-def test_nearby_distinct_components_are_not_stitched_into_a_false_loop():
-    """Preservation must hold through endpoint assembly, after dedup too."""
-    roots = (.5, .5 + 2.**-11)
-    fragments = []
-    for root in roots:
-        s = np.array([[root, 0., root, 0.], [root, 1., root, 1.]])
-        x = np.array([[root, 0., 0.], [root, 1., 0.]])
-        fragments.append(_Frag(s, x, 'transversal', False))
-    ctx = _DomainCtx(np.zeros(4), np.ones(4), np.ones(4),
-                     np.full(4, .001), (False,) * 4)
-    branches = _assemble_branches(fragments, ctx, .001, _make_aggregate({}, 1))
-    assert len(branches) == 2
-    assert not any(branch.closed for branch in branches)
-    for branch in branches:
-        xyz = np.asarray(branch.curve[1])
-        assert np.ptp(xyz[:, 0]) == 0.
-        assert np.linalg.norm(np.diff(xyz, axis=0), axis=1).sum() == 1.
+    # The actual seam endpoint is represented; the interior preimage is not.
+    assert len(kept) == 1 and kept[0] is interior

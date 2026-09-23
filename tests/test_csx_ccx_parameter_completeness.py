@@ -387,13 +387,13 @@ def test_ccx_terminal_cell_is_not_retired_by_a_neighbor_root_box(monkeypatch):
 
 
 @pytest.mark.parametrize('gap', [2.**-12, 2.**-16, 2.**-20])
-def test_public_ccx_close_exact_roots_are_both_reported_or_explicitly_unresolved(gap):
+def test_exact_ccx_close_roots_are_both_reported_or_explicitly_unresolved(gap):
     from mmcore.numeric.intersection.ccx._bez_ccx4 import bez_ccx
     a, b = .5-gap, .5+gap
     first = np.array([[0., 0., 0.], [.5, 0., 0.], [1., 0., 0.]])
     second = np.array([[0., a*b, 0.], [.5, a*b-(a+b)/2, 0.],
                        [1., (1-a)*(1-b), 0.]])
-    result = bez_ccx(first, second, rational=False, tolerance_tier=True,
+    result = bez_ccx(first, second, rational=False, tolerance_tier=False,
                      atol=1e-3, max_cells=2000)
     if result['boundary_topology_complete']:
         assert len(result['isolated']) == 2, result

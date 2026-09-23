@@ -129,7 +129,6 @@ def _fake_result(branches=(), points=(), singularities=()):
         "points": list(points),
         "singularities": list(singularities),
         "overlap_regions": [],
-        "unresolved_regions": [],
         "complete": True,
         "status": {"reasons": [], "work": {}},
     }

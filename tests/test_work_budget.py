@@ -400,5 +400,7 @@ def test_bez_ssx5_reexports_are_the_same_objects():
 
     assert ssx5._SSXSoftBudget is wb.SoftWorkBudget
     for name in dir(wb):
-        if name.startswith("REASON_"):
+        # The shared raw CSX/CCX expert mode retains its representation
+        # reason; the restored CAD SSX API does not expose that proof policy.
+        if name.startswith("REASON_") and name != "REASON_PARAMETER_REPRESENTATION":
             assert getattr(ssx5, name) == getattr(wb, name)

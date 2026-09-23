@@ -34,10 +34,11 @@ def test_failed_parent_prefix_has_one_search_owner(monkeypatch, max_depth, compl
                                atol=1e-12, rtol=0.)
     assert np.linalg.norm(np.diff(branch.curve[1], axis=0), axis=1).sum() == pytest.approx(length)
     if complete:
-        assert not result['points'] and not result['unresolved_regions']
+        assert not result['points']
+        assert 'unresolved_regions' not in result
     else:
         assert 'depth_limit' in result['status']['reasons']
-        assert result['unresolved_regions']
+        assert 'unresolved_regions' not in result
 
 
 def test_endpoint_broadphase_leaves_work_for_a_long_registered_chain():
@@ -55,3 +56,28 @@ def test_endpoint_broadphase_leaves_work_for_a_long_registered_chain():
     assert not budget.exhausted
     assert len(branches) == 1
     assert np.linalg.norm(np.diff(branches[0].curve[1], axis=0), axis=1).sum() == pytest.approx(1.)
+
+
+def test_interior_ended_attempt_does_not_preempt_a_later_complete_trace(monkeypatch):
+    from mmcore.numeric.intersection.ssx._ssx_substrate import GaussMapBern
+    a = np.array([[[s, t, 0., 1.] for t in (0., 1.)] for s in (0., 1.)])
+    b = a.copy()
+    b[..., 2] = np.array([[-.5, .5], [-.5, .5]])
+    first = ssx.BoundaryPoint(np.array([0., .5, 0., .5]), np.array([0., .5, 0.]), (0, 0))
+    last = ssx.BoundaryPoint(np.array([1., .5, 1., .5]), np.array([1., .5, 0.]), (0, 1))
+    cell = ssx._Cell(GaussMapBern.from_surf(a, rational=True),
+                     GaussMapBern.from_surf(b, rational=True),
+                     [first, last], ((0., 1.),)*4)
+    calls = []
+    def interrupted_then_complete(*args, **kwargs):
+        calls.append(1)
+        end = .75 if len(calls) == 1 else 1.
+        q = np.array([first.stuv, [end, .5, end, .5]])
+        xyz = np.column_stack((q[:, 0], np.full(2, .5), np.zeros(2)))
+        return q, xyz, None if len(calls) == 1 else (0, 1)
+    monkeypatch.setattr(ssx, '_march_to_boundary', interrupted_then_complete)
+    fragments, points = ssx._trace_cell_by_registrations(cell, .001)
+    assert len(calls) == 2
+    assert not cell.trace_incomplete and not points
+    assert len(fragments) == 1 and fragments[0].end_point is last
+    np.testing.assert_array_equal(fragments[0].xyz_path[-1], [1., .5, 0.])

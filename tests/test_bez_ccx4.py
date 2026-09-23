@@ -185,22 +185,80 @@ def test_near_coincident_pair_ships_tolerance_overlap(reverse):
     assert r["boundary_topology_complete"] is True
 
 
-def test_offset_twin_with_vertical_tangent_is_not_cleanly_promoted():
-    """L54[A2-1] corollary, measured during the on-node fix: a y-offset of a
-    curve whose tangent turns PARALLEL to the offset (curve1 has a vertical
-    tangent near u=0.75) genuinely CROSSES the original there — the offset
-    slides the curve along itself locally, so 'offset pair' does NOT imply
-    crossing-free. The bridged flip test detects it (the transverse
-    direction reverses through the tangent zone) and promotion is refused:
-    the honest outcome is the woven-family typed partial, not a clean
-    overlap that would merge real crossing structure."""
+def _cubic_interval(control, low, high):
+    """Independent de Casteljau restriction for the two cubic fixtures."""
+    def split(points, parameter):
+        rows = [np.asarray(points, dtype=float)]
+        while len(rows[-1]) > 1:
+            rows.append((1.-parameter)*rows[-1][:-1]+parameter*rows[-1][1:])
+        return (np.array([row[0] for row in rows]),
+                np.array([row[-1] for row in rows[::-1]]))
+
+    if high < low:
+        return _cubic_interval(control, high, low)[::-1]
+    result = np.asarray(control)
+    if low > 0.:
+        _, result = split(result, low)
+    if high < 1.:
+        result, _ = split(result, (high-low)/(1.-low))
+    return result
+
+
+def _assert_cubic_interval_coverage(control, expected, intervals, atol):
+    # Parameter gaps are measured by their physical control-polygon length,
+    # an upper bound on omitted arc length, rather than arbitrary UV digits.
+    start, end = expected
+    cursor = start
+    for low, high in sorted(tuple(sorted(interval)) for interval in intervals):
+        low, high = max(start, low), min(end, high)
+        if high < low or high < cursor:
+            continue
+        if low > cursor:
+            gap = _cubic_interval(control, cursor, low)
+            assert np.linalg.norm(np.diff(gap, axis=0), axis=1).sum() <= atol
+        cursor = max(cursor, high)
+    if cursor < end:
+        gap = _cubic_interval(control, cursor, end)
+        assert np.linalg.norm(np.diff(gap, axis=0), axis=1).sum() <= atol
+
+
+def _assert_cubic_cad_overlap(result, first, second, expected_u, expected_v, atol):
+    # This verifies the entire reference correspondence, not merely sampled
+    # near-coincidence: a polynomial difference lies in its control hull.
+    reference_difference = (_cubic_interval(first, *expected_u)
+                            - _cubic_interval(second, *expected_v))
+    assert np.linalg.norm(reference_difference, axis=1).max() <= atol
+    overlaps = result['overlaps']
+    assert overlaps, 'A typed partial diagnostic alone does not carry overlap geometry'
+    for overlap in overlaps:
+        u, v = np.asarray(overlap['u_range']), np.asarray(overlap['v_range'])
+        assert np.all(np.isfinite(np.r_[u, v]))
+        assert np.all((0. <= np.r_[u, v]) & (np.r_[u, v] <= 1.))
+        difference = _cubic_interval(first, *u)-_cubic_interval(second, *v)
+        assert np.linalg.norm(difference, axis=1).max() <= atol
+    _assert_cubic_interval_coverage(first, expected_u,
+                                   [o['u_range'] for o in overlaps], atol)
+    _assert_cubic_interval_coverage(second, expected_v,
+                                   [o['v_range'] for o in overlaps], atol)
+    if result['boundary_topology_complete']:
+        assert not result['budget_exhausted']
+    else:
+        # A partial search is allowed only with retained valid geometry and
+        # an explicit reason; successful completion is not a regression.
+        assert result['budget_exhausted'] or result.get('truncation_cause')
+
+
+def test_offset_twin_with_vertical_tangent_keeps_the_whole_cad_overlap():
+    """A 1e-9-offset cubic has a full same-parameter pairing at atol=1e-3.
+
+    Normal-side changes near its vertical tangent do not erase that actual
+    tolerance-coincident geometry. The endpoint-to-endpoint correspondence
+    is checked independently through its difference control polygon.
+    """
     C2 = curve1.copy()
     C2[:, 1] += 1e-9
     r = bez_ccx(curve1, C2, atol=1e-3, rational=False)
-    assert len(r["overlaps"]) == 0
-    assert r["budget_exhausted"] is True
-    assert r["boundary_topology_complete"] is False
-    assert "uncertified_overlap_span" in r, sorted(r)
+    _assert_cubic_cad_overlap(r, curve1, C2, (0., 1.), (0., 1.), 1e-3)
 
 
 def test_exact_affine_overlap_certification_is_exact():
@@ -236,21 +294,18 @@ def test_non_affine_reparameterized_exact_overlap_certifies():
     assert r["budget_exhausted"] is False
 
 
-def test_realistic_woven_near_coincident_reports_typed_span():
-    """curve1 vs curve2 follow the same path to ~3e-9 but WEAVE across each
-    other — genuine crossings at fitting-noise amplitude. Crossing evidence
-    blocks tolerance promotion (the approved no-distinct-roots guard: never
-    merge crossing structure), yet the crossings sit below the strict
-    certification scale (the curves are ~1e-9-parallel there), so they
-    cannot ship as isolated roots either. The honest outcome is the typed
-    uncertified span with topology incomplete, at bounded fallback cost —
-    not a silent bare-budget grind."""
+def test_realistic_woven_near_coincident_keeps_its_full_cad_overlap():
+    """Rounded fitted cubics share a long CAD span, with disjoint tails.
+
+    The affine pairing below has a whole-interval difference-control bound
+    below 4e-9. It starts at curve1's first endpoint and ends at curve2's
+    last endpoint; the unused tails end about 4.9 and 5.0 model units away.
+    Require that actual span, not an empty partial result naming its range.
+    """
     r = bez_ccx(curve1, curve2, atol=1e-3, rational=False)
-    assert len(r["overlaps"]) == 0
-    assert r["budget_exhausted"] is True
-    assert r["boundary_topology_complete"] is False
-    lo, hi = r["uncertified_overlap_span"]
-    assert (lo, hi) == pytest.approx((0.0, 0.8276), abs=1e-3)
+    _assert_cubic_cad_overlap(r, curve1, curve2,
+                             (0., 0.827597762202295),
+                             (0.1906907548416867, 1.), 1e-3)
     assert r["cells_processed"] < 5_000
 
 

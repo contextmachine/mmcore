@@ -1,13 +1,13 @@
 """Bezier surface-surface intersection v5.
 
-Combines four approaches:
-1. Source-bounded vector-residual Bernstein hull exclusion
+Combines three approaches:
+1. Sq-dist Bernstein net for Lipschitz pruning (from CCX/CSX v4)
 2. TΨᵢ monotonicity criterion for loop-absence certification (Cheng et al. 2023)
 3. Domain decomposition at boundary crossing points (Krishnan & Manocha 1997)
 4. Deflation for tangential (C₂) cases (Cheng et al. 2023)
 
 Architecture:
-  Level 1: Pruning (AABB + vector-residual separating hulls)
+  Level 1: Pruning (AABB + sq-dist Lipschitz)
   Level 2: Boundary analysis (8 CSX problems on faces of [0,1]⁴)
   Level 3: Monotonicity classification (TΨᵢ sign-definiteness)
   Level 4a: Domain decomposition + tracing (monotonic cells)
@@ -24,9 +24,13 @@ from typing import Optional
 import numpy as np
 from numpy.typing import NDArray
 
+from mmcore.numeric.bern_sq_dist import surface_surface_distance_squared_net_homog
 from mmcore.numeric._bezier_common import (
-    eval_surface, eval_surface_d1, eval_curve,
+    extract_weights, eval_surface, eval_surface_d1, eval_curve,
     geometry_collapsed,
+)
+from mmcore.numeric.intersection._sq_dist_classify import (
+    _check_min_of_net, _check_lipschitz, _weight_max_product,
 )
 from mmcore.numeric.intersection.csx._bez_csx4 import bez_csx
 from mmcore.numeric.intersection._deflate import minors_Tpsi_from_control_nets
@@ -115,210 +119,12 @@ class BoundaryPoint:
     registrations: list[IsolineRegistration] = field(default_factory=list)
     parameter_fiber: bool = False  # unresolved free parameter on a collapsed edge
     multiplicity_polished: bool = False  # nearby CSX samples collapsed to this root
-    root_box: object = None  # certified enclosure in global stuv, when available
 
 
 # Back-compat alias — existing code uses BoundaryCrossing in many places and
 # the design §5 name is BoundaryPoint. Keep both symbols pointing at the same
 # dataclass so the rename can propagate gradually.
 BoundaryCrossing = BoundaryPoint
-
-
-def _mapped_root_box(root, fixed_axis, fixed_value, axis_maps):
-    from fractions import Fraction
-    raw = root.get('parameter_root_box')
-    if raw is None:
-        return None
-    box = np.empty((4, 2), dtype=float)
-    box[fixed_axis] = fixed_value
-    for interval, (axis, lo, hi) in zip(raw, axis_maps):
-        origin = Fraction.from_float(float(lo))
-        span = Fraction.from_float(float(hi))-origin
-        for side in (0, 1):
-            exact = origin+span*Fraction.from_float(float(interval[side]))
-            rounded = float(exact)
-            if ((side == 0 and Fraction.from_float(rounded) > exact)
-                    or (side == 1 and Fraction.from_float(rounded) < exact)):
-                rounded = np.nextafter(rounded, -np.inf if side == 0 else np.inf)
-            box[axis, side] = rounded
-    return box
-
-
-def _registered_point(boundary_point):
-    """Retain a traced registration's identity on point-like output."""
-    point = SSXPoint(stuv=boundary_point.stuv, xyz=boundary_point.xyz)
-    point._registered_root_id = id(boundary_point)
-    point._registered_root = boundary_point
-    return point
-
-
-def _remove_represented_vertex_points(points, branches, xyz_tol, work_budget=None):
-    """Geometric vertex lookup; this does not prove source-root incidence."""
-    if not points or not branches:
-        return list(points)
-    work = len(points)+sum(len(branch.curve[0]) for branch in branches)
-    if not _assembly_spend(work_budget, max(1, work)):
-        return list(points)
-    vertices = {}
-    for branch in branches:
-        for q, xyz in zip(*branch.curve):
-            if np.all(np.isfinite(q)) and np.all(np.isfinite(xyz)):
-                vertices.setdefault(tuple(q), []).append(np.asarray(xyz))
-    kept = []
-    for index, point in enumerate(points):
-        candidates = vertices.get(tuple(point.stuv), ())
-        if not _assembly_spend(work_budget, len(candidates)):
-            kept.extend(points[index:])
-            break
-        if not any(np.linalg.norm(point.xyz-xyz) <= xyz_tol for xyz in candidates):
-            kept.append(point)
-    return kept
-
-
-def _remove_registered_endpoint_points(points, branches, param_tol, xyz_tol,
-                                       root_matcher, work_budget=None):
-    """Coalesce standalone events only with proven branch endpoint roots.
-
-Live BoundaryPoint references preserve the source certificate and prevent
-object-id reuse. Parameter/XYZ proximity merely selects comparisons; the
-source identity oracle must prove a common existing root before deletion.
-    """
-    owners = {key: point for branch in branches
-              for key, point in getattr(branch, '_registered_root_points', {}).items()}
-    if not owners:
-        return list(points)
-    roots = list(owners.values())
-    root_parameters = np.asarray([point.stuv for point in roots])
-    root_xyz = np.asarray([point.xyz for point in roots])
-    kept = []
-    for index, point in enumerate(points):
-        registered = getattr(point, '_registered_root', None)
-        if registered is None:
-            kept.append(point)
-            continue
-        if id(registered) in owners:
-            continue
-        if not _assembly_spend(work_budget, max(1, len(roots))):
-            kept.extend(points[index:])
-            break
-        nearby = np.flatnonzero(
-            np.all(np.abs(root_parameters-registered.stuv) <= param_tol, axis=1)
-            & (np.linalg.norm(root_xyz-registered.xyz, axis=1) <= xyz_tol))
-        owned = False
-        for candidate in nearby:
-            if getattr(root_matcher, 'exhausted', False):
-                break
-            if root_matcher(registered, roots[int(candidate)], param_tol, xyz_tol):
-                owned = True
-                break
-        if not owned:
-            kept.append(point)
-    return kept
-
-
-def _remove_lifted_polyline_points(points, branches, xyz_tol, work_budget=None):
-    """Geometric chord lookup; this does not prove source-root incidence."""
-    from mmcore.numeric.intersection.ssx._ssx_polyline import point_matches_polyline
-
-    count = sum(max(0, len(branch.curve[0])-1) for branch in branches)
-    if not points or not count:
-        return list(points)
-    construction = count*(1+int(math.ceil(math.log2(max(2, count)))))
-    if not _assembly_spend(work_budget, construction):
-        return list(points)
-    parameters, images = [], []
-    for branch in branches:
-        q, xyz = map(np.asarray, branch.curve)
-        for index in range(len(q)-1):
-            if np.all(np.isfinite(q[index:index+2])) and np.all(np.isfinite(xyz[index:index+2])):
-                parameters.append(q[index:index+2])
-                images.append(xyz[index:index+2])
-    if not parameters:
-        return list(points)
-    parameters, images = np.asarray(parameters), np.asarray(images)
-    lower, upper = parameters.min(axis=1), parameters.max(axis=1)
-    centers = .5*lower+.5*upper
-    order_axis = int(np.argmax(np.ptp(centers, axis=0)))
-    order = np.argsort(centers[:, order_axis], kind='stable')
-
-    def build(indices):
-        lo, hi = lower[indices].min(axis=0), upper[indices].max(axis=0)
-        if len(indices) <= 8:
-            return lo, hi, indices, None
-        midpoint = len(indices)//2
-        return lo, hi, None, (build(indices[:midpoint]), build(indices[midpoint:]))
-
-    tree = build(order)
-    kept = []
-    for index, point in enumerate(points):
-        pending, contained, denied = [tree], False, False
-        while pending and not contained:
-            if not _assembly_spend(work_budget):
-                denied = True
-                break
-            lo, hi, leaf, children = pending.pop()
-            if not np.all((lo <= point.stuv) & (point.stuv <= hi)):
-                continue
-            if children is not None:
-                pending.extend(children)
-                continue
-            if not _assembly_spend(work_budget, len(leaf)):
-                denied = True
-                break
-            for candidate in leaf:
-                if not np.all((lower[candidate] <= point.stuv) & (point.stuv <= upper[candidate])):
-                    continue
-                if point_matches_polyline(point.stuv, point.xyz,
-                        parameters[candidate], images[candidate], np.zeros(4), xyz_tol):
-                    contained = True
-                    break
-        if denied:
-            kept.extend(points[index:])
-            break
-        if not contained:
-            kept.append(point)
-    return kept
-
-
-def _remove_source_incident_points(points, branches, param_tol, xyz_tol,
-                                   root_matcher, work_budget=None):
-    """Delete point output only when a represented source root owns it.
-
-    A separate isolated source root can lie exactly on an approximation
-    chord of another component. Even exact lifted-polyline membership is
-    therefore insufficient; actual registrations or a source identity
-    certificate must establish incidence.
-    """
-    registered = frozenset().union(*(
-        getattr(branch,'_registered_root_ids',frozenset()) for branch in branches))
-    retained = [point for point in points
-                if getattr(point,'_registered_root_id',None) not in registered]
-    return _remove_registered_endpoint_points(
-        retained,branches,param_tol,xyz_tol,root_matcher,work_budget)
-
-
-def _remove_source_classified_points(points, singularities, root_matcher,
-                                     param_tol, xyz_tol, work_budget=None):
-    """Coalesce point output with a classification of the same source root."""
-    classified = [getattr(feature, '_registered_root', None)
-                  for feature in singularities if feature.kind == 'tangent_point']
-    classified = [root for root in classified if root is not None]
-    if not classified:
-        return list(points)
-    kept = []
-    for index, point in enumerate(points):
-        root = getattr(point, '_registered_root', None)
-        if root is None:
-            kept.append(point)
-            continue
-        if not _assembly_spend(work_budget, max(1, len(classified))):
-            kept.extend(points[index:])
-            break
-        if not any(root is candidate or (root_matcher is not None and
-                   root_matcher(root, candidate, param_tol, xyz_tol))
-                   for candidate in classified):
-            kept.append(point)
-    return kept
 
 
 @dataclass
@@ -386,8 +192,7 @@ def _point_dedup_charge(n: int) -> int:
     return max(1, (int(n) * 108 + 127) // 128)
 
 
-def _deduplicate_ssx_points(points, unify_tol, atol, stats=None, *,
-                            exact_topology=False,root_matcher=None):
+def _deduplicate_ssx_points(points, unify_tol, atol, stats=None):
     """Stable both-guard SSXPoint dedup with a bounded spatial index.
 
     The legacy final pass compared every point with every previously kept
@@ -395,8 +200,7 @@ def _deduplicate_ssx_points(points, unify_tol, atol, stats=None, *,
     after the global solver budget had already stopped the search.  Bin the
     four parameters at ``unify_tol`` and xyz at ``2*atol``; an exact match
     can only live in the 3^7 neighboring bins.  Exact comparisons retain the
-    established matching-ladder predicate and insertion order. Exact-topology
-    callers additionally require parameter equality, retaining nearby roots.
+    established matching-ladder predicate and insertion order.
     """
     if not points:
         if stats is not None:
@@ -449,21 +253,8 @@ def _deduplicate_ssx_points(points, unify_tol, atol, stats=None, *,
                 bucket_probes += 1
                 for q in xyz_buckets.get(xneighbor, ()):
                     comparisons += 1
-                    parameter_match = (np.array_equal(p.stuv, q.stuv)
-                                       if exact_topology else
-                                       np.all(np.abs(np.asarray(p.stuv)
-                                              - np.asarray(q.stuv)) <= pstep))
-                    if exact_topology and parameter_match:
-                        first = getattr(p,'_registered_root',None)
-                        second = getattr(q,'_registered_root',None)
-                        if first is not None or second is not None:
-                            # Equal displayed tuples can alias distinct
-                            # algebraic roots. Existing source ownership
-                            # outranks that floating comparison.
-                            parameter_match = bool(first is not None and second is not None
-                                and (first is second or (root_matcher is not None
-                                    and root_matcher(first,second,pstep,2.*abs(float(atol))))))
-                    if (parameter_match
+                    if (np.all(np.abs(np.asarray(p.stuv)
+                                     - np.asarray(q.stuv)) <= pstep)
                             and float(np.linalg.norm(np.asarray(p.xyz)
                                                      - np.asarray(q.xyz)))
                             <= 2.0 * abs(float(atol))):
@@ -497,67 +288,73 @@ def _ssx_control_aabbs_disjoint(S1_h, S2_h, rational=True):
         pts2 = S2_h
     bb1 = np.array(aabb(pts1.reshape(-1, pts1.shape[-1])))
     bb2 = np.array(aabb(pts2.reshape(-1, pts2.shape[-1])))
-    if rational:
-        # Each Cartesian control coordinate contains one rounded division.
-        # Expand its hull outward before a destructive exact-set exclusion.
-        for bounds in (bb1, bb2):
-            bounds[0] = np.nextafter(bounds[0], -np.inf)
-            bounds[1] = np.nextafter(bounds[1], np.inf)
     return not aabb_intersect(bb1, bb2)
 
 
-def _ssx_residual_source_scale(S1_h, S2_h):
-    """Original product operands, before residual cancellation/restriction."""
-    p1 = np.max(np.abs(S1_h[..., :3]), axis=(0, 1))
-    p2 = np.max(np.abs(S2_h[..., :3]), axis=(0, 1))
-    w1 = float(np.max(np.abs(S1_h[..., 3])))
-    w2 = float(np.max(np.abs(S2_h[..., 3])))
-    return p1*w2 + p2*w1
+def _distance_net_lower_bound(S1, S2, F, rational):
+    """Guard squared-distance exclusions against construction roundoff.
 
-
-def _ssx_residual_excludes_zero(S1_h, S2_h, *, source_scale=None,
-                                source_degree=None, depth=0):
-    """Separate the vector residual with a source-bounded Bernstein hull.
-
-    Squaring residuals creates cancellation between Gram products. A
-    positive computed squared-distance lower bound can therefore exclude
-    an exact root. Here any separating direction is only a proposal;
-    its scalar Bernstein hull must clear the propagated operand error.
+    A small squared residual can result from cancellation of large Gram
+    terms. Its error scale comes from those operands, not from the final
+    residual. Bias the net down before subdivision propagates that error.
     """
-    from mmcore.numeric.intersection.ssx._ssx5_singular import psi_vector_net
-    from mmcore.numeric.intersection.csx._bez_csx4 import (
-        _residual_excludes_zero, _residual_aligned_excludes_zero)
-    if source_scale is None:
-        source_scale = _ssx_residual_source_scale(S1_h, S2_h)
-    if source_degree is None:
-        source_degree = sum(n-1 for n in S1_h.shape[:2]+S2_h.shape[:2])
-    # Each surface restriction consists of convex de Casteljau operations.
-    # Bound both product operands through all ancestor restrictions before
-    # subtracting them; never scale error by the already-cancelled residual.
-    eps = float(np.finfo(np.float64).eps)
-    operations = 4 + 6*int(source_degree)*(int(depth)+1)
-    if operations*eps >= 1.0:
-        return False
-    error = np.nextafter(
-        (operations*eps/(1.0-operations*eps))*source_scale
-        +(operations+3)*np.nextafter(0.,1.), np.inf)
-    residual = psi_vector_net(S1_h, S2_h)
-    return (_residual_excludes_zero(residual, error)
-            or _residual_aligned_excludes_zero(residual, error))
+    first, w1 = extract_weights(S1, rational=rational)
+    second, w2 = extract_weights(S2, rational=rational)
+    operands = (np.max(np.abs(first), axis=(0, 1)) * np.max(np.abs(w2))
+                + np.max(np.abs(second), axis=(0, 1)) * np.max(np.abs(w1)))
+    operations = 64 * w1.size * w2.size
+    epsilon = operations * np.finfo(float).eps
+    error = (epsilon / (1.0 - epsilon)) * float(operands @ operands)
+    return np.asarray(F) - error
+
+
+def _try_isoline_intersection(first, second, atol, budget):
+    """Use planar or one-variable reductions when the surface charts allow it."""
+    from mmcore.numeric.intersection.ssx._ssx_isolines import try_isoline_ssx, try_plane_coincidence
+    from mmcore.numeric.intersection.ssx._ssx_matched_isolines import try_matched_isoline_ssx
+    from mmcore.numeric.intersection.ssx._ssx5_overlap import try_planar_intersection
+    result = try_planar_intersection(first, second, atol, budget)
+    if result is not None or budget.exhausted:
+        return result
+    result = try_plane_coincidence(first, second, atol, budget)
+    if result is not None or budget.exhausted:
+        return result
+    result = try_isoline_ssx(first, second, atol, budget)
+    if result is not None or budget.exhausted:
+        return result
+    return try_matched_isoline_ssx(first, second, atol, budget)
 
 
 def _prune_ssx_cell(S1_h, S2_h, atol, rational=True, F=None):
-    """Prove a patch pair empty using control hulls and vector residuals.
+    """Return True if this patch pair provably does NOT intersect.
 
-    ``F`` remains accepted for caller compatibility, but its floating
-    squared-distance coefficients are not an exact-zero certificate.
+    Checks:
+    1. AABB non-overlap (Euclidean control points)
+    2. Min-of-net on 4-variate sq-dist Bernstein net
+    3. Lipschitz tightening on sq-dist net
     """
+    # AABB check on Euclidean control points
+    _, S1w = extract_weights(S1_h, rational=rational)
+    _, S2w = extract_weights(S2_h, rational=rational)
+
     if _ssx_control_aabbs_disjoint(S1_h, S2_h, rational=rational):
         return True
-    if not rational:
-        S1_h = np.concatenate([S1_h, np.ones(S1_h.shape[:-1]+(1,))], axis=-1)
-        S2_h = np.concatenate([S2_h, np.ones(S2_h.shape[:-1]+(1,))], axis=-1)
-    return _ssx_residual_excludes_zero(S1_h, S2_h)
+
+    # Sq-dist net pruning
+    if F is None:
+        F = surface_surface_distance_squared_net_homog(
+            S1_h, S2_h, rational=rational)
+    F = _distance_net_lower_bound(S1_h, S2_h, F, rational)
+    sw1 = S1w.ravel()
+    sw2 = S2w.ravel()
+    w_scale = _weight_max_product(sw1, sw2)
+
+    if _check_min_of_net(F, atol, w_scale):
+        return True
+    if _check_lipschitz(F, atol, w_scale):
+        return True
+
+    return False
 
 
 def _aabb_disjoint(S1_h, S2_h, atol):
@@ -657,6 +454,103 @@ def _curve_geometry_collapsed(C, rational=True) -> bool:
     return geometry_collapsed(pts)
 
 
+def _polish_overlap_domain_endpoint(S1, S2, stuv, owner_axis, interval,
+                                    atol, rational):
+    """Move a tolerance fringe back to its curve/domain-edge contact.
+
+    A CSX overlap may end at distance atol outside the target domain.
+    That is useful overlap evidence, but registering the fringe point as
+    an SSX endpoint creates a second crossing beside the actual boundary.
+    When projection clamps a target parameter, resolve a contact between
+    two straight, monotone boundary curves. A general curved edge can have
+    several contacts, so Newton alone cannot choose its nearest endpoint;
+    those spans retain their existing numerical overlap evidence.
+    """
+    original = np.asarray(stuv, dtype=float)
+
+    def monotone_line(surface, axis, side):
+        if side not in (0., 1.):
+            return False
+        controls = np.take(surface, 0 if side == 0. else -1, axis=axis % 2)
+        points = controls[..., :-1]/controls[..., -1:] if rational else controls
+        if len(points) < 2 or not np.isfinite(points).all():
+            return False
+        direction = points[-1]-points[0]
+        squared_length = float(direction @ direction)
+        if squared_length <= 0.:
+            return False
+        positions = (points-points[0]) @ direction/squared_length
+        deviation = points-points[0]-positions[:, None]*direction
+        noise = min(.01*atol, 64.*np.finfo(float).eps*len(points)
+                    * max(float(np.max(np.abs(points))), np.finfo(float).tiny))
+        return bool(np.max(np.linalg.norm(deviation, axis=1)) <= noise
+                    and np.all(np.diff(positions) >= 0.))
+
+    owner_surface = S1 if owner_axis < 2 else S2
+    if not monotone_line(owner_surface, owner_axis, original[owner_axis]):
+        return original
+    other_offset = 2 if owner_axis < 2 else 0
+    fixed = []
+    for axis in (other_offset, other_offset+1):
+        for side in (0., 1.):
+            if abs(original[axis]-side) <= 64.*np.finfo(float).eps:
+                fixed.append((axis, side))
+    if not fixed:
+        return original
+    best = original.copy()
+    best_residual = np.linalg.norm(
+        eval_surface(S1, *best[:2], rational=rational)
+        - eval_surface(S2, *best[2:], rational=rational))
+    lo, hi = sorted(interval)
+    midpoint = lo+.5*(hi-lo)
+    # The two endpoint corrections must not jump across one another or
+    # consume an entire already recovered span. An endpoint that requires
+    # crossing its opposite half needs a new overlap search, not polishing.
+    local_interval = ((lo, midpoint) if original[owner_axis ^ 1] <= midpoint
+                      else (midpoint, hi))
+    for other_axis, side in fixed:
+        other_surface = S2 if owner_axis < 2 else S1
+        if not monotone_line(other_surface, other_axis, side):
+            continue
+        free = [owner_axis ^ 1, other_axis ^ 1]
+        params = original.copy()
+        params[other_axis] = side
+        for _ in range(20):
+            p1, du1, dv1 = eval_surface_d1(S1, *params[:2], rational=rational)
+            p2, du2, dv2 = eval_surface_d1(S2, *params[2:], rational=rational)
+            residual = p1-p2
+            jacobian = np.column_stack((du1, dv1, -du2, -dv2))[:, free]
+            try:
+                step, _, rank, _ = np.linalg.lstsq(jacobian, -residual, rcond=None)
+            except np.linalg.LinAlgError:
+                break
+            if rank != 2 or not np.isfinite(step).all():
+                break
+            advanced = False
+            old_error = float(residual @ residual)
+            for factor in (1., .5, .25, .125, .0625):
+                candidate = params.copy()
+                candidate[free] += factor*step
+                candidate[free[0]] = np.clip(candidate[free[0]], *local_interval)
+                candidate[free[1]] = np.clip(candidate[free[1]], 0., 1.)
+                error = (eval_surface(S1, *candidate[:2], rational=rational)
+                         - eval_surface(S2, *candidate[2:], rational=rational))
+                if float(error @ error) < old_error:
+                    params = candidate
+                    advanced = True
+                    break
+            if not advanced:
+                break
+        error = np.linalg.norm(eval_surface(S1, *params[:2], rational=rational)
+                               - eval_surface(S2, *params[2:], rational=rational))
+        # A clamped descent can reduce the residual without reaching the
+        # boundary contact. It does not justify shortening the overlap.
+        contact_tol = min(.1*atol, _strict_ssx_root_tol(S1, S2, rational=rational))
+        if np.isfinite(error) and error <= contact_tol and error < best_residual:
+            best, best_residual = params, error
+    return best
+
+
 def _weight_net_uniform(S) -> bool:
     """Exact rational-polynomial fast-path predicate."""
     w = np.asarray(S, dtype=np.float64)[..., -1]
@@ -711,47 +605,20 @@ def _canonicalize_collapsed_fiber_params(
 
 
 def _find_ssx_boundary_zeros(
-        S1_h, S2_h, atol, rational=True, csx_fn=None, fiber_sink=None,
-        census_sink=None, root_matcher=None, face_csx_fn=None,
-        source_point_representation=None):
+        S1_h, S2_h, atol, rational=True, csx_fn=None, fiber_sink=None):
     """Find all intersection points and overlaps on the boundary of [0,1]⁴.
 
     Returns (crossings, overlaps).
     """
     crossings = []
     overlaps = []
-    if census_sink is not None:
-        census_sink["complete"] = True
-        census_sink['boundary_obligations'] = []
     if csx_fn is None:
         csx_fn = bez_csx
     if fiber_sink is None:
         fiber_sink = []
 
     def _process_face(iso, other_surf, axis, side, owner_is_s1):
-        def incomplete_face():
-            if census_sink is None:
-                return
-            census_sink['complete'] = False
-            face_box = list(((0.,1.),)*4)
-            face_box[axis if owner_is_s1 else axis+2] = (float(side),float(side))
-            face_box = tuple(face_box)
-            if face_box not in census_sink['boundary_obligations']:
-                census_sink['boundary_obligations'].append(face_box)
-
-        if face_csx_fn is None:
-            result = csx_fn(iso, other_surf, atol=atol, rational=rational,
-                            tolerance_tier=False)
-        else:
-            result = face_csx_fn(iso, other_surf, axis if owner_is_s1 else axis+2,
-                                 float(side), atol=atol, rational=rational,
-                                 tolerance_tier=False)
-        if census_sink is not None and (
-                result.get('budget_exhausted', False)
-                or not result.get('boundary_topology_complete', True)
-                or result.get('overlaps') or result.get('parameter_fibers')
-                or result.get('boundary_seed_proposals')):
-            incomplete_face()
+        result = csx_fn(iso, other_surf, atol=atol, rational=rational)
 
         # A collapsed owner edge produces a positive-dimensional CSX
         # parameter fiber instead of isolated roots. Preserve one typed,
@@ -759,7 +626,7 @@ def _find_ssx_boundary_zeros(
         # after an interior Delta witness identifies the limiting 4-D SSI
         # branch. Dropping this metadata deleted one end of case 14's cone
         # generator, while choosing t=.5 here would be arbitrary/unsound.
-        for fiber in list(result.get('parameter_fibers', [])) + list(result.get('boundary_seed_proposals', [])):
+        for fiber in result.get('parameter_fibers', []):
             u_oth = float(fiber.get('u', 0.5))
             v_oth = float(fiber.get('v', 0.5))
             stuv = _map_csx_to_stuv(
@@ -767,28 +634,15 @@ def _find_ssx_boundary_zeros(
             xyz = np.asarray(fiber.get(
                 'point', eval_curve(iso, 0.5, rational=rational)),
                 dtype=np.float64)
-            if (fiber.get('certification') == 'exact_source_parameter_fiber'
-                    and source_point_representation is not None):
-                # The exact source fiber owns existence. A rounded
-                # normalized proposal net cannot revoke that identity.
-                representation_ok = bool(np.all(np.isfinite(xyz))
-                    and source_point_representation(stuv, xyz))
-            else:
-                p1 = eval_surface(S1_h, stuv[0], stuv[1], rational=rational)
-                p2 = eval_surface(S2_h, stuv[2], stuv[3], rational=rational)
-                representation_ok = bool(np.all(np.isfinite(xyz))
-                    and np.linalg.norm(p1-xyz) <= 2.*atol
-                    and np.linalg.norm(p2-xyz) <= 2.*atol)
-            if not representation_ok:
+            p1 = eval_surface(S1_h, stuv[0], stuv[1], rational=rational)
+            p2 = eval_surface(S2_h, stuv[2], stuv[3], rational=rational)
+            if (float(np.linalg.norm(p1 - xyz)) > 2.0 * atol
+                    or float(np.linalg.norm(p2 - xyz)) > 2.0 * atol):
                 continue
             face_id = axis if owner_is_s1 else axis + 2
-            exact_fiber = fiber.get('certification') != 'numerical_seed_proposal'
-            boundary_seed = BoundaryPoint(
+            fiber_sink.append(BoundaryPoint(
                 stuv=stuv, xyz=xyz, face=(face_id, side),
-                tangent_raw=None, parameter_fiber=exact_fiber)
-            boundary_seed.source_fiber_certificate = fiber.get('source_fiber_certificate')
-            boundary_seed.boundary_seed_proposal = not exact_fiber
-            fiber_sink.append(boundary_seed)
+                tangent_raw=None, parameter_fiber=True))
 
         for iso_pt in result.get('isolated', []):
             t_crv = float(iso_pt['t'])
@@ -805,50 +659,24 @@ def _find_ssx_boundary_zeros(
             # only a roundoff-scale root.  Distinct genuine roots remain
             # distinct; repeated samples collapse in `_dedup_crossings`.
             fixed_axis = axis if owner_is_s1 else axis + 2
-            source_certified = bool(result.get('_ssx_source_residual')
-                                    and iso_pt.get('root_existence_certification'))
-            if source_certified:
-                # The source census has already associated this numerical
-                # representative with an immutable source root enclosure.
-                # A second unconstrained polish on rounded normalized nets
-                # must not switch that association to a different root.
-                polished = raw_stuv
-                pres = float(np.linalg.norm(
-                    eval_surface(S1_h, *stuv[:2], rational=rational)
-                    - eval_surface(S2_h, *stuv[2:], rational=rational)))
-            else:
-                polished, pres, _ = _ssx_correct_fixed(
-                    S1_h, S2_h, stuv,
-                    fixed_axis=fixed_axis, fixed_value=float(side),
-                    rational=rational,
-                )
+            polished, pres, _ = _ssx_correct_fixed(
+                S1_h, S2_h, stuv,
+                fixed_axis=fixed_axis, fixed_value=float(side),
+                rational=rational,
+            )
             # Ledger L45: written accept-if — the reject-if-greater form
             # (`if pres > tol: continue`) ACCEPTED a NaN residual (all NaN
             # comparisons are False), turning one w→0 rational eval into a
             # garbage certified crossing feeding the whole pipeline.
-            xyz = np.asarray(iso_pt.get('point', eval_surface(
-                S1_h, *polished[:2], rational=rational)), dtype=float)
-            if source_certified and source_point_representation is not None:
-                # Existence belongs to the original source certificate.
-                # Normalization can perturb its numerical residual beyond
-                # a roundoff-sized threshold. Validate the displayed point
-                # against both original sources at modeling accuracy;
-                # never let the rounded proposal equations erase the root.
-                representation_ok = bool(np.all(np.isfinite(xyz))
-                    and source_point_representation(polished, xyz))
-            else:
-                representation_ok = (np.isfinite(pres)
+            if not (np.isfinite(pres)
                     and pres <= _strict_ssx_root_tol(
-                        S1_h, S2_h, rational=rational))
-            if not representation_ok:
-                incomplete_face()
+                        S1_h, S2_h, rational=rational)):
                 continue
             stuv = polished
             multiplicity_polished = bool(np.max(np.abs(
                 stuv - raw_stuv)) > 64.0 * np.finfo(float).eps)
-            if not source_certified:
-                xyz = eval_surface(
-                    S1_h, stuv[0], stuv[1], rational=rational)
+            xyz = eval_surface(
+                S1_h, stuv[0], stuv[1], rational=rational)
             # A certified collapsed EDGE is a positive-dimensional
             # parameter fiber, not a regular crossing.  Do not generalize
             # this to every Sigma=0 point: ordinary C1 points can be regular
@@ -857,28 +685,13 @@ def _find_ssx_boundary_zeros(
                     S1_h, stuv[0], stuv[1], rational=rational)
                     or _on_collapsed_boundary_fiber(
                         S2_h, stuv[2], stuv[3], rational=rational)):
-                incomplete_face()
                 continue
             face_id = axis if owner_is_s1 else axis + 2
             tang, _, _ = _ssx_tangent_4d(S1_h, S2_h, stuv[0], stuv[1], stuv[2], stuv[3], rational=rational)
-            root_box = None
-            if iso_pt.get('parameter_root_box') is not None:
-                raw_box = np.asarray(iso_pt['parameter_root_box'], dtype=float)
-                columns = [_map_csx_to_stuv(axis, side, *raw_box[:, edge], owner_is_s1)
-                           for edge in (0, 1)]
-                root_box = np.column_stack(columns)
-            crossing = BoundaryPoint(
+            crossings.append(BoundaryPoint(
                 stuv=stuv, xyz=xyz, face=(face_id, side),
-                tangent_raw=tang, root_box=root_box,
-                multiplicity_polished=multiplicity_polished)
-            if (result.get('_ssx_source_residual') and root_box is not None
-                    and iso_pt.get('root_existence_certification')):
-                crossing._source_root_box = True
-            certificate = iso_pt.get('source_cut_certificate')
-            if certificate is not None and root_matcher is not None:
-                if root_matcher.register_source_root(crossing, certificate):
-                    crossing._source_root_box = True
-            crossings.append(crossing)
+                tangent_raw=tang,
+                multiplicity_polished=multiplicity_polished))
 
         for ovl in result.get('overlaps', []):
             tr = ovl.get('t_range', (0.0, 1.0))
@@ -899,6 +712,11 @@ def _find_ssx_boundary_zeros(
                                       uv_pairs[1][0], uv_pairs[1][1],
                                       owner_is_s1)
             face_id = axis if owner_is_s1 else axis + 2
+            stuv_s = _polish_overlap_domain_endpoint(
+                S1_h, S2_h, stuv_s, face_id, tr, atol, rational)
+            stuv_e = _polish_overlap_domain_endpoint(
+                S1_h, S2_h, stuv_e, face_id, tr, atol, rational)
+            tr = (float(stuv_s[face_id ^ 1]), float(stuv_e[face_id ^ 1]))
             # GEOMETRIC VERIFICATION of the overlap claim (corner-sharing
             # bilinear repro: CSX claimed the whole s=1 edge "overlaps" a
             # SINGLE surface point — t_range (0,1) with degenerate
@@ -984,36 +802,22 @@ def _find_ssx_boundary_zeros(
                 else S2_h[:, 0 if side == 0 else -1, :]
             _process_face(iso, S1_h, s2_axis, side, owner_is_s1=False)
 
-    from mmcore.nurbs._nurbs_param_tol import bez_surface_param_tolerance
-    param_tol = np.array([
-        *bez_surface_param_tolerance(S1_h, atol, rational=rational),
-        *bez_surface_param_tolerance(S2_h, atol, rational=rational),
-    ], dtype=np.float64)
-    if root_matcher is None:
-        from mmcore.numeric.intersection.ssx._ssx_root_identity import BoundaryRootIdentity
-        source_h = tuple(surface if rational else np.concatenate([
-            surface, np.ones(surface.shape[:-1]+(1,))], axis=-1)
-            for surface in (S1_h, S2_h))
-        root_matcher = BoundaryRootIdentity(*source_h)
-    crossings = _dedup_crossings(crossings, atol, param_tol=param_tol,
-                                root_matcher=root_matcher)
-    overlaps = _dedup_overlaps(
-        overlaps, atol, param_tol=param_tol,
-        surface=S1_h, rational=rational)
+    crossings = _dedup_crossings(crossings, atol)
+    overlaps = _dedup_overlaps(overlaps, atol)
 
-    # An overlap endpoint can also have an ordinary branch incident to it.
-    # The overlap owns its own lifted path, not every arc at its endpoint.
-    # Keep these registrations; final path containment coalesces actual
-    # duplicate overlap traces after all incident arcs have been searched.
+    # An overlap endpoint can also start an ordinary interior arc. Keep
+    # its registration available; overlap geometry alone does not cover
+    # the other incident branches.
 
     return crossings, overlaps
 
 
-def _dedup_crossings(crossings, atol, *, param_tol=None, root_matcher=None):
-    """Unify crossings with identical stuv.
+def _dedup_crossings(crossings, atol):
+    """Unify crossings close in both paired parameters and model space.
 
-    Equal representatives or a common-face root identity certificate can
-    identify an event. Parameter tolerance alone cannot. Crossings with close xyz
+    Design §5 Invariant C: two crossings with identical `stuv` (within tolerance)
+    can be unified only when their xyz separation also fits ``atol``: a
+    stretched surface can turn close parameters into distant points. Two crossings with close xyz
     but distinct stuv are legitimate (a self-intersection, a fold, two branches
     crossing in 3-space) and are kept separate.
 
@@ -1023,19 +827,11 @@ def _dedup_crossings(crossings, atol, *, param_tol=None, root_matcher=None):
     if len(crossings) <= 1:
         return crossings
 
-    # Geometric atol has length units; stuv is dimensionless.  Even two
-    # very close parameter roots can belong to distinct, well-separated
-    # branches on a steep patch.  Both guards must identify the same root.
-    ptol = np.full(4, atol) if param_tol is None else np.asarray(param_tol)
     deduped = []
-    for position, c in enumerate(crossings):
-        if getattr(root_matcher, 'exhausted', False):
-            deduped.extend(crossings[position:])
-            break
+    for c in crossings:
         duplicate = next((d for d in deduped
-                          if (root_matcher(c, d, ptol, atol) if root_matcher is not None
-                              else np.array_equal(c.stuv, d.stuv)
-                              and np.linalg.norm(c.xyz - d.xyz) <= atol)), None)
+                          if np.linalg.norm(c.stuv - d.stuv) < atol
+                          and np.linalg.norm(c.xyz - d.xyz) <= atol), None)
         if duplicate is None:
             deduped.append(c)
         else:
@@ -1048,8 +844,7 @@ def _dedup_crossings(crossings, atol, *, param_tol=None, root_matcher=None):
     return deduped
 
 
-def _dedup_overlaps(overlaps, atol, *, param_tol=None,
-                    surface=None, rational=True):
+def _dedup_overlaps(overlaps, atol):
     """Remove duplicate boundary overlaps.
 
     An overlap whose endpoints both lie on boundaries of both surfaces
@@ -1059,25 +854,16 @@ def _dedup_overlaps(overlaps, atol, *, param_tol=None,
     if len(overlaps) <= 1:
         return overlaps
 
-    def same_endpoint(a, b):
-        if not np.array_equal(a, b):
-            return False
-        if surface is None:
-            return True
-        pa = eval_surface(surface, a[0], a[1], rational=rational)
-        pb = eval_surface(surface, b[0], b[1], rational=rational)
-        return np.linalg.norm(pa - pb) <= atol
-
     deduped = []
     for ovl in overlaps:
         is_dup = False
         for d in deduped:
             # Check same direction
-            same = (same_endpoint(ovl.stuv_start, d.stuv_start) and
-                    same_endpoint(ovl.stuv_end, d.stuv_end))
+            same = (np.linalg.norm(ovl.stuv_start - d.stuv_start) < atol and
+                    np.linalg.norm(ovl.stuv_end - d.stuv_end) < atol)
             # Check reversed direction
-            rev = (same_endpoint(ovl.stuv_start, d.stuv_end) and
-                   same_endpoint(ovl.stuv_end, d.stuv_start))
+            rev = (np.linalg.norm(ovl.stuv_start - d.stuv_end) < atol and
+                   np.linalg.norm(ovl.stuv_end - d.stuv_start) < atol)
             if same or rev:
                 is_dup = True
                 break
@@ -1110,10 +896,8 @@ def _check_monotonicity(T1, T2, T3, T4):
         T_arr = _tpsi_to_numpy(T)
         t_min = float(np.min(T_arr))
         t_max = float(np.max(T_arr))
-        # Nonzero one-sign Bernstein coefficients imply a strict sign in
-        # the cell interior. An identically zero minor says only that one
-        # coordinate is constant; it does not rule out a closed fiber in
-        # the other coordinates when a surface chart is singular.
+        # Non-negative or non-positive → no sign change → monotonic
+        # (touching zero at a boundary is not a sign change)
         if (t_min >= 0 and t_max > 0) or (t_max <= 0 and t_min < 0):
             return True, i
     return False, None
@@ -1194,10 +978,10 @@ def _check_tangency(
         if ok:
             return True  # Found a tangent point
 
-        # A failed local witness is inconclusive even with large residual;
-        # its basin says nothing about another root elsewhere in the box.
+        # If Gauss-Newton didn't converge but residual is very large,
+        # it's clearly not tangent — no need for expensive Krawczyk
         if fn > 1.0:
-            return None
+            return False
 
         return None  # Undetermined — let domain decomposition handle it
 
@@ -1331,70 +1115,127 @@ def _delta_roots_curve_like(roots, exhausted):
     return len(roots) > 12 or (exhausted and len(roots) > 1)
 
 
-def _canonicalize_tangent_candidates(cell, roots):
-    """Generate independently proved source roots from numerical proposals."""
-    propose = getattr(cell, 'source_singular_candidate', None)
-    if propose is None:
-        return roots
-    corrected = []
-    for root in roots:
-        global_root = _local_to_global(np.asarray(root), cell.box)
-        candidate = propose(global_root)
-        if candidate is not None and all(lo <= candidate[k] <= hi
-                                         for k, (lo, hi) in enumerate(cell.box)):
-            local = _global_to_local(candidate, cell.box)
-            if np.array_equal(_local_to_global(local, cell.box), candidate):
-                root = local
-        corrected.append(root)
-    return corrected
+def _stuv_in_overlap_boxes(stuv_g, overlap_boxes):
+    """Ledger L6(ii): True if the GLOBAL 4D point lies inside any detected
+    overlap region's parametric box (see `_overlap_region_boxes`)."""
+    if not overlap_boxes:
+        return False
+    p = np.asarray(stuv_g, dtype=np.float64)
+    return any(bool(np.all(p >= B[:, 0]) and np.all(p <= B[:, 1]))
+               for B in overlap_boxes)
 
 
-def _record_unproved_tangent(cell, stuv):
-    """A small overdetermined residual is a candidate, not root existence."""
-    source_singular = getattr(cell, 'source_singular_candidate', None)
-    if source_singular is not None:
-        candidate = source_singular(stuv)
-        if candidate is not None and np.array_equal(candidate, stuv):
-            return True
-    else:
-        exact_root = getattr(cell, 'source_root_exact', None)
-        if exact_root is not None and exact_root(stuv):
-            return True
-    budget = getattr(cell, 'work_budget', None)
-    if budget is not None:
-        budget.structural_sites.append((REASON_MULTIPLICITY, np.asarray(stuv).copy()))
-        budget.mark_incomplete(REASON_MULTIPLICITY)
-        diagnostics = getattr(cell, 'unresolved_regions', None)
-        if diagnostics is not None:
-            budget.append_output(diagnostics, {
-                'stuv_min': tuple(float(lo) for lo, hi in cell.box),
-                'stuv_max': tuple(float(hi) for lo, hi in cell.box),
-                'reason': REASON_MULTIPLICITY,
-                'candidate': tuple(float(value) for value in stuv),
-                'candidate_kind': 'tangent_point',
-                'source_existence': False,
-            }, 'unresolved_region')
-    return False
+def _overlap_region_boxes(boundary_overlaps, S1_h, atol, unify_tol):
+    """Ledger L6(ii): padded 4D parametric AABBs of the detected coplanar
+    overlap REGIONS, for suppressing tangent_point emission in their
+    interior (paper Fig. 8: the overlap interior is a 2-dimensional C2 set;
+    every point of it is a Δ-root, so any witness converging there emits a
+    phantom "isolated" touch — measured: plane_patch(0,2) vs
+    plane_patch(1,3) emitted the strip's dead center (0.75,0.5,0.25,0.5)).
+
+    The overlap machinery stores only the region's BOUNDARY segments
+    (`BoundaryOverlap` start/end stuv from the 8 boundary-CSX calls), not
+    region boxes — reconstruct minimally: group segments into connected
+    components (endpoints within the matching ladder: per-axis unify_tol
+    AND xyz <= 2*atol), then take each component's stuv AABB padded by
+    unify_tol per axis. For a partial-overlap strip the component box IS
+    the strip's parametric box (the boundary segments span it).
+
+    Known limits (accepted, documented): (a) segment (u,v)-images are taken
+    from endpoints only — a strongly curved overlap boundary can bulge
+    outside the endpoint AABB and under-suppress; (b) a genuine isolated
+    touch inside the AABB of a non-convex overlap region but outside the
+    region itself would be over-suppressed (geometrically exotic: the
+    surfaces already coincide on the region); (c) legacy overlap
+    bookkeeping can store corrupt other-surface stuv (the L3 4-vs-2 gap),
+    which skews those axes' extents. All three degrade toward the
+    PRE-EXISTING behaviors (phantom kept / point subsumed), never corrupt
+    branch geometry.
+    """
+    if not boundary_overlaps:
+        return []
+    segs = []
+    for ovl in boundary_overlaps:
+        a = np.asarray(ovl.stuv_start, dtype=np.float64)
+        b = np.asarray(ovl.stuv_end, dtype=np.float64)
+        axyz = eval_surface(S1_h, a[0], a[1], rational=True)
+        bxyz = eval_surface(S1_h, b[0], b[1], rational=True)
+        segs.append((a, b, axyz, bxyz))
+    n = len(segs)
+    parent = list(range(n))
+
+    def _find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def _ends_match(pa, pxyz, qa, qxyz):
+        return (np.all(np.abs(pa - qa) <= unify_tol)
+                and float(np.linalg.norm(pxyz - qxyz)) <= 2.0 * atol)
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            ia, ib, iaxyz, ibxyz = segs[i]
+            ja, jb, jaxyz, jbxyz = segs[j]
+            if (_ends_match(ia, iaxyz, ja, jaxyz) or _ends_match(ia, iaxyz, jb, jbxyz)
+                    or _ends_match(ib, ibxyz, ja, jaxyz)
+                    or _ends_match(ib, ibxyz, jb, jbxyz)):
+                parent[_find(i)] = _find(j)
+
+    comps: dict = {}
+    for i in range(n):
+        comps.setdefault(_find(i), []).append(i)
+    boxes = []
+    for idxs in comps.values():
+        pts = np.array([p for i in idxs for p in (segs[i][0], segs[i][1])])
+        B = np.stack([pts.min(axis=0) - unify_tol,
+                      pts.max(axis=0) + unify_tol], axis=1)   # (4, 2)
+        boxes.append(B)
+    return boxes
 
 
 def _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
                         *, enumerate_all=True, overlap_boxes=None,
                         defer_inconclusive=False):
-    """Collect candidate Delta roots without merging nearby preimages.
+    """Run the Δ = Ψ ∩ TΨ witness on a tangent cell and emit every distinct
+    root as a 'tangent_point' singularity into `all_singularities`.
 
-    Local numerical rank and continuation classify candidate singular
-    points versus curve samples. They do not prove exhaustion of the
-    parameter cell. The caller retains complement search obligations.
-    Only identical lifted parameters coalesce repeated point outputs.
+    Shared by all THREE tangency emission sites of the subdivision loop —
+    crossing-less (isolated touches), loop-free with all-four T hulls
+    containing 0 (touches ON the subdivision cut lattice), and
+    crossing-bearing (tangent cell whose boundary transversal arms pierce;
+    passes enumerate_all=False, see _tangency_witness). The same physical
+    touch is re-confirmed by neighbor cells, by tangent descendants at
+    several depths, and possibly by several arms; the dedup
+    (matching-ladder: unify_tol per-axis box AND 2·atol xyz) collapses all
+    re-confirmations onto ONE emitted point per touch.
 
-    ``overlap_boxes`` is retained for private-call compatibility; independent
-    parameter projections never establish paired-region membership and
-    cannot suppress a witness. Exact complete planar regions are handled
-    before generic singular search.
+    Two emission suppressions (ledger L6), neither affecting the return:
+
+    - 1-dim Δ-sets: when the full enumeration carries the curve signature
+      (`_delta_roots_curve_like`: > 12 roots, or exhausted with several),
+      the roots are ptol-ladder samples of a tangent CURVE, not isolated
+      touches — emit NOTHING and let the caller's fall-through subdivide;
+      the deflation/tracing machinery owns 1-dim tangencies (descendants
+      become crossing-bearing and Φ-trace the curve as a `tangential`
+      branch that legitimately subsumes any residual on-curve witness).
+    - overlap interiors: a root inside a detected coplanar overlap
+      region's parametric box (`overlap_boxes` from
+      `_overlap_region_boxes`) is a sample of a 2-dimensional C2 set the
+      overlap branches already report — skip it (paper Fig. 8; the strip
+      interior is far from every overlap boundary POLYLINE, so the
+      post-assembly subsumption filter cannot catch it).
+
+    Returns `(ok, roots)`: `ok` from `_tangency_witness` (True iff at least
+    one converged witness exists — the crossing-less arm's size gate needs
+    it) and the LOCAL witness points — Task 5's Φ∩L seeding consumes
+    `roots[0]` in the crossing-less arm (`_choose_phi_equations` seed).
+    Suppressed roots stay in `roots`: they are genuine Δ-roots and valid
+    seeds; only their typing as isolated points is wrong.
     """
     ok, roots, _fn, exhausted = _tangency_witness(
         cell, atol, enumerate_all=enumerate_all)
-    roots = _canonicalize_tangent_candidates(cell, roots)
     if exhausted and cell.work_budget is not None:
         # A locally capped 0/1-root enumeration is still partial; only the
         # root itself is certified, not the absence of another Delta root.
@@ -1435,7 +1276,10 @@ def _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
                     # result schema cannot represent yet (case-12 class);
                     # elsewhere it is a genuine multiplicity ambiguity.
                     _root_g = _local_to_global(np.asarray(root), cell.box)
-                    _r_reason = REASON_MULTIPLICITY
+                    _r_reason = (
+                        REASON_OVERLAP_REGION if _stuv_in_overlap_boxes(
+                            _root_g, overlap_boxes)
+                        else REASON_MULTIPLICITY)
                     cell.work_budget.structural_sites.append(
                         (_r_reason, _root_g.copy()))
                     cell.work_budget.mark_incomplete(_r_reason)
@@ -1445,6 +1289,8 @@ def _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
         typed_roots = classified
     for xw in typed_roots:
         stuv_g = _local_to_global(np.asarray(xw), cell.box)
+        if _stuv_in_overlap_boxes(stuv_g, overlap_boxes):
+            continue
         if (_on_collapsed_boundary_fiber(
                 cell.g1.surface, xw[0], xw[1], rational=True,
                 param_tol=float(max(local_ptol4[0], local_ptol4[1])))
@@ -1458,11 +1304,10 @@ def _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
             continue
         if _normals_degenerate_at(cell.g1.surface, cell.g2.surface, xw):
             continue    # L15: Sigma=0 root — C1 candidate, not a C2 touch
-        if not _record_unproved_tangent(cell, stuv_g):
-            continue
         xyz_w = eval_surface(cell.g1.surface, xw[0], xw[1], rational=True)
         if not any(g.kind == "tangent_point"
-                   and np.array_equal(g.stuv, stuv_g)
+                   and np.all(np.abs(g.stuv - stuv_g) <= unify_tol)
+                   and float(np.linalg.norm(g.xyz - xyz_w)) <= 2.0 * atol
                    for g in all_singularities):
             item = SSXSingularity(
                 kind="tangent_point", stuv=stuv_g, xyz=xyz_w)
@@ -1486,6 +1331,18 @@ def _normals_degenerate_at(S1h, S2h, x4) -> bool:
     crossing is TRANSVERSAL (bilinear cone apex vs plane). A vanishing
     normal is a C1 parameterization-cusp candidate, not a C2 tangency —
     c1_pass reports it as cusp/cusp_curve with its `surface` tag."""
+    # A collapsed interior isoline is a positive-dimensional preimage of
+    # one point, just like a collapsed boundary edge. Evaluating its zero
+    # derivative can leave a roundoff-sized vector with an arbitrary
+    # direction, so a relative angle test alone can mislabel it as C2.
+    # Use the same control-polygon collapse test as the boundary-fiber path;
+    # this recognizes the C1 geometry without imposing a normal-size cutoff
+    # on otherwise regular, poorly conditioned charts.
+    for surface, parameters in ((S1h, x4[:2]), (S2h, x4[2:])):
+        for axis, value in enumerate(parameters):
+            if _curve_geometry_collapsed(
+                    _extract_isoline(surface, axis, value), rational=True):
+                return True
     _, du1, dv1 = eval_surface_d1(S1h, x4[0], x4[1], rational=True)
     _, du2, dv2 = eval_surface_d1(S2h, x4[2], x4[3], rational=True)
     n1 = float(np.linalg.norm(np.cross(du1, dv1)))
@@ -1843,13 +1700,14 @@ def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
     With no fragments (nothing traced), this degrades to the plain
     budget-bounded full enumeration.
 
-    This is only a singular-locus census.  It says nothing about ordinary
-    components where some T minor is nonzero.  Its caller must keep that
-    complement in the ordinary subdivision frontier, even after tracing a
-    complete tangent curve.  Descendants avoid repeating this same census.
+    This enumeration recovers only Δ-roots (tangencies). It cannot find a
+    coexisting regular component that does not lie on Δ, such as a closed
+    transversal loop. The caller therefore retains the ordinary remainder
+    search after this pass; finding a tangent component does not resolve
+    the whole cell.
     """
     from mmcore.numeric.intersection.ssx._ssx5_singular import (
-        VectorBoxNet, psi_vector_net, solve_zero_dim,
+        ShiftedPositiveNet, VectorBoxNet, psi_vector_net, solve_zero_dim,
     )
 
     ptol4 = _cell_ptol4(cell, atol)
@@ -1939,9 +1797,19 @@ def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
 
         G = psi_vector_net(cell.g1.surface, cell.g2.surface)
         nets = []
-        # A floating squared-distance net cannot certify exclusion here:
-        # its Gram-product roundoff can exceed even a small atol**2 shift.
-        # Keep the unsquared necessary equations throughout enumeration.
+        if cell.F_sq is not None:
+            # One-sided sq-dist exclusion (same threshold as
+            # _check_min_of_net): kills the off-tube boxes where individual
+            # Ψ-component hulls are weak — e.g. crossed saddles share their
+            # xy control layout, so Ψ_x = Ψ_y = 0 on a whole 2-dim diagonal
+            # set and the component nets exclude almost nothing there
+            # (measured: 1069 interval-GN attempts, 6.2 s, without this
+            # net; a handful with it). Listed FIRST: it is the strongest
+            # off-tube pruner and `any()` short-circuits.
+            thresh = (atol * cell.w_scale) ** 2
+            nets.append(ShiftedPositiveNet(
+                np.asarray(cell.F_sq, dtype=np.float64)[..., None] - thresh,
+                axes=(0, 1, 2, 3)))
         # Ψ components and the elevated T stack ride as vector bundles:
         # identical exclusion semantics to seven scalar BoxNets, one
         # de Casteljau split each per box instead of seven total.
@@ -1977,7 +1845,6 @@ def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
         # outlier.  Rank+continuation suppresses only the locally 1-D roots.
         pass
 
-    sols = _canonicalize_tangent_candidates(cell, sols)
     isolated_sols = []
     for sol in sols:
         local_dimension = _delta_root_local_dimension(
@@ -1992,7 +1859,10 @@ def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
         # budget denial): never turn ambiguity into a false isolated point.
         if cell.work_budget is not None:
             _sol_g = _local_to_global(np.asarray(sol), cell.box)
-            _s_reason = REASON_MULTIPLICITY
+            _s_reason = (
+                REASON_OVERLAP_REGION if _stuv_in_overlap_boxes(
+                    _sol_g, overlap_boxes)
+                else REASON_MULTIPLICITY)
             cell.work_budget.structural_sites.append(
                 (_s_reason, _sol_g.copy()))
             cell.work_budget.mark_incomplete(_s_reason)
@@ -2000,6 +1870,8 @@ def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
 
     for xw in sols:
         stuv_g = _local_to_global(np.asarray(xw), cell.box)
+        if _stuv_in_overlap_boxes(stuv_g, overlap_boxes):
+            continue
         if (_on_collapsed_boundary_fiber(
                 cell.g1.surface, xw[0], xw[1], rational=True,
                 param_tol=float(max(ptol4[0], ptol4[1])))
@@ -2009,11 +1881,10 @@ def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
             continue
         if _normals_degenerate_at(cell.g1.surface, cell.g2.surface, xw):
             continue    # L15: Sigma=0 root — C1 candidate, not a C2 touch
-        if not _record_unproved_tangent(cell, stuv_g):
-            continue
         xyz_w = eval_surface(cell.g1.surface, xw[0], xw[1], rational=True)
         if not any(g.kind == "tangent_point"
-                   and np.array_equal(g.stuv, stuv_g)
+                   and np.all(np.abs(g.stuv - stuv_g) <= unify_tol)
+                   and float(np.linalg.norm(g.xyz - xyz_w)) <= 2.0 * atol
                    for g in all_singularities):
             item = SSXSingularity(
                 kind="tangent_point", stuv=stuv_g, xyz=xyz_w)
@@ -2035,6 +1906,74 @@ def _dist_point_polyline(pxyz, poly):
     tt = np.clip(np.einsum("ij,ij->i", ap, ab) / denom, 0.0, 1.0)
     proj = a + tt[:, None] * ab
     return float(np.linalg.norm(proj - pxyz[None, :], axis=1).min())
+
+
+def _point_on_branch_both_guards(pxyz, pstuv, poly_xyz, poly_stuv,
+                                 atol, unify_tol, S1_h, S2_h):
+    """Both-guards ON-a-branch test (ledger L3, module tolerance-ladder
+    convention: a parametric box is not a metric ball, and 3D proximity is
+    not 4D identity). True iff SOME polyline location is close to the point
+    in BOTH spaces:
+
+    - xyz: point-to-segment distance <= 4*atol (the branch polyline is a
+      chorded approximation — on-curve points sit up to the 2*atol sagitta
+      off it), AND
+    - stuv: per-axis |pstuv - stuv interpolated at that SAME segment
+      location| <= 2*unify_tol (= 8*ptol/axis: the witness and the traced
+      samples are each ~ptol-accurate, and the polyline's stuv chord
+      interpolation adds the stuv-space sagitta).
+
+    All xyz-close segments are tested, not just the single nearest one — a
+    closed/looping polyline can pass the same xyz neighborhood twice (once
+    parameter-near, once parameter-far), and keying on whichever pass is
+    marginally nearer would make subsumption order-dependent.
+
+    Without the stuv guard a certified touch whose 4D preimage is FAR from
+    the branch's preimage was deleted on 3D proximity alone (skew ruled
+    patch: touch at (u,v)=(0.8,0.5) sits 3*atol in xyz from the u=0 overlap
+    isoline but du=0.8 away in parameters, with a 640*atol z-wall between
+    the sheets -> `singularities == []`).
+
+    The bookkeeping self-check validates the branch's stored preimages.
+    Both segment vertices must evaluate (on
+    BOTH full surfaces S1_h/S2_h, homogeneous) to within 2*atol of their
+    stored xyz. Marched/assembled branches always pass (their xyz IS the
+    S1 eval and |S1-S2| <= atol at kept samples; measured 1.8e-13 on the
+    skew-ruled overlap). Legacy boundary-overlap branches can carry
+    corrupted other-surface params (the known-broken 4-vs-2 overlap
+    bookkeeping: stored v=0.5 where the true preimage is 1.0, off by
+    ~1e5*atol). Such a segment cannot establish that a separate point is
+    already represented. Keep the point if those preimages are unreliable.
+    """
+    a = poly_xyz[:-1]
+    b = poly_xyz[1:]
+    ab = b - a
+    ap = pxyz[None, :] - a
+    denom = np.einsum("ij,ij->i", ab, ab)
+    denom = np.where(denom < 1e-30, 1e-30, denom)
+    tt = np.clip(np.einsum("ij,ij->i", ap, ab) / denom, 0.0, 1.0)
+    proj = a + tt[:, None] * ab
+    d = np.linalg.norm(proj - pxyz[None, :], axis=1)
+    close = np.nonzero(d <= 4.0 * atol)[0]
+    if close.size == 0:
+        return False
+    for k in close:
+        consistent = True
+        for vtx in (k, k + 1):
+            p1 = eval_surface(S1_h, poly_stuv[vtx, 0], poly_stuv[vtx, 1],
+                              rational=True)
+            p2 = eval_surface(S2_h, poly_stuv[vtx, 2], poly_stuv[vtx, 3],
+                              rational=True)
+            if (float(np.linalg.norm(p1 - poly_xyz[vtx])) > 2.0 * atol
+                    or float(np.linalg.norm(p2 - poly_xyz[vtx])) > 2.0 * atol):
+                consistent = False
+                break
+        if not consistent:
+            continue
+        stuv_near = poly_stuv[k] + tt[k] * (poly_stuv[k + 1] - poly_stuv[k])
+        if bool(np.all(np.abs(stuv_near - pstuv) <= 2.0 * unify_tol)):
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -2218,6 +2157,22 @@ _MARCH_MAX_BOX_TRAVERSALS = 4.0
 _MARCH_PROGRESS_WINDOW = 32
 _MARCH_PROGRESS_RATIO = 8.0
 
+# Dimensionless factor converting an estimated chord SAGITTA into
+# the slack a containment predicate must grant a polyline that carries it.
+# A chord is not the curve: the marcher may leave a sagitta of up
+# to `sag_tol = 2*atol`, so any predicate measuring a chord against the
+# curve is measuring discretization and must price it. This is not a
+# tolerance — it multiplies an operand measured from the geometry, so a
+# finely sampled polyline keeps a tight bar and only a coarse one earns a
+# loose one.
+#
+# CONTAINMENT: the duplicate test measures samples that lie ON the curve
+# against a KEEPER'S POLYLINE, so the gap it sees is the keeper's sagitta
+# (measured 9.602e-4 observed vs 9.620e-4 true — they agree). The factor
+# covers `_polyline_sagitta_bound`'s underestimate, measured at 0.63-1.00
+# of the true value.
+_CONTAINMENT_SAGITTA_CREDIT = 4.0
+
 
 _NORM_IDENTITY_WINDOW = (2.0 ** -5, 2.0 ** 5)
 
@@ -2293,9 +2248,8 @@ def _ssx_normalization_context(S1, S2, rational=True):
 def _normalize_surface_net(S, c, k, rational=True):
     """Map a control net into the canonical frame: x' = (x - c) / k.
 
-    Rational nets transform homogeneously (numerator -= c*w, then /k).
-    Floating point multiplication and subtraction can round coefficients;
-    callers retain the supplied source nets for exact identity predicates.
+    Rational nets transform homogeneously (numerator -= c*w, then /k), so
+    Cartesian points map exactly as above while weights stay untouched.
     Always returns a copy; the caller's world-frame net is never mutated.
     """
     S = np.asarray(S, dtype=np.float64).copy()
@@ -2352,6 +2306,7 @@ def _march_intersection_curve(
     atol=1e-3,
     rational=True,
     h_max=None,
+    sag_tol=None,
     min_step=1e-6,
     max_step=0.25,
     angle_threshold=0.1,   # radians — target angle between consecutive tangents
@@ -2390,7 +2345,8 @@ def _march_intersection_curve(
     xyz_start = eval_surface(S1, stuv_start[0], stuv_start[1], rational=rational)
     xyz_pts = [xyz_start]
 
-    sag_tol = 2.0 * atol
+    if sag_tol is None:
+        sag_tol = 2.0 * atol
     if h_max is None:
         h_max = max(0.05 * _local_diag(S1, rational=rational), 4.0 * atol)
     h = 0.25 * h_max
@@ -2544,12 +2500,11 @@ def _march_intersection_curve(
 def _promote_transversal_boundary_fiber_pair(
         S1, S2, fibers, ordinary_crossings, overlaps, *,
         atol, unify_tol, h_max, max_points=512):
-    """Turn one unresolved collapsed-boundary seed pair into branch proposals.
+    """Turn one certified collapsed-fiber pair into regular branch seeds.
 
-    An exact collapsed edge has infinitely many parameter preimages for
-    one xyz endpoint. Nearcollapsed edges may supply explicitly numerical
-    seeds instead. Two such endpoints can suggest a regular, transversal
-    SSI component. This helper is deliberately conservative:
+    A collapsed boundary edge has infinitely many parameter preimages for
+    one xyz endpoint.  Two such fibers can nevertheless bound a regular,
+    transversal SSI component.  This helper is deliberately conservative:
     it only promotes the pair after a corrected interior witness and a
     contiguous, residual-checked march reaches both canonical endpoints.
 
@@ -2673,7 +2628,7 @@ def _promote_transversal_boundary_fiber_pair(
         canonical_stuv.append(stuv)
         promoted.append(BoundaryPoint(
             stuv=stuv, xyz=xyz, face=fiber.face,
-            tangent_raw=tangent, parameter_fiber=fiber.parameter_fiber))
+            tangent_raw=tangent, parameter_fiber=True))
 
     # Connectivity is not inferred from a midpoint alone: require one
     # bounded continuation to reach the second canonical endpoint and check
@@ -3129,35 +3084,6 @@ def _mid_chord_deviates(S1, S2, stuv_a, stuv_b, xyz_a, xyz_b, atol, sag_tol,
     return float(np.linalg.norm(a3 + tt * ab - xm)) > sag_tol
 
 
-def _mid_chord_sagitta(S1, S2, stuv_a, stuv_b, xyz_a, xyz_b, atol, rational):
-    """Measured chord sagitta, or None when the midpoint correction is
-    unreliable.
-
-    Same quantity `_mid_chord_deviates` compares against `sag_tol`, returned
-    as a number. A polyline vertex lies ON the curve; its chords do not, and
-    the marcher is explicitly ALLOWED to leave them a sagitta of up to
-    `sag_tol = 2*atol`. Any downstream predicate that measures a chord
-    against the curve is therefore measuring discretization, and must size
-    its envelope by this value rather than assume the chord is exact.
-    """
-    mid = 0.5 * (np.asarray(stuv_a, dtype=np.float64)
-                 + np.asarray(stuv_b, dtype=np.float64))
-    ms, mt, mu, mv, mres, msin = _ssx_correct(S1, S2, *mid, rational=rational)
-    # Accept-if (ledger L45): an unreliable correction measures nothing, so
-    # it earns no discretization credit — the conservative direction.
-    if not (np.isfinite(mres) and mres <= atol * max(msin, 1e-3)):
-        return None
-    xm = eval_surface(S1, ms, mt, rational=rational)
-    a3 = np.asarray(xyz_a, dtype=np.float64)
-    b3 = np.asarray(xyz_b, dtype=np.float64)
-    ab = b3 - a3
-    denom = float(np.dot(ab, ab))
-    if denom < 1e-30:
-        return None
-    tt = float(np.clip(np.dot(xm - a3, ab) / denom, 0.0, 1.0))
-    return float(np.linalg.norm(a3 + tt * ab - xm))
-
-
 def _polyline_sagitta_bound(xyz) -> float:
     """Sagitta a polyline carries, estimated from its OWN turn angles.
 
@@ -3261,6 +3187,18 @@ def _march_to_boundary(
         iterations += 1
         step = max(min_step, min(max_step, h / max(speed, 1e-12)))
         predicted = current + step * tang_prev
+        # A branch may lie along a cell face. Roundoff in its null vector
+        # must not turn a face-following step into an immediate exit from
+        # that same face. Only snap drift at machine precision; a geometric
+        # crossing still goes through the fixed-face corrector below.
+        face_roundoff = 64. * np.finfo(float).eps
+        for axis in range(4):
+            if (abs(current[axis]) <= face_roundoff
+                    and -face_roundoff <= predicted[axis] < 0.):
+                predicted[axis] = 0.
+            elif (abs(current[axis]-1.) <= face_roundoff
+                    and 1. < predicted[axis] <= 1.+face_roundoff):
+                predicted[axis] = 1.
 
         crossed_axis, crossed_val, crossed_alpha = _detect_boundary_crossing(
             current, predicted)
@@ -3619,6 +3557,7 @@ def _march_phi_curve(
     atol=1e-3,
     rational=True,
     h_max=None,
+    sag_tol=None,
     min_step=1e-6,
     max_step=0.25,
     angle_threshold=0.1,
@@ -3638,7 +3577,8 @@ def _march_phi_curve(
     xyz_start = eval_surface(S1, stuv_start[0], stuv_start[1], rational=rational)
     xyz_pts = [xyz_start]
 
-    sag_tol = 2.0 * atol
+    if sag_tol is None:
+        sag_tol = 2.0 * atol
     if h_max is None:
         h_max = max(0.05 * _local_diag(S1, rational=rational), 4.0 * atol)
     h = 0.25 * h_max
@@ -4497,6 +4437,16 @@ def _phi_slice_loop_fragments(cell, roots, atol, h_max, all_singularities):
                 if frag is not None or phantom:
                     break
         if frag is not None:
+            if not frag.tangential:
+                # A seed slightly off a repeated root can select the Psi
+                # backend even though its completed path lies on the
+                # tangent locus. Measure the whole path before publishing
+                # its kind; otherwise a longer numerical retrace can erase
+                # correctly typed tangent pieces during containment dedup.
+                kind_work = max(1, len(frag.stuv_path))
+                if (cell.work_budget is None or cell.work_budget.charge_cells(
+                        kind_work, "singular_kind")):
+                    frag.tangential = _fragment_on_tangent_locus(cell, frag, atol)
             fragments.append(frag)
     return fragments
 
@@ -4523,10 +4473,8 @@ def _deflate_tangent_cell(S1, S2, T1, T2, T3, T4, box, crossings, atol,
     points: list[SSXPoint] = []
 
     if len(crossings) < 2:
-        for index, c in enumerate(crossings):
-            # Tracing receives cell-local parameters, while all public
-            # points use the original registered global coordinates.
-            points.append(_registered_point(originals[index] if originals is not None else c))
+        for c in crossings:
+            points.append(SSXPoint(stuv=c.stuv, xyz=c.xyz))
         return fragments, points
 
     pairs, unpaired = _pair_crossings_for_tracing(crossings, originals=originals, cell=cell)
@@ -4564,29 +4512,6 @@ def _deflate_tangent_cell(S1, S2, T1, T2, T3, T4, box, crossings, atol,
         accepted_indices = None
         forward_start = np.asarray(crossings[i].stuv, dtype=np.float64)
         forward_target = np.asarray(crossings[j].stuv, dtype=np.float64)
-        # High-order tangency can have an arbitrarily small residual far
-        # from the zero locus. Use exact source inclusion when it proves a
-        # straight isocurve, before attempting singular continuation.
-        exact_path = None
-        source_path = getattr(cell, 'straight_path', None)
-        if source_path is not None and originals is not None:
-            global_path = source_path(originals[i].stuv, originals[j].stuv)
-            if global_path is not None:
-                local_path = np.asarray([_global_to_local(p, cell.box)
-                                         for p in global_path[0]])
-                returned_path = np.asarray([_local_to_global(p, cell.box) for p in local_path])
-                if np.array_equal(returned_path, global_path[0]):
-                    exact_path = (local_path, global_path[1])
-        elif cell is None:
-            from mmcore.numeric.intersection.ssx._ssx_affine_path import certified_straight_isocurve_path
-            exact_path = certified_straight_isocurve_path(
-                S1, S2, forward_start, forward_target, atol, rational)
-        if exact_path is not None:
-            fragments.append(_Fragment(
-                start_point=originals[i] if originals is not None else None,
-                end_point=originals[j] if originals is not None else None,
-                stuv_path=exact_path[0], xyz_path=exact_path[1], tangential=True))
-            continue
 
         def _valid_endpoint_path(stuv_path, xyz_path, target):
             if len(stuv_path) < 2:
@@ -4612,6 +4537,9 @@ def _deflate_tangent_cell(S1, S2, T1, T2, T3, T4, box, crossings, atol,
         # three surface-residual equations.  The regulated Phi fallback is
         # still required for harder singularities (notably case 14), where
         # the rank-deficient Psi continuation cannot choose the branch.
+        # Retained tangent paths also guide later remainder searches. Match
+        # the closed-loop marcher's half-atol chord budget so an on-curve
+        # witness remains within the coverage predicate's atol of the path.
         for start_idx, target_idx in ((i, j), (j, i)):
             start = np.asarray(
                 crossings[start_idx].stuv, dtype=np.float64)
@@ -4628,6 +4556,7 @@ def _deflate_tangent_cell(S1, S2, T1, T2, T3, T4, box, crossings, atol,
             stuv_path, xyz_path = _march_intersection_curve(
                 S1, S2, start, target,
                 atol=atol, rational=rational, h_max=h_max,
+                sag_tol=0.5 * atol,
                 max_points=trace_limit, stats=trace_stats,
             )
             if cell is not None and cell.work_budget is not None:
@@ -4684,6 +4613,7 @@ def _deflate_tangent_cell(S1, S2, T1, T2, T3, T4, box, crossings, atol,
                     stuv_path, xyz_path = _march_phi_curve(
                         S1, S2, T_arrs[t_idx], psi_rows, start, target,
                         atol=atol, rational=rational, h_max=h_max,
+                        sag_tol=0.5 * atol,
                         max_points=trace_limit, stats=trace_stats,
                     )
                     if cell is not None and cell.work_budget is not None:
@@ -4718,7 +4648,7 @@ def _deflate_tangent_cell(S1, S2, T1, T2, T3, T4, box, crossings, atol,
 
     for k in unpaired:
         src = originals[k] if originals is not None else crossings[k]
-        points.append(_registered_point(src))
+        points.append(SSXPoint(stuv=src.stuv, xyz=src.xyz))
 
     return fragments, points
 
@@ -4817,16 +4747,31 @@ def newton_ssx(
 def _overlaps_to_branches(boundary_overlaps, S1, atol, rational):
     """Convert BoundaryOverlap objects to SSXBranch with overlap=True.
 
-    Preserve each owned boundary arc, including coincident approximations.
-    Only repeated references to the same BoundaryOverlap are duplicates.
+    Filters zero-length overlaps and deduplicates overlaps that
+    represent the same 3D geometry (same start/end points in space).
     """
-    branches, seen = [], set()
+    branches = []
     for ovl in boundary_overlaps:
-        if id(ovl) in seen:
-            continue
-        seen.add(id(ovl))
         xyz_start = eval_surface(S1, ovl.stuv_start[0], ovl.stuv_start[1], rational=rational)
         xyz_end = eval_surface(S1, ovl.stuv_end[0], ovl.stuv_end[1], rational=rational)
+
+        # Skip zero-length overlaps
+        if np.linalg.norm(xyz_start - xyz_end) < atol:
+            continue
+
+        # Check if we already have an overlap with the same 3D endpoints
+        is_dup = False
+        for b in branches:
+            _, existing_xyz = b.curve
+            same = (np.linalg.norm(xyz_start - existing_xyz[0]) < atol and
+                    np.linalg.norm(xyz_end - existing_xyz[-1]) < atol)
+            rev = (np.linalg.norm(xyz_start - existing_xyz[-1]) < atol and
+                   np.linalg.norm(xyz_end - existing_xyz[0]) < atol)
+            if same or rev:
+                is_dup = True
+                break
+        if is_dup:
+            continue
 
         if getattr(ovl, "stuv_path", None) is not None:
             # L59: curved correspondence — ship the residual-verified
@@ -4838,21 +4783,166 @@ def _overlaps_to_branches(boundary_overlaps, S1, atol, rational):
         else:
             stuv_path = np.stack([ovl.stuv_start, ovl.stuv_end], axis=0)
             xyz_path = np.stack([xyz_start, xyz_end], axis=0)
-        if np.all(stuv_path == stuv_path[0]):
-            continue
-        branch = SSXBranch(curve=(stuv_path,xyz_path),overlap=True,kind="overlap")
-        branch._source_boundary_face = ovl.face
-        branches.append(branch)
+        branches.append(SSXBranch(curve=(stuv_path, xyz_path), overlap=True, kind="overlap"))
 
     return branches
+
+
+def _refine_injective_chart_parameters(stuv, xyz, surfaces, param_tol, atol,
+                                      work_budget):
+    """Resample coarse inverse chords on regular convex planar quads.
+
+    Such a chart has one parameter preimage per XYZ point. Its inverse can
+    be curved even when the intersection in space is a straight edge.
+    Refining that inverse removes a sampling discrepancy without relaxing
+    parameter comparisons on folded or otherwise unsupported surfaces.
+    Failure only prevents duplicate removal; it never removes a branch.
+    """
+    from mmcore.numeric.intersection.ssx._ssx5_overlap import (
+        _bilinear_chord_error, _invert_point,
+    )
+
+    if surfaces is None:
+        return None
+    tolerance = np.broadcast_to(np.asarray(param_tol, dtype=float), (4,))
+    if np.any(tolerance <= 0.):
+        return None
+    charts = []
+    for offset, net in zip((0, 2), surfaces):
+        H = np.asarray(net, dtype=float)
+        if (H.shape != (2, 2, 4) or not np.isfinite(H).all()
+                or np.any(H[..., 3] <= 0.)):
+            continue
+        if not _assembly_spend(work_budget, 16):
+            return None
+        controls = H[..., :3]/H[..., 3, None]
+        corners = controls[[0, 1, 1, 0], [0, 0, 1, 1]]
+        scale = float(np.max(np.ptp(corners, axis=0)))
+        if scale <= 0.:
+            continue
+        normalized = (corners-corners[0])/scale
+        try:
+            _, singular, frame = np.linalg.svd(normalized, full_matrices=False)
+        except np.linalg.LinAlgError:
+            continue
+        eps = 128.*np.finfo(float).eps
+        if (singular[1] <= eps*singular[0]
+                or np.max(np.abs(normalized @ frame[2])) > eps):
+            continue
+        projected = normalized @ frame[:2].T
+        sides = np.roll(projected, -1, axis=0)-projected
+        turns = sides[:, 0]*np.roll(sides[:, 1], -1)-sides[:, 1]*np.roll(sides[:, 0], -1)
+        if not (np.all(turns > eps) or np.all(turns < -eps)):
+            continue
+        # Existing samples must already belong to this chart. The inverse
+        # resampling is not a repair of invalid or differently lifted data.
+        for parameters, point in zip(stuv, xyz):
+            if not _assembly_spend(work_budget):
+                return None
+            sample = eval_surface(H, *parameters[offset:offset+2], rational=True)
+            if np.linalg.norm(sample-point) > atol:
+                return None
+        charts.append((offset, H))
+    if not charts:
+        return None
+
+    refined_q = [np.asarray(stuv[0]).copy()]
+    refined_x = [np.asarray(xyz[0]).copy()]
+    for start_q, end_q, start_x, end_x in zip(stuv[:-1], stuv[1:], xyz[:-1], xyz[1:]):
+        pending = [(np.asarray(start_q), np.asarray(end_q),
+                    np.asarray(start_x), np.asarray(end_x), 0)]
+        while pending:
+            qa, qb, xa, xb, depth = pending.pop()
+            middle_q, middle_x = .5*(qa+qb), .5*(xa+xb)
+            acceptable = True
+            for offset, H in charts:
+                # _invert_point performs at most 30 Newton steps. Charge
+                # the bounded solve before entering it.
+                if not _assembly_spend(work_budget, 30):
+                    return None
+                u, v, residual = _invert_point(
+                    H, middle_x, seed=middle_q[offset:offset+2], max_iter=30)
+                uv = np.array([u, v])
+                if (not np.isfinite(uv).all() or not np.isfinite(residual)
+                        or residual > .25*atol or np.any(uv < 0.) or np.any(uv > 1.)):
+                    return None
+                acceptable &= bool(np.all(
+                    np.abs(uv-middle_q[offset:offset+2]) <= .25*tolerance[offset:offset+2]))
+                acceptable &= _bilinear_chord_error(
+                    H, qa[offset:offset+2], qb[offset:offset+2], (xa, xb)) <= .25*atol
+                middle_q[offset:offset+2] = uv
+            if acceptable:
+                refined_q.append(qb)
+                refined_x.append(xb)
+            else:
+                if depth >= 20 or len(refined_q)+len(pending) >= 4096:
+                    return None
+                pending.extend(((middle_q.copy(), qb, middle_x, xb, depth+1),
+                                (qa, middle_q.copy(), xa, middle_x, depth+1)))
+    return np.asarray(refined_q), np.asarray(refined_x)
+
+
+def _drop_traces_covered_by_overlap_union(
+        branches, overlap_branches, atol, param_tol, work_budget=None, *, surfaces=None):
+    """Remove complete paired retraces of one or several boundary overlaps.
+
+    Keepers form a segment union. Concatenating their arrays must not create
+    a chord across a gap between unrelated overlaps. A trace that leaves
+    the union, has a different parameter preimage, or cannot be checked
+    within the remaining work allowance stays in the output.
+    """
+    from mmcore.numeric.intersection.ssx._ssx_polyline import polyline_contained
+
+    paths = [(np.asarray(branch.curve[0], dtype=np.float64),
+              np.asarray(branch.curve[1], dtype=np.float64))
+             for branch in overlap_branches]
+    paths = [(q, x) for q, x in paths if len(q) >= 2 and len(q) == len(x)]
+    if not paths:
+        return list(branches)
+    if not _assembly_spend(work_budget, sum(len(q) for q, _ in paths)):
+        return list(branches)
+    keeper_stuv = np.vstack([q for q, _ in paths])
+    keeper_xyz = np.vstack([x for _, x in paths])
+    keeper_mask = np.ones(len(keeper_stuv)-1, dtype=bool)
+    offset = 0
+    for q, _ in paths[:-1]:
+        offset += len(q)
+        keeper_mask[offset-1] = False
+
+    kept = []
+    for index, branch in enumerate(branches):
+        if branch.kind == 'overlap':
+            kept.append(branch)
+            continue
+        stuv, xyz = branch.curve
+        if not _assembly_spend(work_budget, len(stuv)):
+            kept.extend(branches[index:])
+            break
+        contained = polyline_contained(
+            stuv, xyz, keeper_stuv, keeper_xyz, param_tol, atol,
+            keeper_mask=keeper_mask,
+            charge=lambda amount: _assembly_spend(work_budget, amount))
+        if contained is False and surfaces is not None:
+            refined = _refine_injective_chart_parameters(
+                np.asarray(stuv), np.asarray(xyz), surfaces, param_tol, atol, work_budget)
+            if refined is not None:
+                contained = polyline_contained(
+                    *refined, keeper_stuv, keeper_xyz, param_tol, atol,
+                    keeper_mask=keeper_mask,
+                    charge=lambda amount: _assembly_spend(work_budget, amount))
+        if contained is None:
+            kept.extend(branches[index:])
+            break
+        if not contained:
+            kept.append(branch)
+    return kept
 
 
 # ---------------------------------------------------------------------------
 # Loop-absence check: TΨᵢ monotonicity OR Gauss map separability
 # ---------------------------------------------------------------------------
 
-def _check_loop_free(g1, g2, T1=None, T2=None, T3=None, T4=None,
-                     *, source_bounds=None, source_context=False):
+def _check_loop_free(g1, g2, T1=None, T2=None, T3=None, T4=None):
     """Check if the intersection is provably loop-free.
 
     Two independent checks — either suffices:
@@ -4861,12 +4951,6 @@ def _check_loop_free(g1, g2, T1=None, T2=None, T3=None, T4=None,
 
     Returns True if loop-free.
     """
-    if source_context:
-        # The source Jacobian enclosure includes determinant cancellation
-        # and restriction error. A sign of the rounded precomputed minor
-        # alone cannot exclude a loop, even under an invertible world map.
-        return bool(source_bounds is not None and np.any(
-            (source_bounds[0] > 0.) | (source_bounds[1] < 0.)))
     if T1 is not None:
         is_mono, _ = _check_monotonicity(T1, T2, T3, T4)
         if is_mono:
@@ -4901,7 +4985,7 @@ def _global_to_local(stuv_global, box):
     for i in range(4):
         lo, hi = box[i]
         span = hi - lo
-        if span > 0.:
+        if span > 0.0:
             loc[i] = (stuv_global[i] - lo) / span
         else:
             loc[i] = 0.5
@@ -4946,618 +5030,37 @@ def _cell_has_unused_direction(point: BoundaryPoint, cell, direction: str) -> bo
     )
 
 
-def _source_boundary_intervals(cell, point, floating_box):
-    """Use exact source intervals for ownership and active-face decisions.
+def _cell_geometry_confined_to_point(cell, point, xyz, ptol, atol):
+    """Bound all possible paired roots by one already found CAD point.
 
-    An outward float endpoint can equal a cell face while the entire exact
-    root interval lies strictly inside. That equality is not face activity.
-    The floating box remains useful for derivative/geometry bounds.
+    A numerical cut can leave a microscopic regular arc near a corner.
+    Residual control-hull clipping bounds the entire remaining parameter
+    domain; both restricted surface hulls must fit the found point.
     """
-    matcher = getattr(cell, 'root_matcher', None)
-    certificate = getattr(matcher, 'source_certificates', {}).get(id(point))
-    if certificate is not None and certificate.get('owner') is point:
-        exact_box = certificate['exact_box']
-        refine = getattr(matcher, 'refine_source_box', None)
-        if not getattr(point, '_source_root_box', False):
-            return refine(point,exact_box,cell.box) if refine is not None else exact_box
-        # Both enclosures refer to this established source root. Exact
-        # affine identities may have tightened the floating enclosure
-        # since the scalar certificate was registered. Preserve that
-        # independent proof while retaining the sharper Sturm endpoints.
-        # The owner cell is deliberately absent from this intersection.
-        floating = np.asarray(floating_box, dtype=float)
-        if floating.shape != (4, 2) or not np.all(np.isfinite(floating)):
-            return refine(point,exact_box,cell.box) if refine is not None else exact_box
-        key = tuple(map(tuple, floating))
-        cache = certificate.setdefault('_enclosure_intersections', {})
-        if key not in cache:
-            if not matcher._spend():
-                return exact_box
-            from fractions import Fraction
-            intersection = tuple(
-                (max(lo, Fraction(float(a))), min(hi, Fraction(float(b))))
-                for (lo, hi), (a, b) in zip(exact_box, floating))
-            # Contradictory metadata is not a proof of an empty owner.
-            cache[key] = (intersection if all(lo <= hi for lo, hi in intersection)
-                          else exact_box)
-        return refine(point,cache[key],cell.box) if refine is not None else cache[key]
-    return floating_box
-
-
-def _source_boundary_child_groups(cell, points, child_boxes, root_radii=None):
-    """Supercover boundary events by source enclosures, never sample position.
-
-    A source root can lie across a child face from its rounded display
-    parameters. Unknown enclosures therefore belong to every child until
-    a source proof excludes them; every child's census remains exhaustive.
-    """
-    groups = [[] for _ in child_boxes]
-    if not points or not child_boxes:
-        return groups
-    budget = getattr(cell,'work_budget',None)
-    if budget is not None and not budget.charge_cells(
-            max(1,len(points)*len(child_boxes)),'boundary_event_partition'):
-        return [list(points) for _ in child_boxes]
-    matcher = getattr(cell,'root_matcher',None)
-    for point in points:
-        certificates = getattr(matcher,'source_certificates',{})
-        certificate = certificates.get(id(point))
-        registered = certificate is not None and certificate.get('owner') is point
-        if (not registered and not getattr(point,'_source_root_box',False)
-                and matcher is not None and root_radii is not None):
-            enclosure = matcher.enclose(point,root_radii)
-            if enclosure is not None:
-                point.root_box = np.asarray(enclosure,dtype=float)
-                point._source_root_box = True
-            certificate = certificates.get(id(point))
-            registered = certificate is not None and certificate.get('owner') is point
-        enclosure = None
-        if registered or getattr(point,'_source_root_box',False):
-            enclosure = _source_boundary_intervals(cell,point,point.root_box)
-            if (enclosure is None or len(enclosure) != 4
-                    or any(len(pair) != 2 or not pair[0] <= pair[1]
-                           or not all(np.isfinite(float(x)) for x in pair)
-                           for pair in enclosure)):
-                enclosure = None
-        for group,box in zip(groups,child_boxes):
-            if enclosure is None or all(
-                    lo <= b and a <= hi for (lo,hi),(a,b) in zip(enclosure,box)):
-                group.append(point)
-    return groups
-
-
-def _source_boundary_child_obligations(cell, child_boxes, added=()):
-    """Localize incomplete face censuses without forgetting unknown coverage.
-
-    Full closed source-face boxes conservatively contain every event that
-    the corresponding census may have missed. A disjoint child cannot
-    inherit that uncertainty. None means that some uncertainty has no
-    localization and therefore remains relevant to every descendant.
-    """
-    inherited = getattr(cell,'boundary_obligations',None)
-    if not cell.boundary_complete and inherited is None:
-        return [None for _ in child_boxes]
-    obligations = tuple(dict.fromkeys(tuple(inherited or ())+tuple(added)))
-    if not obligations:
-        return [() for _ in child_boxes]
-    budget = getattr(cell,'work_budget',None)
-    if budget is not None and not budget.charge_cells(
-            max(1,len(obligations)*len(child_boxes)),'boundary_obligation_partition'):
-        return [None for _ in child_boxes]
-    return [tuple(face for face in obligations if all(
-        lo <= b and a <= hi for (lo,hi),(a,b) in zip(face,box)))
-        for box in child_boxes]
-
-
-def _strict_interior_cuts(box, axis, cuts):
-    """Keep only representable cuts that split a closed parameter interval."""
-    lo,hi = box[axis]
-    return sorted(set(value for value in cuts if lo < value < hi))
-
-
-def _source_boundary_outside(cell, point):
-    """Prove a borrowed source root is outside this closed owner.
-
-    Sturm intervals may end exactly on a child face even when the root
-    lies strictly beyond it. Their non-root endpoints are open bounds on
-    the actual root, including when its floating representative rounds
-    onto that face. Failure to prove exclusion keeps the event.
-    """
-    matcher = getattr(cell, 'root_matcher', None)
-    certificate = getattr(matcher, 'source_certificates', {}).get(id(point))
-    if certificate is None or certificate.get('owner') is not point:
-        # A generic source inclusion box has the same ownership meaning
-        # even when no exact scalar cut polynomial is available. Raw child
-        # boxes and polished points have not earned this source flag.
-        if not getattr(point, '_source_root_box', False) or point.root_box is None:
-            return False
-        enclosure = np.asarray(point.root_box, dtype=float)
-        if enclosure.shape != (4, 2) or not np.all(np.isfinite(enclosure)):
-            return False
-        if matcher is not None and not matcher._spend():
-            return False
-        return bool(any(hi < a or lo > b for (lo, hi), (a, b)
-                        in zip(enclosure, cell.box)))
-    if not matcher._spend():
+    from mmcore.numeric.intersection.ssx._ssx_bernstein_clip import (
+        clip_residual_box, residual_coordinate_scale, restrict_source_pair,
+    )
+    first, second = cell.g1.surface, cell.g2.surface
+    originals = getattr(cell, 'trace_surfaces', (first, second))
+    scale = residual_coordinate_scale(*originals)
+    bounds, stats = clip_residual_box(
+        first, second, source_scale=scale,
+        charge=_charge_hook(getattr(cell, 'work_budget', None), 'point_extent'))
+    if bounds is None or not stats['valid'] or stats['denied']:
         return False
-    exact_box = _source_boundary_intervals(cell,point,point.root_box)
-    if any(hi < a or lo > b for (lo, hi), (a, b) in zip(exact_box, cell.box)):
-        return True
-    possible = _source_boundary_possible_faces(cell,point,exact_box)
-    if any(lo != hi and ((hi == a and (axis,1.) not in possible)
-                         or (lo == b and (axis,-1.) not in possible))
-           for axis,((lo,hi),(a,b)) in enumerate(zip(exact_box,cell.box))):
-        return True
-    axis = certificate['varying_axis']
-    lo, hi = certificate['exact_interval']
-    a, b = cell.box[axis]
-    if (hi == a or lo == b) and lo != hi:
-        from mmcore.numeric.intersection._exact_univariate import _value
-        endpoint = hi if hi == a else lo
-        return _value(certificate['exact_polynomial'], endpoint) != 0
-    return False
-
-
-def _source_boundary_possible_faces(cell, point, exact_box):
-    """Faces an enclosed source root could actually occupy.
-
-    A nondegenerate Sturm interval includes its non-root endpoints only
-    as closed bounds. Exact affine parameter identities transfer this
-    fact to linked coordinates; a displayed corner need not be a corner
-    of the source curve. This only removes source-proved inactive faces.
-    """
-    possible = [(axis, inward) for axis, (lo, hi) in enumerate(cell.box)
-                for bound, inward in ((lo, 1.), (hi, -1.))
-                if exact_box[axis][0] <= bound <= exact_box[axis][1]]
-    matcher = getattr(cell, 'root_matcher', None)
-    certificate = getattr(matcher, 'source_certificates', {}).get(id(point))
-    if certificate is None or certificate.get('owner') is not point:
-        return possible
-    if all(exact_box[axis][0] == exact_box[axis][1] for axis, inward in possible):
-        return possible
-    from fractions import Fraction
-    from mmcore.numeric.intersection._exact_univariate import _value
-    varying = certificate['varying_axis']
-    constraints = getattr(matcher, 'affine_constraints', None)
-    components = getattr(constraints, 'components', None) or ()
-    cache = getattr(matcher, '_source_face_relations', None)
-    if cache is None:
-        cache = matcher._source_face_relations = {}
-    cached = cache.get(varying)
-    if cached is not None and cached[0] is constraints:
-        relations = cached[1]
-    else:
-        if not matcher._spend(1+sum(len(expressions) for expressions, fixed in components)):
-            return possible
-        relations = {varying: (Fraction(0), Fraction(1))}
-        for expressions, fixed in components:
-            expression = next(((alpha, beta) for axis, alpha, beta in expressions
-                               if axis == varying), None)
-            if expression is None:
-                continue
-            origin, slope = expression
-            for axis, alpha, beta in expressions:
-                relations[axis] = origin-slope*alpha/beta, slope/beta
-            break
-        cache[varying] = constraints, relations
-    active, values = [], {}
-    for axis, inward in possible:
-        if exact_box[axis][0] == exact_box[axis][1] or axis not in relations:
-            active.append((axis, inward))
-            continue
-        bound = cell.box[axis][0 if inward > 0. else 1]
-        origin, slope = relations[axis]
-        parameter = origin+slope*Fraction(float(bound))
-        if parameter not in values:
-            if not matcher._spend():
-                active.append((axis, inward))
-                continue
-            values[parameter] = _value(certificate['exact_polynomial'], parameter)
-        if values[parameter] == 0:
-            active.append((axis, inward))
-    return active
-
-
-def _strict_corner_touch(cell, x, point=None, root_radii=None):
-    """Whether a regular lifted arc exits the closed cell in both directions.
-
-    Opposite strict inward signs on active faces exclude both local arc
-    directions by the implicit-function theorem.  A zero face derivative
-    is inconclusive: a grazing arc can enter quadratically.
-    """
-    source_cofactors = getattr(cell, 'source_cofactors', None)
-    if source_cofactors is not None:
-        # A rounded representative on a face does not prove that its
-        # source root belongs to that face. Use the complete authoritative
-        # source enclosure and source Jacobian cofactors instead.
-        if point is None:
-            return False
-        enclosure = (point.root_box if getattr(point, '_source_root_box', False)
-                     else None)
-        matcher = getattr(cell, 'root_matcher', None)
-        if enclosure is None and matcher is not None and root_radii is not None:
-            enclosure = matcher.enclose(point, root_radii)
-        if enclosure is None:
-            exact_root = getattr(cell, 'source_root_exact', None)
-            if exact_root is None or not exact_root(point.stuv):
-                return False
-            enclosure = np.repeat(np.asarray(point.stuv)[:, None], 2, axis=1)
-        enclosure = np.asarray(enclosure, dtype=float)
-        exact_enclosure = _source_boundary_intervals(cell, point, enclosure)
-        if (enclosure.shape != (4, 2) or not np.all(np.isfinite(enclosure))
-                or any(not lo <= exact_enclosure[k][0] <= exact_enclosure[k][1] <= hi
-                       for k, (lo, hi) in enumerate(cell.box))):
-            return False
-        active = [(k, 1. if exact_enclosure[k][0] == lo else -1.)
-                  for k, (lo, hi) in enumerate(cell.box)
-                  if exact_enclosure[k][0] == exact_enclosure[k][1]
-                  and exact_enclosure[k][0] in (lo, hi)]
-        if len(active) < 2:
-            return False
-        bounds = source_cofactors.bounds(tuple(map(tuple, enclosure)))
-        if bounds is None:
-            return False
-        lower, upper = bounds
-        inward = [(sign*lower[k], sign*upper[k]) if sign > 0.
-                  else (sign*upper[k], sign*lower[k])
-                  for k, orientation in active
-                  for sign in (orientation*(1., -1., 1., -1.)[k],)]
-        return bool(any(lo > 0. for lo, hi in inward)
-                    and any(hi < 0. for lo, hi in inward))
-
-    # Private diagnostic callers without source context retain the
-    # numerical proposal. Production cells always take the source proof.
-    _, ds, dt = eval_surface_d1(cell.g1.surface, *x[:2], rational=True)
-    _, du, dv = eval_surface_d1(cell.g2.surface, *x[2:], rational=True)
-    J = np.column_stack([ds, dt, -du, -dv])
-    try:
-        _, sigma, vt = np.linalg.svd(J, full_matrices=True)
-    except np.linalg.LinAlgError:
+    bounds = np.asarray(bounds)
+    if np.any(np.abs(bounds - np.asarray(point)[:, None]) > np.asarray(ptol)[:, None]):
         return False
-    if (not np.all(np.isfinite(sigma)) or sigma[0] <= 0
-            or sigma[-1] <= 4e-10 * sigma[0]):
-        return False
-    tangent = vt[-1]
-    # Normal-vector orientation uncertainty grows with conditioning.
-    # Only exactly active faces constrain the closed-cell tangent cone:
-    # proximity to a face is not evidence that the root lies on it.
-    margin = 128 * np.finfo(float).eps * sigma[0] / sigma[-1]
-    inward = [tangent[i] if x[i] == 0.0 else -tangent[i]
-              for i in range(4) if x[i] == 0.0 or x[i] == 1.0]
-    return bool(inward and min(inward) < -margin and max(inward) > margin)
-
-
-def _regular_boundary_empty_separators(cell, root_radii=None):
-    """Prove empty cuts between regular arcs from an exhaustive port census.
-
-    A strict source minor orients every arc by one increasing parameter.
-    Entering ports add one to its level-set count, exiting ports subtract
-    one, and source-proved isolated corner touches add zero. Between
-    disjoint port bands a zero prefix count proves an empty source slice.
-    This certificate is local to the complete closed ``cell.box``.
-    """
-    cell._regular_empty_cut_certificate = None
-    if not cell.boundary_complete or len(cell.crossings) < 3:
-        return None
-    source = getattr(cell, 'source_cofactors', None)
-    if source is None:
-        return None
-    budget = getattr(cell, 'work_budget', None)
-    size = len(cell.crossings)
-    if budget is not None and not budget.charge_cells(
-            size+size*(size-1)//2, 'boundary_port_census'):
-        return None
-    bounds = source.bounds(cell.box)
-    if bounds is None or not np.all(np.isfinite(bounds)):
-        return None
-    lower, upper = map(np.asarray, bounds)
-    strict = (lower > 0.) | (upper < 0.)
-    if not np.any(strict):
-        return None
-    axis = int(np.argmax(np.where(strict,
-                    np.minimum(np.abs(lower),np.abs(upper)),0.)))
-    signs = (1.,-1.,1.,-1.)
-    orientation = signs[axis]*(1. if lower[axis] > 0. else -1.)
-    matcher = getattr(cell, 'root_matcher', None)
-    roots, boxes, exact_boxes, seen = [], [], [], set()
-    for point in cell.crossings:
-        if id(point) in seen:
-            continue
-        seen.add(id(point))
-        if not getattr(point, '_source_root_box', False):
-            if matcher is None or root_radii is None:
-                return None
-            enclosure = matcher.enclose(point, root_radii)
-            if enclosure is None:
-                return None
-            point.root_box = enclosure
-            point._source_root_box = True
-        box = np.asarray(point.root_box, dtype=float)
-        exact_box = _source_boundary_intervals(cell, point, box)
-        if (box.shape != (4,2) or not np.all(np.isfinite(box))
-                or any(not lo <= exact_box[k][0] <= exact_box[k][1] <= hi
-                       for k,(lo,hi) in enumerate(cell.box))):
-            return None
-        duplicate = False
-        for other, other_box in zip(roots,boxes):
-            if np.any((box[:,0] > other_box[:,1]) | (box[:,1] < other_box[:,0])):
-                continue
-            # Overlapping enclosures do not establish distinct events.
-            # A source identity proof may merge them; unknown is not false.
-            if matcher is None or root_radii is None or not matcher(
-                    point,other,root_radii,np.inf):
-                return None
-            duplicate = True
-            break
-        if not duplicate:
-            roots.append(point)
-            boxes.append(box)
-            exact_boxes.append(exact_box)
-    events = []
-    for point, box, exact_box in zip(roots, boxes, exact_boxes):
-        exact_faces = []
-        possible_faces = _source_boundary_possible_faces(cell, point, exact_box)
-        for k,(lo,hi) in enumerate(cell.box):
-            for bound,inward in ((lo,1.),(hi,-1.)):
-                if exact_box[k][0] <= bound <= exact_box[k][1]:
-                    if exact_box[k][0] == exact_box[k][1] == bound:
-                        exact_faces.append((k,inward))
-        if not exact_faces:
-            return None
-        root_bounds = source.bounds(tuple(map(tuple,box)))
-        if root_bounds is None or not np.all(np.isfinite(root_bounds)):
-            return None
-        face_signs = {}
-        for k,inward in possible_faces:
-            values = orientation*signs[k]*inward*np.asarray(
-                [root_bounds[0][k],root_bounds[1][k]])
-            if values.min() > 0.:
-                face_signs[k,inward] = 1
-            elif values.max() < 0.:
-                face_signs[k,inward] = -1
-            else:
-                return None
-        directions = set(face_signs.values())
-        if len(directions) == 1:
-            contribution = directions.pop()
-        elif {face_signs[face] for face in exact_faces} == {-1,1}:
-            # Both directions must violate an ACTUALLY active face. A
-            # merely possible second face cannot prove an isolated touch.
-            contribution = 0
-        else:
-            return None
-        events.append((box[axis,0],box[axis,1],contribution))
-    groups = []
-    for lo,hi,count in sorted(events):
-        if groups and lo <= groups[-1][1]:
-            a,b,total = groups[-1]
-            groups[-1] = (a,max(b,hi),total+count)
-        else:
-            groups.append((lo,hi,count))
-    counts, running = [], 0
-    for lo,hi,count in groups:
-        running += count
-        if running < 0:
-            return None
-        counts.append(running)
-    if running:
-        return None
-    cuts = []
-    for first,second,count in zip(groups,groups[1:],counts):
-        a,b = first[1],second[0]
-        if count or np.nextafter(a,b) >= b:
-            continue
-        for level in range(max(0,-math.frexp(b)[1]),1075):
-            step = math.ldexp(1.,-level)
-            value = (math.floor(a/step)+1)*step
-            if a < value < b:
-                cuts.append(value)
-                break
-    if not cuts:
-        return None
-    cell._regular_empty_cut_certificate = {
-        'kind':'source_regular_boundary_prefix', 'axis':axis,
-        'owner_box':tuple(tuple(pair) for pair in cell.box),
-        'cuts':tuple(cuts), 'port_groups':tuple(groups),
-        'prefix_counts':tuple(counts),
-    }
-    return axis,cuts
-
-
-def _regular_cell_arc_enclosure(cell, root_radii=None):
-    """Prove and enclose the unique regular arc in a two-port cell.
-
-    A strict minor makes one global parameter monotone. Its cofactor
-    ratios bound every other parameter's variation between the two
-    boundary roots, even when the surrounding product cell is much wider.
-    """
-    if not cell.boundary_complete or len(cell.crossings) != 2:
-        return None
-    roots = cell.crossings
-    matcher = getattr(cell, 'root_matcher', None)
-    if matcher is not None and root_radii is not None:
-        for point in roots:
-            if not getattr(point, '_source_root_box', False):
-                enclosure = matcher.enclose(point, root_radii)
-                if enclosure is None:
-                    return None
-                point.root_box = enclosure
-                point._source_root_box = True
-            elif not getattr(point, '_source_enclosure_refined', False):
-                # Existence does not imply that an initial CSX root box
-                # is tight enough to assign the root to this child. A
-                # contained independent source enclosure preserves its
-                # identity while improving ownership and germ bounds.
-                refine = getattr(matcher, 'refine_enclosure', None)
-                if refine is not None:
-                    radii = np.minimum(root_radii,
-                                       np.diff(np.asarray(cell.box), axis=1)[:, 0]/16.)
-                    enclosure = refine(point, radii)
-                    if enclosure is not None:
-                        point.root_box = enclosure
-                        point._source_enclosure_refined = True
-    if any(point.root_box is None for point in roots):
-        return None
-    tensors = (cell.T1, cell.T2, cell.T3, cell.T4)
-    if any(tensor is None for tensor in tensors):
-        return None
-    signs = np.array([1., -1., 1., -1.])
-    eps = np.finfo(float).eps
-    source_cofactors = getattr(cell, 'source_cofactors', None)
-    if source_cofactors is None:
-        return None
-    bounds = source_cofactors.bounds(cell.box)
-    if bounds is None:
-        return None
-    lower, upper = bounds
-    margin = np.zeros(4)
-    separated = (lower > margin) | (upper < -margin)
-    if not np.any(separated):
-        return None
-    denominator = np.where(separated,
-        np.minimum(np.abs(lower), np.abs(upper))-margin, 0.)
-    order = list(roots)
-    boxes = [np.asarray(point.root_box, dtype=float) for point in order]
-    exact_boxes = [_source_boundary_intervals(cell, point, box)
-                   for point, box in zip(order, boxes)]
-    separate = getattr(matcher, 'separate_source_boxes', None)
-    if separate is not None and not any(separated[k] and (
-            exact_boxes[0][k][1] < exact_boxes[1][k][0]
-            or exact_boxes[1][k][1] < exact_boxes[0][k][0]) for k in range(4)):
-        exact_boxes = separate(order, exact_boxes)
-    ordered_axes = [axis for axis in range(4) if separated[axis] and (
-        exact_boxes[0][axis][1] < exact_boxes[1][axis][0]
-        or exact_boxes[1][axis][1] < exact_boxes[0][axis][0])]
-    if not ordered_axes:
-        return None
-    axis = max(ordered_axes, key=lambda k: denominator[k])
-    if exact_boxes[1][axis][1] < exact_boxes[0][axis][0]:
-        order.reverse()
-        boxes.reverse()
-        exact_boxes.reverse()
-    if any(any(root_box[k][0] < lo or root_box[k][1] > hi
-               for k, (lo, hi) in enumerate(cell.box))
-           for root_box in exact_boxes):
-        # Clipping an existence enclosure does not prove the root lies in
-        # the clipped part. Unknown membership cannot establish a port.
-        return None
-    # Exact ownership above permits clipping only the outward floating
-    # envelope; the actual source existence interval remains unchanged.
-    boxes = [np.column_stack((np.maximum(box[:,0], np.asarray(cell.box)[:,0]),
-                              np.minimum(box[:,1], np.asarray(cell.box)[:,1])))
-             for box in boxes]
-    # Distinct source events can share their entire floating display
-    # tuple. Their exact source intervals establish order; overlapping
-    # outward floating envelopes remain valid bounds for the tiny arc.
-    orientation = signs[axis]*(1. if lower[axis] > 0. else -1.)
-    spans = np.array([hi-lo for lo, hi in cell.box])
-    origins = np.array([lo for lo, hi in cell.box])
-    # Root count alone also admits two isolated boundary touches. One
-    # source-proved entering germ establishes an actual arc; compactness,
-    # regularity, strict monotonicity, and the exhaustive two-root census
-    # force its other endpoint to be the other registered root.
-    proved_germs = []
-    for index, (point, box, exact_box) in enumerate(zip(order, boxes, exact_boxes)):
-        if not any(exact_box[k][0] == exact_box[k][1] and exact_box[k][0] in (lo, hi)
-                   for k, (lo, hi) in enumerate(cell.box)):
-            # A port must lie on a source-proven face. A polished sample
-            # rounded onto that face is not a boundary-membership proof.
-            return None
-        active = _source_boundary_possible_faces(cell, point, exact_box)
-        # Inward continuation must satisfy every possibly active face.
-        # If a root enclosure merely touches another face, its germ must
-        # still enter there unless strict interior membership is known.
-        root_bounds = source_cofactors.bounds(box)
-        if root_bounds is None:
-            return None
-        strict_germ = True
-        for i, inward_sign in active:
-            values = orientation*signs[i]*inward_sign*np.array(
-                [root_bounds[0][i], root_bounds[1][i]])
-            # Positive-axis continuation enters the first event and exits
-            # the second. Tangent or mixed face directions stay unresolved.
-            if index == 1:
-                values = -values
-            if float(values.max()) < -margin[i]:
-                # A definitely wrong direction contradicts the proposed
-                # increasing-parameter arc; retain this cell as unknown.
-                return None
-            strict_germ = strict_germ and float(values.min()) > margin[i]
-        proved_germs.append(strict_germ)
-    if not any(proved_germs):
-        return None
-    variation = np.nextafter(
-        (np.maximum(np.abs(lower), np.abs(upper))+margin)/denominator[axis], np.inf)
-    delta = np.nextafter(boxes[1][axis, 1]-boxes[0][axis, 0], np.inf)
-    parameter_extent = np.nextafter(variation*delta, np.inf)
-    # The one arc cannot use the whole surrounding product box. In its
-    # monotone coordinate it lies between the two root enclosures, and
-    # the cofactor ratio bounds its displacement from either endpoint.
-    # Restrict to those necessary bounds and recompute the ratios while
-    # the enclosure contracts. This is interval continuation of the same
-    # already identified arc, not a new component-exclusion predicate.
-    arc_box = np.asarray(cell.box, dtype=float)
-    arc_box[axis] = boxes[0][axis,0], boxes[1][axis,1]
-    while True:
-        tightened = arc_box.copy()
-        for root_box in boxes:
-            tightened[:,0] = np.maximum(tightened[:,0], np.nextafter(
-                root_box[:,0]-parameter_extent, -np.inf))
-            tightened[:,1] = np.minimum(tightened[:,1], np.nextafter(
-                root_box[:,1]+parameter_extent, np.inf))
-        if np.any(tightened[:,1] <= tightened[:,0]):
-            return None
-        old_width = float(np.max(arc_box[:,1]-arc_box[:,0]))
-        new_width = float(np.max(tightened[:,1]-tightened[:,0]))
-        if np.array_equal(tightened, arc_box):
-            break
-        arc_box = tightened
-        new_bounds = source_cofactors.bounds(arc_box)
-        if new_bounds is None:
-            return None
-        new_lower, new_upper = new_bounds
-        minor_floor = ((new_lower[axis] if lower[axis] > 0. else -new_upper[axis])
-                       - margin[axis])
-        if minor_floor <= 0.:
-            return None
-        parameter_extent = np.nextafter(np.nextafter(
-            (np.maximum(np.abs(new_lower), np.abs(new_upper))+margin)/minor_floor,
-            np.inf)*delta, np.inf)
-        if new_width >= .5*old_width:
-            break
-    return order, boxes, axis, arc_box
-
-
-def _small_regular_cell_arc(cell, atol, root_radii=None, *, arc_enclosure=None):
-    """Bound both source representations and the already owned exact arc."""
-    if arc_enclosure is None:
-        arc_enclosure = _regular_cell_arc_enclosure(cell, root_radii)
-    if arc_enclosure is None:
-        return None
-    order, boxes, axis, arc_box = arc_enclosure
-    source_cofactors = cell.source_cofactors
-    representation = getattr(cell, 'path_representation', None)
-    if representation is None or not representation(
-            order[0].stuv, order[1].stuv, np.array([point.xyz for point in order])):
-        # A short physical arc need not have a faithful linear lifted
-        # parameter representation on both charts. Bound the published
-        # chord against both original source paths before emitting it.
-        return None
-    xyz = np.array([point.xyz for point in order])
-    arc_chord = getattr(cell, 'arc_chord', None)
-    arc_bounds = source_cofactors.bounds(arc_box)
-    chord_proved = bool(arc_chord is not None and arc_bounds is not None
-                       and arc_chord(arc_box, boxes, xyz, axis, arc_bounds))
-    if not chord_proved:
-        arc_image = getattr(cell, 'arc_image', None)
-        if arc_image is None or not arc_image(arc_box, xyz):
-            # The derivative-range secant theorem can validate a long
-            # arc; the exact source image diameter remains a fallback.
-            # Both need the independent lifted representation check above.
-            return None
-    return _Fragment(order[0], order[1],
-                     np.array([point.stuv for point in order]),
-                     np.array([point.xyz for point in order]))
+    for surface in restrict_source_pair(first, second, bounds):
+        if not (np.all(np.isfinite(surface)) and np.all(surface[..., 3] > 0.)):
+            return False
+        controls = (surface[..., :3] / surface[..., 3:]).reshape(-1, 3)
+        error = (64. * np.finfo(float).eps
+                 * max(1., float(np.max(np.abs(controls))),
+                       float(np.max(np.abs(xyz)))))
+        if np.max(np.linalg.norm(controls - xyz, axis=1)) + error > atol:
+            return False
+    return True
 
 
 def _trace_cell_by_registrations(cell, atol, h_max=None):
@@ -5566,10 +5069,14 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
     For each boundary crossing, march in one direction. If the march
     immediately exits (corner touch), try the opposite direction.
 
-    Exits match registered roots only through source-face identity. An
-    unregistered exit must obtain original-source existence before it can
-    become a BoundaryPoint; a numerical residual alone leaves the cell in
-    the unresolved frontier.
+    Endpoint policy ("trust the marcher's stopping point"): a march that
+    reaches the cell boundary ends at a Newton-verified intersection point
+    on a face. If an unconsumed crossing matches it within the parametric
+    tolerance, the fragment ends at that crossing; otherwise the exit point
+    itself becomes a synthesized BoundaryPoint endpoint. Discarding the
+    fragment (the old behavior, with a fixed 1e-6 match radius) silently
+    deleted real curve segments whenever the partner crossing was missing
+    or less accurate than 1e-6 — CSX only guarantees ~ptol accuracy.
     """
     from mmcore.nurbs._nurbs_param_tol import bez_surface_param_tolerance
 
@@ -5577,8 +5084,10 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
     points: list = []
     used: set[int] = set()
     work_budget = getattr(cell, "work_budget", None)
+    cell.trace_incomplete = False
 
     def _deny_trace_work():
+        cell.trace_incomplete = True
         if work_budget is not None:
             # `charge_cells` is what turns a zero remaining allowance into a
             # hard exhaustion flag.  The additional incomplete bit records
@@ -5591,21 +5100,6 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
         _deny_trace_work()
         return fragments, points
 
-    straight_path = getattr(cell, 'straight_path', None)
-    source_cofactors = getattr(cell, 'source_cofactors', None)
-    source_bounds = source_cofactors.bounds(cell.box) if source_cofactors is not None else None
-    source_regular = bool(source_bounds is not None and np.any(
-        (source_bounds[0] > 0.) | (source_bounds[1] < 0.)))
-    if (straight_path is not None and len(cell.crossings) == 2
-            and cell.boundary_complete and source_regular):
-        first, second = cell.crossings
-        exact_path = straight_path(first.stuv, second.stuv)
-        if exact_path is not None:
-            # The exact nonconstant path establishes its own entering and
-            # exiting arc. Exhaustive two-root census plus strict source
-            # monotonicity excludes any additional component in this cell.
-            return [_Fragment(first, second, *exact_path)], []
-
     # Per-axis parametric tolerance for the cell's local sub-surfaces.
     # Sizes the marcher's initial/minimal steps and the endpoint matching
     # radius (in GLOBAL coordinates the local tolerance scales by the
@@ -5615,58 +5109,184 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
     ptol_local = np.array([float(ptol_s), float(ptol_t), float(ptol_u), float(ptol_v)])
     ptol_local = np.maximum(ptol_local, 1e-12)
     ptol_min = max(float(ptol_local.max()), 1e-9)
-    strict_root_tol = _strict_ssx_root_tol(
-        cell.g1.surface, cell.g2.surface, rational=True)
     spans = np.array([cell.box[ax][1] - cell.box[ax][0] for ax in range(4)])
     # Global per-axis matching radius: CSX roots and marcher exits are each
     # accurate to ~ptol, so 4x covers both ends with headroom.
-    match_tol_global = 4.0 * ptol_local * spans
-    arc_enclosure = _regular_cell_arc_enclosure(cell, match_tol_global)
-    small_arc = (_small_regular_cell_arc(cell, atol, match_tol_global,
-                                        arc_enclosure=arc_enclosure)
-                 if arc_enclosure is not None else None)
-    if small_arc is not None:
-        return [small_arc], []
+    match_tol_global = 4.0 * ptol_local * np.maximum(spans, 1e-15)
 
-    if source_regular and arc_enclosure is None:
-        if (cell.boundary_complete and cell.crossings and all(
-                _strict_corner_touch(cell, _global_to_local(point.stuv, cell.box),
-                                     point, match_tol_global)
-                for point in cell.crossings)):
-            # Every actual boundary root has an opposed tangent cone and
-            # owns only a clipped point; strict monotonicity excludes an
-            # interior loop. There is no incident arc left to discover.
-            return [], [_registered_point(point) for point in cell.crossings]
-        # A strict minor excludes interior loops, but it does not pair four
-        # or more boundary events, nor turn unproved face samples into ports.
-        # Subdivide the complete owner until one arc has a source census and
-        # inward/outward germs. A numerical march cannot discharge this box.
-        cell.trace_incomplete = True
-        if len(cell.crossings) > 2:
-            _regular_boundary_empty_separators(cell, match_tol_global)
-            separated = (source_bounds[0] > 0.) | (source_bounds[1] < 0.)
-            floors = np.where(separated, np.minimum(np.abs(source_bounds[0]),
-                                                    np.abs(source_bounds[1])), 0.)
-            cell.trace_split_axis = int(np.argmax(floors))
-        return [], []
+    def _clipped_corner(point):
+        """Recognize a regular branch which leaves this cell in both directions.
+
+        A face-tangent extremum needs the second derivative as well as the
+        tangent. For example, the exterior child at a circle's leftmost
+        point owns that point only. Retrying the same contact after every
+        subdivision never produces an arc. Singular or flat contact remains
+        inconclusive and is handled by subdivision.
+        """
+        if (work_budget is not None
+                and not work_budget.charge_cells(1, "branch_trace")):
+            return False
+        original_point = np.asarray(point).copy()
+        original_xyz = eval_surface(cell.g1.surface, *original_point[:2], rational=True)
+        from mmcore.numeric._bern_homog import (
+            eval_bezier_surface_homog_with_derivs,
+            project_surface_homog_to_cartesian,
+        )
+        def evaluate(q):
+            return [project_surface_homog_to_cartesian(
+                *eval_bezier_surface_homog_with_derivs(surface, *uv, True))
+                for surface, uv in ((cell.g1.surface, q[:2]),
+                                    (cell.g2.surface, q[2:]))]
+
+        derivatives = evaluate(point)
+        p1, ds, dt, dss, dst, dtt = derivatives[0]
+        p2, du, dv, duu, duv, dvv = derivatives[1]
+        jacobian = np.column_stack((ds, dt, -du, -dv))
+        try:
+            left_vectors, singular_values, vectors = np.linalg.svd(
+                jacobian, full_matrices=True)
+        except np.linalg.LinAlgError:
+            return False
+        margin = 4e-10 * singular_values[0]
+        regular = bool(singular_values[-1] > margin)
+        if regular:
+            # A CSX witness can retain a small numerical residual. After
+            # mapping into a narrow child this is larger than the affine
+            # conversion roundoff used to recognize its faces. Correct a
+            # local copy before classifying tangent/curvature; enlarging
+            # the face tolerance would instead misclassify interior points.
+            correction = vectors[:3].T @ (
+                (left_vectors.T @ (p2 - p1)) / singular_values)
+            candidate = np.asarray(point) + correction
+            if (np.all(np.isfinite(candidate))
+                    and np.all((0. <= candidate) & (candidate <= 1.))):
+                updated = evaluate(candidate)
+                a, b = updated[0][0], updated[1][0]
+                if (np.linalg.norm(a - b) < np.linalg.norm(p1 - p2)
+                        and max(np.linalg.norm(a - p1),
+                                np.linalg.norm(b - p2)) <= atol):
+                    point = candidate
+                    p1, ds, dt, dss, dst, dtt = updated[0]
+                    p2, du, dv, duu, duv, dvv = updated[1]
+                    jacobian = np.column_stack((ds, dt, -du, -dv))
+                    try:
+                        left_vectors, singular_values, vectors = np.linalg.svd(
+                            jacobian, full_matrices=True)
+                    except np.linalg.LinAlgError:
+                        return False
+                    margin = 4e-10 * singular_values[0]
+                    regular = bool(singular_values[-1] > margin)
+        tangent = vectors[-1]
+        if not regular:
+            # At an incident point of a collapsed isoline, the free fiber
+            # parameter contributes a null direction with no spatial image.
+            # Remove that known direction before testing whether the actual
+            # spatial tangent can enter this child from either side.
+            fiber_axis = None
+            for surface, offset in ((cell.g1.surface, 0), (cell.g2.surface, 2)):
+                for fixed in (0, 1):
+                    free = offset+1-fixed
+                    if np.linalg.norm(jacobian[:, free]) > margin:
+                        continue
+                    if _curve_geometry_collapsed(_extract_isoline(
+                            surface, fixed, point[offset+fixed]), rational=True):
+                        fiber_axis = free
+                        break
+                if fiber_axis is not None:
+                    break
+            if fiber_axis is None:
+                return False
+            axes = [axis for axis in range(4) if axis != fiber_axis]
+            try:
+                _, reduced_values, reduced_vectors = np.linalg.svd(jacobian[:, axes])
+            except np.linalg.LinAlgError:
+                return False
+            if reduced_values[-2] <= margin:
+                return False
+            tangent = np.zeros(4)
+            tangent[axes] = reduced_vectors[-1]
+        velocity = ds*tangent[0] + dt*tangent[1]
+        if regular and np.linalg.norm(velocity) <= margin:
+            # A regular Psi curve can be a free parameter fiber with one
+            # spatial image. Its collapsed isoline is already the complete
+            # local solution; no spatial arc remains to march here. Rank
+            # deficient incidence points do not enter this path.
+            for surface, offset in ((cell.g1.surface, 0), (cell.g2.surface, 2)):
+                for fixed in (0, 1):
+                    if abs(tangent[offset+fixed]) > 4e-10:
+                        continue
+                    isoline = _extract_isoline(surface, fixed, point[offset+fixed])
+                    if _curve_geometry_collapsed(isoline, rational=True):
+                        if work_budget is not None:
+                            work_budget.mark_incomplete(REASON_PARAMETER_FIBER)
+                        return True
+        face_roundoff = (32.*np.finfo(float).eps
+                         * np.maximum(1., np.max(np.abs(cell.box), axis=1))
+                         / np.maximum(spans, np.finfo(float).tiny))
+        faces = [(axis, 1. if value <= face_roundoff[axis] else -1.)
+                 for axis, value in enumerate(point)
+                 if value <= face_roundoff[axis]
+                 or value >= 1.-face_roundoff[axis]]
+        first = np.array([sign*tangent[axis] for axis, sign in faces])
+        if np.any(first > 1e-10) and np.any(first < -1e-10):
+            return True
+        if not regular:
+            # Deflate the collapsed fiber locally. The left null normal
+            # requires D²Psi[q',q'] = 0 in that normal direction. Because
+            # the free isoline is constant, its pure second derivative is
+            # zero, and this is a linear equation for the free component
+            # of the incident spatial tangent.
+            second = np.zeros((4, 4, 3))
+            second[0, 0], second[0, 1], second[1, 0], second[1, 1] = dss, dst, dst, dtt
+            second[2, 2], second[2, 3], second[3, 2], second[3, 3] = -duu, -duv, -duv, -dvv
+            h0 = np.einsum("i,ijc,j->c", tangent, second, tangent)
+            mixed = 2.*np.einsum("ic,i->c", second[:, fiber_axis], tangent)
+            normal = left_vectors[:, -1]
+            coefficient = float(normal @ mixed)
+            if abs(coefficient) <= 4e-10*max(1., float(np.linalg.norm(mixed))):
+                return False
+            tangent[fiber_axis] = -float(normal @ h0)/coefficient
+            tangent /= np.linalg.norm(tangent)
+        # J q'' = -D²Psi[q', q']; q' dot q'' = 0 fixes arc-length
+        # parametrization. Reversing q' preserves this acceleration, so an
+        # outward second derivative on a tangent face blocks both senses.
+        hessian_tangent = (
+            dss*tangent[0]**2 + 2.*dst*tangent[0]*tangent[1]
+            + dtt*tangent[1]**2 - duu*tangent[2]**2
+            - 2.*duv*tangent[2]*tangent[3] - dvv*tangent[3]**2)
+        try:
+            if regular:
+                acceleration = np.linalg.solve(
+                    np.vstack((jacobian, tangent)),
+                    np.r_[-hessian_tangent, 0.])
+            else:
+                # The free acceleration does not move the spatial image.
+                # Fix it as a gauge; use only other faces for curvature
+                # clipping, since its value requires one more derivative.
+                gauge = np.eye(4)[fiber_axis]
+                acceleration = np.linalg.lstsq(
+                    np.vstack((jacobian, tangent, gauge)),
+                    np.r_[-hessian_tangent, 0., 0.], rcond=None)[0]
+        except np.linalg.LinAlgError:
+            return False
+        curvature_margin = 4e-10*max(1., float(np.linalg.norm(acceleration)))
+        if any(abs(tangent[axis]) <= 1e-10
+               and (regular or axis != fiber_axis)
+               and sign*acceleration[axis] < -curvature_margin
+               for axis, sign in faces):
+            return True
+        return regular and _cell_geometry_confined_to_point(
+            cell, original_point, original_xyz, ptol_local, atol)
 
     for i, start_cx in enumerate(cell.crossings):
         if work_budget is not None and work_budget.exhausted:
+            cell.trace_incomplete = True
             work_budget.mark_incomplete(REASON_WORK_BUDGET)
             break
         if i in used:
             continue
 
         start_local = _global_to_local(start_cx.stuv, cell.box)
-        if _strict_corner_touch(cell, start_local, start_cx, match_tol_global):
-            # This closed child owns the root but no incident regular arc.
-            # A displaced seed can jump across an excluded grazing dip to
-            # another part of the curve and prepend an invalid connector,
-            # duplicating the neighboring child's arc.  Exclude that local
-            # launch before any displacement, using the tangent cone.
-            used.add(i)
-            points.append(_registered_point(start_cx))
-            continue
 
         # XYZ distance to the nearest unused partner crossing bounds the
         # marcher's initial xyz step target: step toward the partner, not
@@ -5690,10 +5310,20 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
         else:
             h_init = min(cell_h_max, max(atol, 0.25 * nearest_xyz))
 
-        # Each launch is a proposal. The first verified boundary exit
-        # terminates this cell's arc; failed launches may try the opposite
-        # direction or a corrected interior seed. Interior truncations stay
-        # explicitly partial and cannot discharge this cell.
+        # Candidate collection across attempts: commit the FIRST substantial
+        # fragment (arc > 16·atol, the micro-branch scale) immediately, but
+        # keep trying further attempts while only micro fragments came back.
+        # Two graze diseases need the extra attempts:
+        #  - both plain marches BOUNCE (grazing corner, off-lattice loop) —
+        #    attempts 2/3 march from a displaced, corrected interior seed;
+        #  - a plain march makes a little progress and then exits through a
+        #    face the curve merely GRAZES (corner-sharing bilinear repro:
+        #    the arc from the (1,1,0,0) domain corner dipped out at u=0
+        #    after 0.142 and the remaining 32-unit arc was silently lost) —
+        #    the displaced attempts march PAST the dip and return the full
+        #    arc; the longest candidate wins, and genuine micro-fragments
+        #    (case 10's 5.3·atol sliver) keep winning when the extra
+        #    attempts find nothing longer.
         candidates = []   # (arc_xyz, stuv_global, xyz_local, matched_j)
         tang_seed = None
         for attempt in range(4):
@@ -5722,10 +5352,9 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
             elif attempt >= 2:
                 # Displaced-seed recovery: step the seed a few percent
                 # ALONG the curve tangent, Newton-correct back onto the
-                # curve, march from the interior point; the registered
-                # crossing is prepended so the fragment still starts at
-                # the registered stuv (the first chord skips the graze
-                # dip within sagitta h²·kappa/2 << atol).
+                # curve, march from the interior point.  The gap back to
+                # the registration is traced separately below: a fixed
+                # fraction of the parameter box has no fixed XYZ error.
                 sign = 1.0 if attempt == 2 else -1.0
                 seed_local = None
                 for alpha in (0.02, 0.05, 0.1):
@@ -5819,18 +5448,71 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
                 if work_budget is not None and work_budget.exhausted:
                     break
                 continue
+            if not (np.isfinite(stuv_local).all()
+                    and np.isfinite(xyz_local).all()):
+                continue
             if prepend_crossing:
-                stuv_local = np.vstack([np.asarray(start_local)[None, :],
-                                        np.asarray(stuv_local)])
-                xyz_local = np.vstack([np.asarray(start_cx.xyz,
-                                                  dtype=np.float64)[None, :],
-                                       np.asarray(xyz_local)])
+                # Starting inside avoids the original boundary bounce.
+                # Trace BACK to the registration with the same chord
+                # controller instead of adding an unchecked start chord.
+                # A grazed subdivision face can put the connecting arc
+                # just outside this child.  Continue on the original
+                # surfaces so their artificial child walls do not clip
+                # that arc back into a straight chord.
+                trace_surfaces = getattr(cell, "trace_surfaces", None)
+                if trace_surfaces is None:
+                    prefix_surfaces = (cell.g1.surface, cell.g2.surface)
+                    prefix_start, prefix_end = seed_local, start_local
+                    prefix_ptol = ptol_local
+                else:
+                    prefix_surfaces = trace_surfaces
+                    prefix_start = _local_to_global(seed_local, cell.box)
+                    prefix_end = np.asarray(start_cx.stuv, dtype=np.float64)
+                    prefix_ptol = ptol_local * spans
+                prefix_limit = (work_budget.remaining_cells
+                                if work_budget is not None else trace_limit)
+                if prefix_limit <= 0:
+                    _deny_trace_work()
+                    break
+                prefix_stats = {}
+                prefix_q, prefix_xyz = _march_intersection_curve(
+                    *prefix_surfaces, prefix_start, prefix_end,
+                    atol=atol, rational=True, h_max=cell_h_max,
+                    min_step=max(float(prefix_ptol.max()), 1e-12),
+                    max_points=prefix_limit,
+                    stats=prefix_stats)
+                prefix_iterations = int(prefix_stats.get("iterations", 0))
+                if (work_budget is not None and prefix_iterations
+                        and not work_budget.charge_cells(
+                            prefix_iterations, "branch_trace_prefix")):
+                    _deny_trace_work()
+                    break
+                if (len(prefix_q) < 2
+                        or not np.isfinite(prefix_q).all()
+                        or not np.isfinite(prefix_xyz).all()
+                        or np.any(np.abs(prefix_q[-1] - prefix_end)
+                                  > 4.0 * prefix_ptol)
+                        or np.linalg.norm(prefix_xyz[-1] - start_cx.xyz)
+                                  > 2.0 * atol):
+                    # This trial has not connected its interior seed to
+                    # the registered event.  Another trial or a smaller
+                    # cell can resolve that continuation.  Mark the cell
+                    # incomplete below only if no complete attempt wins.
+                    continue
+                if trace_surfaces is not None:
+                    # Keep the actual continuation across the child face.
+                    # _global_to_local clips to the child, which would
+                    # alter the recovered curve here.
+                    prefix_q = ((prefix_q - np.asarray(cell.box)[:, 0])
+                                / spans)
+                prefix_q[-1] = start_local
+                prefix_xyz[-1] = start_cx.xyz
+                stuv_local = np.vstack([prefix_q[:0:-1], stuv_local])
+                xyz_local = np.vstack([prefix_xyz[:0:-1], xyz_local])
 
-            # `atol` controls chord accuracy and matching; it is not an
-            # equality certificate.  Every continuation vertex must be a
-            # roundoff-scale Psi zero before it can justify a branch or a
-            # synthesized endpoint.  Otherwise retain only the already
-            # certified registration and surface the topology as partial.
+            # Validate continuation on both surfaces at the requested
+            # geometric tolerance. The corrector and chord checks control
+            # approximation error; binary equality is not an output gate.
             if (work_budget is not None
                     and not work_budget.charge_cells(
                         len(stuv_local), "branch_trace_verify")):
@@ -5846,14 +5528,12 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
                 # Ledger L45: accept-if — the reject-if-greater form let a
                 # NaN vertex residual certify the path (see the boundary
                 # polish gate above for the same inversion).
-                if not (np.isfinite(_vres) and _vres <= strict_root_tol):
+                if not (np.isfinite(_vres) and _vres <= atol):
                     strict_path = False
                     break
             if not strict_path:
-                # Reject this trial and try the other launch. A failed
-                # trial is not an unresolved cell when a later trial or
-                # subdivision covers the same incident arc. The no-winner
-                # path below retains the cell in the search frontier.
+                if work_budget is not None:
+                    work_budget.mark_incomplete(REASON_TRACE_UNVERIFIED)
                 continue
 
             # Bounce/degenerate detector, in XYZ over the WHOLE path: a
@@ -5869,13 +5549,27 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
             path_xyz = np.asarray(xyz_local, dtype=np.float64)
             disp_xyz = float(np.linalg.norm(
                 path_xyz - path_xyz[0][None, :], axis=1).max())
-            if disp_xyz == 0. and np.all(np.asarray(stuv_local) == stuv_local[0]):
+            if disp_xyz <= atol:
                 continue
 
             stuv_global = np.empty((len(stuv_local), 4), dtype=np.float64)
             for j in range(len(stuv_local)):
                 stuv_global[j] = _local_to_global(stuv_local[j], cell.box)
             stuv_global[0] = start_cx.stuv.copy()
+
+            # This tracer is called only after the cell's loop-absence
+            # check. Returning to the same paired boundary event therefore
+            # cannot account for an arc in this cell. In particular, a
+            # clamped predictor can step along a tolerance valley and bounce
+            # straight back, producing a spurious three-vertex closed path.
+            # Try another direction, then subdivide if none reaches a new
+            # event; do not relabel that failed continuation as a loop.
+            if (np.all(np.abs(stuv_global[-1] - start_cx.stuv)
+                       <= match_tol_global)
+                    and float(np.linalg.norm(
+                        path_xyz[-1] - np.asarray(start_cx.xyz)))
+                    <= 2.0 * atol):
+                continue
 
             # Match the exit against the cell's crossings within the
             # parametric tolerance. Consumed crossings stay eligible as
@@ -5885,33 +5579,11 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
             # winning candidate.
             best_j = None
             best_score = float('inf')
-            exit_point = None
-            if exit_info is not None:
-                exit_axis = exit_info[0]
-                exit_side = 0 if stuv_local[-1][exit_axis] < .5 else 1
-                stuv_global[-1, exit_axis] = cell.box[exit_axis][exit_side]
-                exit_point = BoundaryPoint(
-                    stuv_global[-1].copy(), np.asarray(xyz_local[-1]),
-                    (exit_axis, exit_side))
-                matcher = getattr(cell, 'root_matcher', None)
-                if (matcher is not None
-                        and matcher(start_cx, exit_point, match_tol_global, 2.*atol)):
-                    # Returning to the same certified boundary event is
-                    # an outward bounce/retrace in this loop-free cell.
-                    continue
             for j, cx in enumerate(cell.crossings):
                 if j == i:
                     continue
                 diff = np.abs(cx.stuv - stuv_global[-1])
                 score = float(np.max(diff / match_tol_global))
-                if score > 1.0 or np.linalg.norm(cx.xyz-xyz_local[-1]) > 2.*atol:
-                    continue
-                matcher = getattr(cell, 'root_matcher', None)
-                if (exit_point is None or not (
-                        matcher(exit_point, cx, match_tol_global, 2.*atol)
-                        if matcher is not None else
-                        np.array_equal(cx.stuv, exit_point.stuv))):
-                    continue
                 if score < best_score:
                     best_score = score
                     best_j = j
@@ -5929,34 +5601,6 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
                         - np.asarray(xyz_local[-1], dtype=np.float64))) <= 2.0 * atol):
                 matched_j = best_j
 
-            if (exit_point is not None and matched_j is None
-                    and source_regular and arc_enclosure is not None):
-                # This owner already has exactly two proved source ports.
-                # Existence of another sampled exit cannot replace identity
-                # with its known partner. Otherwise the partner stays unused
-                # and launches a reverse copy of the same arc, yet the cell
-                # is incorrectly discharged as complete. Try another launch;
-                # if none establishes the partner, the no-winner path below
-                # retains the complete owner in the unresolved frontier.
-                continue
-
-            if exit_point is not None and matched_j is None:
-                matcher = getattr(cell, 'root_matcher', None)
-                source_enclosure = (matcher.enclose(exit_point,match_tol_global)
-                                    if matcher is not None else None)
-                if source_enclosure is not None and any(
-                        source_enclosure[k,0] < lo or source_enclosure[k,1] > hi
-                        for k,(lo,hi) in enumerate(cell.box)):
-                    source_enclosure = None
-                exact_root = getattr(cell,'source_root_exact',None)
-                if source_enclosure is None and not (
-                        exact_root is not None and exact_root(exit_point.stuv)):
-                    # Newton can stop anywhere in a high-order tolerance
-                    # valley. An unregistered face endpoint needs original
-                    # source existence before this trial represents an arc;
-                    # otherwise keep the cell for subdivision.
-                    continue
-
             arc_xyz = float(np.linalg.norm(
                 np.diff(path_xyz, axis=0), axis=1).sum())
             candidates.append((arc_xyz, stuv_global,
@@ -5964,17 +5608,34 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
                                matched_j, exit_info,
                                np.asarray(stuv_local[-1], dtype=np.float64)))
 
-            # The first valid boundary exit terminates this cell's arc.
-            # Looking for a longer displaced-seed candidate can jump an
-            # outside-cell interval and invent a connector past that exit.
-            if exit_info is not None:
-                break
-
-            if arc_xyz > 16.0 * atol:
-                break     # retain a substantial, explicitly partial prefix
+            # Graze-exit suspicion: the march ended on a face NO registered
+            # crossing accounts for, with the curve tangent nearly PARALLEL
+            # to that face — the signature of the curve dipping just outside
+            # the box and re-entering (corner-sharing bilinear repro: the
+            # arc from the (1,1,0,0) domain corner dipped out at u=0 after
+            # 0.142 = 142·atol — arc length alone cannot flag it). Keep
+            # attempting; the displaced-seed marches (2/3) start PAST the
+            # dip and recover the remaining arc; winner-by-length decides.
+            graze_exit = False
+            if matched_j is None and exit_info is not None:
+                tang_exit, _, _ = _ssx_tangent_4d(
+                    cell.g1.surface, cell.g2.surface,
+                    *np.asarray(stuv_local[-1], dtype=np.float64),
+                    rational=True)
+                if tang_exit is not None:
+                    _ax = exit_info[0]
+                    if (abs(float(tang_exit[_ax]))
+                            < 0.1 * float(np.linalg.norm(tang_exit))):
+                        graze_exit = True
+            if (arc_xyz > 16.0 * atol and not graze_exit
+                    and (matched_j is not None or exit_info is not None)):
+                break     # substantial fragment, honest exit — done
 
         if candidates:
-            candidates.sort(key=lambda c: -c[0])
+            # Prefer a complete boundary-to-boundary attempt over an
+            # unfinished prefix, even when the latter travelled farther.
+            candidates.sort(key=lambda c: (
+                c[3] is None and c[4] is None, -c[0]))
             _, stuv_global, xyz_local, matched_j, exit_info, exit_local = candidates[0]
             if matched_j is not None:
                 end_cx = cell.crossings[matched_j]
@@ -5982,8 +5643,8 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
                 xyz_local[-1] = end_cx.xyz.copy()
                 used.add(matched_j)
             elif exit_info is not None:
-                # This unregistered exit passed the original-source
-                # existence check above. Preserve its enclosure as well.
+                # No registered crossing here — the marcher just proved one
+                # exists (Newton-converged exit on a face). Synthesize it.
                 axis = exit_info[0]
                 side = 0 if exit_local[axis] < 0.5 else 1
                 tang_end, _, _ = _ssx_tangent_4d(
@@ -5995,10 +5656,6 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
                     face=(axis, side),
                     tangent_raw=tang_end,
                 )
-                matcher = getattr(cell,'root_matcher',None)
-                if matcher is not None:
-                    end_cx.root_box = matcher.enclose(end_cx,match_tol_global)
-                    end_cx._source_root_box = end_cx.root_box is not None
             else:
                 # March ended in the interior (truncation or refused exit).
                 # The traced points are still Newton-verified curve samples;
@@ -6014,29 +5671,72 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
                 stuv_path=stuv_global,
                 xyz_path=xyz_local,
             ))
+            if end_cx is not None:
+                # A curve lying along a cell face can have many CSX
+                # registrations in the interior of this completed path.
+                # They are observations of the same regular arc, not new
+                # traces. Consume only a shared correspondence in XYZ and
+                # all four parameters, and retain singular registrations
+                # which may seed another incident branch.
+                delta_xyz = np.diff(xyz_local, axis=0)
+                squared = np.einsum("ij,ij->i", delta_xyz, delta_xyz)
+                for j, crossing in enumerate(cell.crossings):
+                    if j in used:
+                        continue
+                    if (work_budget is not None and not work_budget.charge_cells(
+                            max(1, len(squared)), "branch_registration")):
+                        _deny_trace_work()
+                        break
+                    fraction = np.einsum(
+                        "ij,ij->i", crossing.xyz-xyz_local[:-1], delta_xyz
+                    ) / np.maximum(squared, 1e-30)
+                    # Never absorb a registration beyond an open endpoint
+                    # through a nearest-point clamp.
+                    inside = (fraction >= 0.) & (fraction <= 1.)
+                    xyz_on_path = xyz_local[:-1]+fraction[:, None]*delta_xyz
+                    q_on_path = (stuv_global[:-1]+fraction[:, None]
+                                 * np.diff(stuv_global, axis=0))
+                    covered = (inside
+                               & (np.linalg.norm(xyz_on_path-crossing.xyz, axis=1) <= atol)
+                               & np.all(np.abs(q_on_path-crossing.stuv)
+                                        <= match_tol_global, axis=1))
+                    if not np.any(covered):
+                        continue
+                    q = _global_to_local(crossing.stuv, cell.box)
+                    _, ds, dt = eval_surface_d1(cell.g1.surface, *q[:2], rational=True)
+                    _, du, dv = eval_surface_d1(cell.g2.surface, *q[2:], rational=True)
+                    try:
+                        values = np.linalg.svd(np.column_stack((ds, dt, -du, -dv)),
+                                               compute_uv=False)
+                    except np.linalg.LinAlgError:
+                        continue
+                    if values[-1] > 4e-10*values[0]:
+                        used.add(j)
 
         if (not candidates and i not in used
                 and not (work_budget is not None and work_budget.exhausted)):
             # Both directions failed (genuine corner touch or marcher
             # failure). Surface the crossing as an isolated point instead
             # of silently dropping it.
+            clipped_corner = _clipped_corner(start_local)
             if (start_cx.multiplicity_polished
+                    and not clipped_corner
                     and work_budget is not None):
-                # High-precision polishing proves this point is a root but
-                # collapsing a CSX tolerance cluster does not prove whether
-                # a branch leaves it.  A successful strict trace above would
-                # resolve that ambiguity; a point-only fallback remains
-                # explicitly partial (positive-gap endpoint-touch control).
+                # Numerical polishing located this contact, but collapsing
+                # a CSX tolerance cluster does not establish whether
+                # a branch leaves it. A successful trace or a local corner
+                # classification resolves that question; only an unexplained
+                # point-only fallback remains partial.
                 work_budget.structural_sites.append(
                     (REASON_MULTIPLICITY,
                      np.asarray(start_cx.stuv, dtype=np.float64).copy()))
                 work_budget.mark_incomplete(REASON_MULTIPLICITY)
-            points.append(_registered_point(start_cx))
-            if not _strict_corner_touch(cell, start_local, start_cx, match_tol_global):
-                # A failed predictor/corrector is not an isolated-point
-                # certificate.  The caller must retain this cell in the
-                # subdivision frontier instead of dropping its incident arc.
+            points.append(SSXPoint(stuv=start_cx.stuv, xyz=start_cx.xyz))
+            if not clipped_corner:
                 cell.trace_incomplete = True
+
+    if work_budget is not None and work_budget.exhausted:
+        cell.trace_incomplete = True
 
     return fragments, points
 
@@ -6054,16 +5754,17 @@ def _assembly_spend(work_budget, amount: int = 1,
 
 def _unify_fragment_endpoints(fragments: list[_Fragment], unify_tol,
                               unify_atol: float = 1e-3,
-                              work_budget=None, root_matcher=None) -> None:
+                              work_budget=None) -> None:
     """Replace fragment endpoint objects that represent the same physical
     crossing with one canonical `BoundaryPoint` (in place).
 
     Fragments from adjacent cells reference DIFFERENT objects for the same
-    parameter root whenever the crossing was discovered independently
+    physical point whenever the crossing was discovered independently
     (corner duplicates, re-found cut-face roots) or one side synthesized
     its exit from the marcher. The id-based chain walker can only connect
     fragments sharing the object, so unify endpoints whose stuv agree
-    by exact parameter agreement or a common-face root identity proof.
+    within the per-axis parametric tolerance — design §4.7.4's 1D
+    param-matching on shared partitions, generalized to 4D.
     """
     tol = np.asarray(unify_tol, dtype=np.float64)
     objs: list[BoundaryPoint] = []
@@ -6075,6 +5776,17 @@ def _unify_fragment_endpoints(fragments: list[_Fragment], unify_tol,
                 objs.append(p)
 
     n = len(objs)
+    if n < 2:
+        return
+    # Sorting one separating coordinate avoids an all-pairs scan on long
+    # chains.  Every possible match still lies in this coordinate window;
+    # the full parameter and XYZ tests below decide the actual merge.
+    if not _assembly_spend(work_budget, n * max(1, (n - 1).bit_length())):
+        return
+    parameters = np.asarray([p.stuv for p in objs], dtype=np.float64)
+    axis = int(np.argmax(np.ptp(parameters, axis=0)
+                         / np.maximum(tol, np.finfo(float).eps)))
+    order = np.argsort(parameters[:, axis], kind="stable")
     parent = list(range(n))
 
     def _find(a: int) -> int:
@@ -6089,33 +5801,16 @@ def _unify_fragment_endpoints(fragments: list[_Fragment], unify_tol,
     # branches.
     box_lo = [objs[k].stuv.astype(np.float64).copy() for k in range(n)]
     box_hi = [objs[k].stuv.astype(np.float64).copy() for k in range(n)]
+    xyz_lo = [np.asarray(p.xyz, dtype=np.float64).copy() for p in objs]
+    xyz_hi = [point.copy() for point in xyz_lo]
 
     stopped = False
-    coordinates = np.array([point.stuv for point in objs])
-    finite = bool(n and np.all(np.isfinite(coordinates)) and np.all(np.isfinite(tol)))
-    if finite:
-        # Sweep one parameter coordinate before paying for exact root
-        # identity. The four-coordinate and XYZ guards below remain the
-        # narrow phase; this only avoids impossible all-pairs candidates.
-        spread = np.ptp(coordinates, axis=0)
-        with np.errstate(divide='ignore', invalid='ignore'):
-            selectivity = np.where(tol > 0., spread/tol,
-                                   np.where(spread > 0., np.inf, 0.))
-        sweep_axis = int(np.argmax(selectivity))
-        if not _assembly_spend(work_budget, max(1, n*(1+n.bit_length()))):
-            return
-        order = sorted(range(n), key=lambda k: float(coordinates[k, sweep_axis]))
-    else:
-        order = list(range(n))
-    for position, a in enumerate(order):
-        upper = (np.nextafter(coordinates[a, sweep_axis]+tol[sweep_axis], np.inf)
-                 if finite else np.inf)
-        for next_position in range(position+1, n):
-            b = order[next_position]
-            if finite and coordinates[b, sweep_axis] > upper:
-                break
+    for pos, a in enumerate(order):
+        for b in order[pos + 1:]:
             if not _assembly_spend(work_budget):
                 stopped = True
+                break
+            if parameters[b, axis] - parameters[a, axis] > tol[axis]:
                 break
             if not np.all(np.abs(objs[a].stuv - objs[b].stuv) <= tol):
                 continue
@@ -6125,10 +5820,6 @@ def _unify_fragment_endpoints(fragments: list[_Fragment], unify_tol,
             if float(np.linalg.norm(np.asarray(objs[a].xyz, dtype=np.float64)
                                     - np.asarray(objs[b].xyz, dtype=np.float64))) > 2.0 * unify_atol:
                 continue
-            if not (root_matcher(objs[a], objs[b], tol, 2.0*unify_atol)
-                    if root_matcher is not None
-                    else np.array_equal(objs[a].stuv, objs[b].stuv)):
-                continue
             ra, rb = _find(a), _find(b)
             if ra == rb:
                 continue
@@ -6136,9 +5827,15 @@ def _unify_fragment_endpoints(fragments: list[_Fragment], unify_tol,
             merged_hi = np.maximum(box_hi[ra], box_hi[rb])
             if np.any(merged_hi - merged_lo > 2.0 * tol):
                 continue
+            merged_xyz_lo = np.minimum(xyz_lo[ra], xyz_lo[rb])
+            merged_xyz_hi = np.maximum(xyz_hi[ra], xyz_hi[rb])
+            if np.linalg.norm(merged_xyz_hi - merged_xyz_lo) > 2.0 * unify_atol:
+                continue
             parent[rb] = ra
             box_lo[ra] = merged_lo
             box_hi[ra] = merged_hi
+            xyz_lo[ra] = merged_xyz_lo
+            xyz_hi[ra] = merged_xyz_hi
         if stopped:
             break
 
@@ -6151,28 +5848,112 @@ def _unify_fragment_endpoints(fragments: list[_Fragment], unify_tol,
 
 
 def _fragment_contained_in(f: _Fragment, g: _Fragment, tol: float,
-                           work_budget=None) -> Optional[bool]:
-    """Only actual shared fragment provenance proves this duplicate.
-
-    Distinct arcs can share both endpoints and identical approximation
-    chords. Neither lifted-polyline containment nor endpoint identity
-    certifies that their source arc is the same.
-    """
-    return f is g
+                           work_budget=None, param_tol=None) -> Optional[bool]:
+    """Compare complete polylines in paired parameters and world space."""
+    from mmcore.numeric.intersection.ssx._ssx_polyline import polyline_contained
+    if not _assembly_spend(work_budget, len(f.stuv_path) + len(g.stuv_path)):
+        return None
+    return polyline_contained(
+        f.stuv_path, f.xyz_path, g.stuv_path, g.xyz_path,
+        max(float(tol), np.finfo(float).eps) if param_tol is None else param_tol,
+        tol, charge=lambda amount: _assembly_spend(work_budget, amount))
 
 
 def _drop_duplicate_fragments(fragments: list[_Fragment], atol: float,
-                              work_budget=None) -> list[_Fragment]:
-    """Remove repeated references to one fragment; retain unknown retraces."""
-    kept, seen = [], set()
-    for index, fragment in enumerate(fragments):
-        if not _assembly_spend(work_budget):
-            kept.extend(fragments[index:])
-            break
-        if id(fragment) not in seen:
-            seen.add(id(fragment))
-            kept.append(fragment)
-    return kept
+                              work_budget=None, param_tol=None) -> list[_Fragment]:
+    """Coalesce numerical retraces with matching paired parameter paths.
+
+    Compare complete segments, including their interiors, rather than
+    only XYZ vertices.  The keeper's existing sagitta credit accommodates
+    different sampling densities, while the separate parameter tolerance
+    prevents coincident surface sheets from absorbing one another.
+    """
+    def _arc_len(fr: _Fragment) -> float:
+        xyz = np.asarray(fr.xyz_path, dtype=np.float64)
+        if len(xyz) < 2:
+            return 0.0
+        return float(np.linalg.norm(np.diff(xyz, axis=0), axis=1).sum())
+
+    def _parameter_sagitta(fr: _Fragment):
+        # The marcher sizes chords in XYZ. On a curved parameter chart,
+        # the same chord can have a larger parameter interpolation error
+        # than the endpoint matching tolerance. Estimate that error per
+        # coordinate from adjacent d(parameter)/d(arclength) secants, using
+        # the same curvature*h**2/8 rule as the world-space credit. In
+        # particular, a constant parameter axis receives ZERO credit, so
+        # a displaced sheet cannot borrow curvature from another axis.
+        q = np.asarray(fr.stuv_path, dtype=np.float64)
+        xyz = np.asarray(fr.xyz_path, dtype=np.float64)
+        if len(q) < 3 or len(q) != len(xyz):
+            return np.zeros(4)
+        h = np.linalg.norm(np.diff(xyz, axis=0), axis=1)
+        moving = h > 0.
+        velocity = np.diff(q, axis=0) / np.where(moving, h, 1.)[:, None]
+        valid = moving[:-1] & moving[1:]
+        if not np.any(valid):
+            return np.zeros(4)
+        left, right = h[:-1][valid], h[1:][valid]
+        curvature = (2. * np.abs(np.diff(velocity, axis=0)[valid])
+                     / (left + right)[:, None])
+        return np.max(curvature * np.maximum(left, right)[:, None]**2 / 8., axis=0)
+
+    arc_work = sum(max(0, len(fr.xyz_path) - 1) + len(fr.xyz_path)
+                   + len(fr.stuv_path) for fr in fragments)
+    arc_work += len(fragments) * max(1, (len(fragments) - 1).bit_length())
+    if arc_work and not _assembly_spend(work_budget, arc_work):
+        # Failure-safe direction: an unproved duplicate remains visible in
+        # the explicitly partial result; no certified fragment is deleted.
+        return list(fragments)
+
+    keep: list[_Fragment] = []
+    sag_of: dict[int, float] = {}
+    parameter_sag_of = {}
+    ordered = sorted(fragments, key=_arc_len, reverse=True)
+    ptol = np.broadcast_to(np.asarray(
+        max(float(atol), np.finfo(float).eps) if param_tol is None else param_tol,
+        dtype=np.float64), (4,))
+    bounds_of = {}
+    for fr in ordered:
+        if len(fr.stuv_path) and len(fr.stuv_path) == len(fr.xyz_path):
+            paired = np.column_stack((fr.stuv_path, fr.xyz_path))
+            bounds_of[id(fr)] = paired.min(axis=0), paired.max(axis=0)
+    for pos, f in enumerate(ordered):
+        duplicate = False
+        for g in keep:
+            if not _assembly_spend(work_budget):
+                keep.append(f)
+                keep.extend(ordered[pos + 1:])
+                return keep
+            if id(f) not in bounds_of or id(g) not in bounds_of:
+                continue
+            g_sag = sag_of.get(id(g))
+            if g_sag is None:
+                g_sag = _polyline_sagitta_bound(g.xyz_path)
+                sag_of[id(g)] = g_sag
+                parameter_sag_of[id(g)] = _parameter_sagitta(g)
+            xyz_tol = 2.0 * atol + _CONTAINMENT_SAGITTA_CREDIT * g_sag
+            path_ptol = (ptol + _CONTAINMENT_SAGITTA_CREDIT
+                         * parameter_sag_of[id(g)])
+            bounds = np.concatenate((path_ptol, np.full(3, xyz_tol)))
+            f_lo, f_hi = bounds_of[id(f)]
+            g_lo, g_hi = bounds_of[id(g)]
+            if np.any(f_lo < g_lo - bounds) or np.any(f_hi > g_hi + bounds):
+                continue
+            contained = _fragment_contained_in(
+                f, g, xyz_tol, work_budget=work_budget, param_tol=path_ptol)
+            if contained is True:
+                duplicate = True
+                break
+            if contained is None:
+                # No allowance remains. Keep the current and all following
+                # fragments without further containment scans.
+                keep.append(f)
+                keep.extend(ordered[pos + 1:])
+                return keep
+        if duplicate:
+            continue
+        keep.append(f)
+    return keep
 
 
 def _assemble_fragments(
@@ -6184,7 +5965,6 @@ def _assemble_fragments(
     h_max=None,
     barrier_xyz=None,
     work_budget=None,
-    root_matcher=None,
 ) -> list[SSXBranch]:
     """Design §9: chain fragments that share a `BoundaryPoint` endpoint into
     full branches. Two fragments touching the same `BoundaryPoint` object
@@ -6192,9 +5972,10 @@ def _assemble_fragments(
     from each adjacent cell — by Invariant A/B those are the only partial
     branches the point can connect.
 
-    Source surfaces and tolerances support bounded representation checks.
-    Closure is obtained from the registered root graph; a nearby free end
-    does not authorize an extra closing march.
+    The `S1_full / S2_full / atol_full / rational_full` keyword args enable
+    a final closing-segment march for near-closed loops whose chain has a
+    small id-graph gap (different `BoundaryPoint` objects produced for the
+    same physical point in different parts of the subdivision tree).
 
     `barrier_xyz` (optional, (K,3)): emitted tangent-point positions.
     Branches TERMINATE at singular points (paper semantics): two
@@ -6206,20 +5987,14 @@ def _assemble_fragments(
     """
     from collections import defaultdict
 
-    for fragment in fragments:
-        fragment._registered_root_points = {
-            id(point): point for point in (fragment.start_point, fragment.end_point)
-            if point is not None}
-        fragment._registered_root_ids = frozenset(
-            id(point) for point in (fragment.start_point, fragment.end_point)
-            if point is not None)
-
+    join_param_tol = np.broadcast_to(np.asarray(
+        4.0 * atol_full if unify_tol is None else unify_tol, dtype=np.float64), (4,))
     if unify_tol is not None and len(fragments) > 1:
         _unify_fragment_endpoints(
             fragments, unify_tol, unify_atol=atol_full,
-            work_budget=work_budget, root_matcher=root_matcher)
+            work_budget=work_budget)
         fragments = _drop_duplicate_fragments(
-            fragments, atol_full, work_budget=work_budget)
+            fragments, atol_full, work_budget=work_budget, param_tol=unify_tol)
 
     barrier = None
     if barrier_xyz is not None and len(barrier_xyz):
@@ -6318,144 +6093,385 @@ def _assemble_fragments(
         stuv_full = np.concatenate(stuv_pieces, axis=0)
         xyz_full = np.concatenate(xyz_pieces, axis=0)
 
-        # Closure follows the registered root graph. A nearby free end
-        # does not prove a missing complement: marching back to it can
-        # retrace an already represented short arc and invent a loop.
+        # March the closing segment of near-closed loops.
+        #
+        # A loop intersection traversed by subdivisions sometimes ends up
+        # with a small chain gap: the SAME geometric point on the loop is
+        # independently produced as different `BoundaryPoint` objects in
+        # cells from different parts of the subdivision tree, so the
+        # id-based chain walker can't bridge them. Symptom: a chain whose
+        # two free endpoints (BOTH interior — neither on the [0,1]⁴ box
+        # boundary) are much closer to each other than to the rest of the
+        # chain. Close the loop by actually marching the missing segment
+        # from end_point.stuv to start_point.stuv using the
+        # known-endpoint marcher; the resulting samples are real curve
+        # points (not a duplicate-start placeholder).
+        if S1_full is not None and len(xyz_full) >= 4:
+            steps = np.linalg.norm(np.diff(xyz_full, axis=0), axis=1)
+            steps = steps[steps > 0]
+            if len(steps) > 0:
+                gap = float(np.linalg.norm(xyz_full[-1] - xyz_full[0]))
+                median_step = float(np.median(steps))
+                # Only close when both endpoints are strictly INTERIOR. Open
+                # boundary-to-boundary branches naturally end at the [0,1]⁴
+                # box boundary; we must NOT join those.
+                start_interior = bool(np.all((stuv_full[0] > 1e-9) &
+                                             (stuv_full[0] < 1 - 1e-9)))
+                end_interior = bool(np.all((stuv_full[-1] > 1e-9) &
+                                           (stuv_full[-1] < 1 - 1e-9)))
+                # Two retrace guards (off-lattice touch+loop pathology): a
+                # SHORT open arc (< ~180 deg of a small loop) whose true
+                # complement went untraced ALSO has interior endpoints with
+                # a small gap — but there the end->start chord points
+                # BACKWARD across the arc's opening, so the known-endpoint
+                # marcher walks back along the already-traced arc and
+                # manufactures an out-and-back "closed" branch (net angular
+                # progress 0, half the samples duplicated).
+                #  1. Pre-guard: only attempt the close when the traced
+                #     path is most-of-a-loop (path length > 3x gap); a
+                #     <180-deg arc has path ~ gap (chord) and must stay
+                #     open for assembly/dedup to handle.
+                #  2. Post-guard: reject a closing segment whose interior
+                #     samples ALL lie on the existing polyline (2*atol) —
+                #     that is a retrace, not the missing sliver.
+                path_len = float(steps.sum())
+                if (start_interior and end_interior
+                        and median_step > 0
+                        and gap < 10.0 * median_step
+                        and path_len > 3.0 * gap):
+                    close_limit = 2000
+                    if work_budget is not None:
+                        close_limit = min(
+                            close_limit,
+                            work_budget.remaining_postprocess_work)
+                    close_stats = {}
+                    if (close_limit <= 0
+                            or not _assembly_spend(work_budget, 0)):
+                        # Spend one denied unit to publish hard exhaustion.
+                        _assembly_spend(work_budget, 1, "assembly_trace")
+                        closing_stuv = np.empty((0, 4))
+                        closing_xyz = np.empty((0, 3))
+                    else:
+                        closing_stuv, closing_xyz = _march_intersection_curve(
+                            S1_full, S2_full,
+                            stuv_full[-1], stuv_full[0],
+                            atol=atol_full, rational=rational_full,
+                            h_max=h_max, max_points=close_limit,
+                            stats=close_stats,
+                        )
+                        close_iterations = int(
+                            close_stats.get("iterations", 0))
+                        if close_iterations:
+                            _assembly_spend(
+                                work_budget, close_iterations,
+                                "assembly_trace")
+                        reached_start = (
+                            len(closing_xyz) >= 2
+                            and float(np.linalg.norm(
+                                np.asarray(closing_xyz[-1])
+                                - np.asarray(xyz_full[0])))
+                            <= 2.0 * atol_full)
+                        if (close_iterations >= close_limit
+                                and not reached_start
+                                and work_budget is not None):
+                            work_budget.mark_incomplete(
+                                REASON_POSTPROCESS_CAP)
+                            if (work_budget.remaining_postprocess_work
+                                    <= 0):
+                                work_budget.postprocess_exhausted = True
+                                work_budget.mark_exhausted()
+                        if not reached_start:
+                            closing_stuv = np.empty((0, 4))
+                            closing_xyz = np.empty((0, 3))
+                    is_retrace = False
+                    if len(closing_xyz) > 3:
+                        interior = np.asarray(closing_xyz[1:-1],
+                                              dtype=np.float64)
+                        is_retrace = True
+                        for p in interior:
+                            if not _assembly_spend(
+                                    work_budget, max(1, len(xyz_full) - 1)):
+                                # Unknown retrace: reject the optional close.
+                                is_retrace = True
+                                break
+                            if (_dist_point_polyline(p, xyz_full)
+                                    > 2.0 * atol_full):
+                                is_retrace = False
+                                break
+                    if len(closing_stuv) >= 2 and not is_retrace:
+                        # Skip the first sample (duplicates xyz_full[-1]).
+                        stuv_full = np.concatenate(
+                            [stuv_full, closing_stuv[1:]], axis=0)
+                        xyz_full = np.concatenate(
+                            [xyz_full, closing_xyz[1:]], axis=0)
+
         branch_kind = ("tangential" if any(fragments[idx].tangential for idx, _ in chain)
                        else "transversal")
-        branch = SSXBranch(curve=(stuv_full, xyz_full), kind=branch_kind)
-        branch.closed = bool(current_start is not None and current_start is current_end)
-        branch._registered_endpoints = (current_start,current_end)
-        branch._registered_root_ids = frozenset().union(*(
-            fragments[idx]._registered_root_ids for idx, _ in chain))
-        branch._registered_root_points = {
-            key: point for idx, _ in chain
-            for key, point in fragments[idx]._registered_root_points.items()}
-        branches.append(branch)
+        branches.append(SSXBranch(curve=(stuv_full, xyz_full), kind=branch_kind))
 
-    # All admissible endpoint identities were resolved before graph
-    # chaining. A second join based on rounded output coordinates would
-    # override a declined source-root identity and connect unknown events.
+    # --- Join open branches across sub-tolerance junction gaps ---
+    # Guided cuts pass THROUGH discovered crossings, so a small loop is
+    # partitioned into arcs whose junction micro-slivers (~1° of arc) are
+    # eaten by the containment dedup (its point-to-polyline distance clamps
+    # at a keeper's terminal VERTEX, so a sliver extending a fragment's end
+    # by < 2·atol per sample looks "contained" — off-lattice touch+loop:
+    # four arcs arrived here open with 1–2.4·atol endpoint gaps and were
+    # previously force-"closed" individually into out-and-back doubles).
+    # Join open, strictly-interior, tangent-consistent endpoint pairs
+    # within 4·atol (junction chord sagitta κL²/8 ≈ 2e-5 ≪ atol); a branch
+    # whose own two ends meet closes exactly. Junctions within 2·atol of a
+    # barrier point are never joined — branches terminate at singularities.
+    if len(branches) >= 1:
+        def _ends(b):
+            xyz = np.asarray(b.curve[1], dtype=np.float64)
+            stuv = np.asarray(b.curve[0], dtype=np.float64)
+            return stuv, xyz
 
-    # Distinct source arcs may have identical approximation polylines.
-    # Without source-arc ownership, retain all assembled branches.
+        def _interior(p4):
+            return bool(np.all(p4 > 1e-9) and np.all(p4 < 1.0 - 1e-9))
 
-    # A midpoint residual divided by a normal-angle estimate is neither a
-    # source-arc exclusion nor a bound on an approximation chord's error.
-    # Source ownership and representation gates run before assembly; retain
-    # their arcs here, including valid chords across nearly tangent valleys.
+        def _near_barrier_xyz(p3):
+            if barrier is None:
+                return False
+            if not _assembly_spend(work_budget, len(barrier)):
+                return True
+            return bool(np.linalg.norm(
+                barrier - np.asarray(p3)[None, :], axis=1).min() <= 2.0 * atol_full)
 
-    # Closing a chain changes topology metadata as well as its samples.
-    # Registered source endpoints outrank identical displayed parameters.
-    # Keep the legacy anonymous-polyline closure convention only when
-    # neither endpoint has a registered source owner.
+        def _dir(xyz, at_start):
+            # unit direction pointing OUT of the branch at the given end
+            if len(xyz) < 2:
+                return None
+            v = xyz[0] - xyz[1] if at_start else xyz[-1] - xyz[-2]
+            n = float(np.linalg.norm(v))
+            return v / n if n > 1e-15 else None
+
+        def _chord_is_real(pa4, pc4):
+            # Same truth test as the valley-fiction filter: estimated
+            # true-curve distance at the junction-chord midpoint must be
+            # within tolerance — inside a sub-atol grazing valley every
+            # RESIDUAL is small, but junctions between genuine arcs also
+            # pass, and outside valleys this rejects fiction chords.
+            if S1_full is None:
+                return True
+            mid = 0.5 * (np.asarray(pa4) + np.asarray(pc4))
+            p1, du1, dv1 = eval_surface_d1(S1_full, mid[0], mid[1],
+                                           rational=rational_full)
+            p2, du2, dv2 = eval_surface_d1(S2_full, mid[2], mid[3],
+                                           rational=rational_full)
+            res = float(np.linalg.norm(p1 - p2))
+            N1 = np.cross(du1, dv1)
+            N2 = np.cross(du2, dv2)
+            n1 = float(np.linalg.norm(N1))
+            n2 = float(np.linalg.norm(N2))
+            sin_ang = (float(np.linalg.norm(np.cross(N1, N2))) / (n1 * n2)
+                       if n1 > 1e-30 and n2 > 1e-30 else 1.0)
+            return res / max(sin_ang, 1e-3) <= 2.0 * atol_full
+
+        changed = True
+        while changed:
+            if not _assembly_spend(work_budget):
+                break
+            changed = False
+            open_ends = []      # (branch_idx, end_is_start, stuv4, xyz3, out_dir)
+            scan_denied = False
+            for bi, b in enumerate(branches):
+                stuv, xyz = _ends(b)
+                if len(xyz) < 2:
+                    continue
+                if float(np.linalg.norm(xyz[0] - xyz[-1])) <= 1e-9:
+                    continue    # already exactly closed
+                # Only SUBSTANTIAL arcs participate (> 16·atol — the
+                # established micro-branch scale): the pass exists for
+                # loop arcs partitioned at guided-cut corners. Near-touch
+                # valley junk (2-5·atol arcs) must stay open and fall to
+                # the micro-branch/sliver filters — joining it self-closed
+                # junk blobs and frankenjoined junk onto genuine ring arcs
+                # in sub-tolerance clusters (eps=1e-3 touch+loop), after
+                # which containment ate the clean ring.
+                if not _assembly_spend(
+                        work_budget, max(1, len(xyz) - 1)):
+                    scan_denied = True
+                    break
+                arc_b = float(np.linalg.norm(
+                    np.diff(xyz, axis=0), axis=1).sum())
+                if arc_b <= 16.0 * atol_full:
+                    continue
+                for at_start in (True, False):
+                    p4 = stuv[0] if at_start else stuv[-1]
+                    p3 = xyz[0] if at_start else xyz[-1]
+                    if not _interior(p4) or _near_barrier_xyz(p3):
+                        continue
+                    open_ends.append((bi, at_start, p4, p3,
+                                      _dir(xyz, at_start)))
+            if scan_denied:
+                break
+            best = None
+            for a in range(len(open_ends)):
+                for c in range(a + 1, len(open_ends)):
+                    if not _assembly_spend(work_budget):
+                        scan_denied = True
+                        break
+                    ia, sa, qa, pa, da = open_ends[a]
+                    ic, sc, qc, pc, dc = open_ends[c]
+                    if ia == ic and sa == sc:
+                        continue
+                    gap = float(np.linalg.norm(pa - pc))
+                    if gap > 4.0 * atol_full:
+                        continue
+                    if np.any(np.abs(qa - qc) > join_param_tol):
+                        continue
+                    # tangent consistency: the two out-directions must be
+                    # roughly opposed (the curve continues), and when the
+                    # gap is resolvable the chord must agree with both.
+                    if da is not None and dc is not None:
+                        if float(np.dot(da, dc)) > -0.2:
+                            continue
+                        if gap > 0.25 * atol_full:
+                            chord = (pc - pa) / gap
+                            if (float(np.dot(da, chord)) < 0.2
+                                    or float(np.dot(dc, -chord)) < 0.2):
+                                continue
+                    if ia == ic:
+                        # self-join → closure; require most-of-a-loop
+                        xyz = np.asarray(branches[ia].curve[1], dtype=np.float64)
+                        path_len = float(np.linalg.norm(
+                            np.diff(xyz, axis=0), axis=1).sum())
+                        if path_len <= 3.0 * gap:
+                            continue
+                    if gap > 0.25 * atol_full and not _chord_is_real(
+                            open_ends[a][2], open_ends[c][2]):
+                        continue
+                    if best is None or gap < best[0]:
+                        best = (gap, a, c)
+                if scan_denied:
+                    break
+            if scan_denied:
+                break
+            if best is None:
+                break
+            _, a, c = best
+            ia, sa, *_ = open_ends[a]
+            ic, sc, *_ = open_ends[c]
+            sa_stuv, sa_xyz = _ends(branches[ia])
+            if ia == ic:
+                # close the loop exactly: repeat the start sample at the end
+                stuv_j = np.concatenate([sa_stuv, sa_stuv[:1]], axis=0)
+                xyz_j = np.concatenate([sa_xyz, sa_xyz[:1]], axis=0)
+                branches[ia] = SSXBranch(curve=(stuv_j, xyz_j),
+                                         kind=branches[ia].kind)
+                changed = True
+                continue
+            sc_stuv, sc_xyz = _ends(branches[ic])
+            # orient A to END at the junction, B to START at it
+            if sa:
+                sa_stuv, sa_xyz = sa_stuv[::-1], sa_xyz[::-1]
+            if not sc:
+                sc_stuv, sc_xyz = sc_stuv[::-1], sc_xyz[::-1]
+            stuv_j = np.concatenate([sa_stuv, sc_stuv], axis=0)
+            xyz_j = np.concatenate([sa_xyz, sc_xyz], axis=0)
+            kind_j = ("tangential"
+                      if "tangential" in (branches[ia].kind, branches[ic].kind)
+                      else "transversal")
+            keep_i, drop_i = (ia, ic) if ia < ic else (ic, ia)
+            branches[keep_i] = SSXBranch(curve=(stuv_j, xyz_j), kind=kind_j)
+            del branches[drop_i]
+            changed = True
+
+    # --- Branch-level containment dedup (post-join) ---
+    # Partial (non-contained) FRAGMENT overlaps are a known round-1 residue:
+    # two traversal families can each cover a loop in pieces that pairwise
+    # overlap only partially, so fragment containment keeps both families
+    # and the join pass then assembles TWO full copies of the same loop.
+    # At branch level compare complete paired polylines with the same
+    # numerical tolerances, longest kept first.
+    if len(branches) > 1:
+        order = sorted(range(len(branches)),
+                       key=lambda k: -len(branches[k].curve[1]))
+        kept_idx: list[int] = []
+        for idx in order:
+            contained = False
+            for kidx in kept_idx:
+                inside = _fragment_contained_in(
+                    _Fragment(None, None, *branches[idx].curve),
+                    _Fragment(None, None, *branches[kidx].curve),
+                    2.0 * atol_full, work_budget=work_budget,
+                    param_tol=(unify_tol if unify_tol is not None else atol_full))
+                if inside is True:
+                    contained = True
+                    break
+                if inside is None:
+                    break
+            if not contained:
+                kept_idx.append(idx)
+        branches = [branches[k] for k in sorted(kept_idx)]
+
+    # Parameter midpoints from two charts need not represent the same
+    # physical point, even along an exact straight intersection. Their
+    # residual (with or without an angle or sagitta factor) therefore
+    # cannot justify deleting an assembled branch. Chord accuracy belongs
+    # to continuation, where an excessive geometric deviation can trigger
+    # refinement rather than erase an entire component after tracing.
+
+    # --- Drop short slivers that lie on top of another branch ---
+    # When the fragment graph has a Y-junction (≥3 fragments meeting at the
+    # same BoundaryPoint, e.g. because two adjacent cells redundantly traced
+    # the same curve segment), the chain walker peels off the main path and
+    # leaves the spurious side fragment as a separate short "branch". Such
+    # a sliver lies entirely within another (longer) branch in 3-space.
+    #
+    # Criterion (intentionally narrow to avoid false positives):
+    #   - The candidate branch has FEW points (≤ 5).
+    #   - Its full paired parameter/XYZ polyline lies within the other
+    #     branch's tolerance envelope. A matching world-space image alone
+    #     can represent a different surface preimage and is insufficient.
+    SLIVER_MAX_PTS = 5
+    if len(branches) > 1:
+        sliver_tol = 4.0 * atol_full
+
+        keep = []
+        order = sorted(range(len(branches)),
+                       key=lambda k: -len(branches[k].curve[1]))
+        for idx in order:
+            candidate = branches[idx]
+            xyz = candidate.curve[1]
+            is_sliver = False
+            if len(xyz) <= SLIVER_MAX_PTS:
+                for big in keep:
+                    inside = _fragment_contained_in(
+                        _Fragment(None, None, *candidate.curve),
+                        _Fragment(None, None, *big.curve), sliver_tol,
+                        work_budget=work_budget,
+                        param_tol=(unify_tol if unify_tol is not None else atol_full))
+                    if inside is True:
+                        is_sliver = True
+                        break
+                    if inside is None:
+                        break
+            if not is_sliver:
+                keep.append(candidate)
+        branches = keep
+
+    closure_tol = 0.0 if unify_tol is None else unify_tol
     for branch in branches:
-        q = np.asarray(branch.curve[0], dtype=np.float64)
-        x = np.asarray(branch.curve[1], dtype=np.float64)
-        if len(q) >= 3 and all(point is None for point in branch._registered_endpoints):
-            xerr = 128.0 * np.finfo(float).eps * max(1.0, float(np.abs(x).max()))
-            branch.closed = bool(branch.closed or (
-                np.array_equal(q[-1], q[0])
-                and np.linalg.norm(x[-1] - x[0]) <= xerr))
+        parameters, xyz = map(np.asarray, branch.curve)
+        branch.closed = bool(
+            len(parameters) >= 3
+            and np.all(np.abs(parameters[-1] - parameters[0]) <= closure_tol)
+            and np.linalg.norm(xyz[-1] - xyz[0]) <= 2.0 * atol_full)
+        if branch.closed and (not np.array_equal(parameters[-1], parameters[0])
+                              or not np.array_equal(xyz[-1], xyz[0])):
+            # A tolerance-closed numerical chain includes its final short
+            # chord explicitly, so the flag and returned polyline agree.
+            if _assembly_spend(work_budget, len(parameters)):
+                branch.curve = (np.concatenate((parameters, parameters[:1]), axis=0),
+                                np.concatenate((xyz, xyz[:1]), axis=0))
     return branches
 
 
 # ---------------------------------------------------------------------------
 # Domain decomposition helpers
 # ---------------------------------------------------------------------------
-
-def _root_separating_cuts(crossings, axis, box, cut_tol, max_cuts=8):
-    """Choose dyadic separators between recorded root-coordinate bands.
-
-    Cutting through a polished root float creates different nearby faces
-    on independently parameterized charts. Separators avoid that existing
-    boundary evidence; this is a subdivision choice, never an exclusion.
-    """
-    lo, hi = box[axis]
-    proposal_padding = float(np.asarray(cut_tol)[axis])
-    intervals = []
-    for root in crossings:
-        enclosure = root.root_box
-        a, b = (enclosure[axis] if enclosure is not None
-                else (root.stuv[axis], root.stuv[axis]))
-        # A source enclosure already accounts for numerical uncertainty.
-        # Modeling tolerance must not swallow a certified gap between two
-        # distinct roots and repeatedly send subdivision along a free axis.
-        padding = (0. if enclosure is not None and getattr(root, '_source_root_box', False)
-                   else proposal_padding)
-        if lo < b and a < hi:
-            intervals.append((max(lo, float(a)-padding),
-                              min(hi, float(b)+padding)))
-    if not intervals:
-        return []
-    merged = []
-    for a, b in sorted(intervals):
-        if merged and a <= merged[-1][1]:
-            merged[-1] = (merged[-1][0], max(b, merged[-1][1]))
-        else:
-            merged.append((a, b))
-    # Productive cuts separate two groups of boundary events. Repeatedly
-    # cutting outside the first/last event only builds shrinking collars
-    # around the same roots and does not distinguish arc ownership. With
-    # one group the caller uses balanced midpoint subdivision instead.
-    gaps = [(first[1], second[0]) for first, second in zip(merged, merged[1:])
-            if first[1] < second[0]]
-    cuts = []
-    for a, b in sorted(gaps, key=lambda gap: gap[1]-gap[0], reverse=True):
-        if np.nextafter(a, b) >= b:
-            continue
-        # Begin at the exponent of the gap's upper endpoint. This also
-        # finds representable dyadic cuts next to zero/subnormal parameters.
-        for level in range(max(0, -math.frexp(b)[1]), 1075):
-            step = math.ldexp(1., -level)
-            value = (math.floor(a/step)+1)*step
-            if a < value < b:
-                cuts.append(value)
-                break
-        if len(cuts) >= max_cuts:
-            break
-    return sorted(cuts)
-
-
-def _balanced_root_avoiding_cut(crossings, axis, box):
-    """Prefer a central cut outside known event bands, with bounded progress.
-
-    A midpoint through an existing boundary event can create a tangential
-    face or several nearly coincident roots. Moving within the middle half
-    avoids that degeneracy while every child shrinks by at least a quarter.
-    Bands guide partition choice only; they never exclude source geometry.
-    """
-    lo, hi = box[axis]
-    midpoint = .5*lo+.5*hi
-    if not lo < midpoint < hi:
-        return midpoint
-    bands = []
-    for point in crossings:
-        interval = (point.root_box[axis] if point.root_box is not None
-                    else (point.stuv[axis], point.stuv[axis]))
-        a, b = map(float, interval)
-        if np.isfinite(a) and np.isfinite(b) and lo <= b and a <= hi:
-            bands.append((a, b))
-    if not any(a <= midpoint <= b for a, b in bands):
-        return midpoint
-    left, right = .75*lo+.25*hi, .25*lo+.75*hi
-    gaps, cursor = [], left
-    for a, b in sorted(bands):
-        if b < cursor or a > right:
-            continue
-        if cursor < a:
-            gaps.append((cursor, min(a, right)))
-        cursor = max(cursor, b)
-    if cursor < right:
-        gaps.append((cursor, right))
-    candidates = [(.5*a+.5*b, b-a) for a, b in gaps
-                  if a < .5*a+.5*b < b]
-    candidates = [(value, span) for value, span in candidates
-                  if lo < value < hi and not any(a <= value <= b for a, b in bands)]
-    if not candidates:
-        return midpoint
-    return min(candidates, key=lambda item: (-item[1], abs(item[0]-midpoint), item[0]))[0]
-
 
 def _extract_isoline(S, axis, value):
     """Extract isoline from Bezier surface at parameter value along axis."""
@@ -6533,6 +6549,14 @@ _build_outer_partitions = _build_cell_partitions
 
 def _on_axis_local(global_val: float, lo: float, hi: float, tol: float = 1e-8) -> Optional[int]:
     """Return 0 if `global_val` equals `lo`, 1 if it equals `hi`, else None."""
+    if global_val == lo:
+        return 0
+    if global_val == hi:
+        return 1
+    # The two face neighborhoods must stay disjoint even after repeated
+    # subdivision; a narrow interval's upper endpoint is never its lower
+    # face merely because the global matching tolerance exceeds its width.
+    tol = min(tol, .25 * max(0., hi - lo))
     if abs(global_val - lo) < tol:
         return 0
     if abs(global_val - hi) < tol:
@@ -6548,9 +6572,6 @@ def _classify_boundary_point(point: BoundaryPoint, cell: "_Cell") -> None:
     directly from `point.tangent_raw[i]` and the point's local param derived
     from the cell's box on axis `i`.
     """
-    source_sink = getattr(cell, 'source_singular_sink', None)
-    if source_sink is not None:
-        source_sink(point, cell)
     if point.tangent_raw is None:
         return
 
@@ -6568,7 +6589,7 @@ def _classify_boundary_point(point: BoundaryPoint, cell: "_Cell") -> None:
         target_value = cell.box[i][local_param]
         match = None
         for p in cell.partitions:
-            if p.axis == i and abs(p.value - target_value) < 1e-8:
+            if p.axis == i and p.value == target_value:
                 match = p
                 break
         if match is None:
@@ -6719,6 +6740,111 @@ def _split_tensor_multi(T, axis_4d, cut_values, cell_box):
     return pieces
 
 
+def _cut_face_contacts(csx_result):
+    """Point proposals, including contacts absorbed into CSX spans."""
+    yield from csx_result.get('isolated', ())
+    for overlap in csx_result.get('overlaps', ()):
+        # A range box has no paired endpoint information and cannot seed
+        # continuation. Preserve the paired contacts CSX actually found;
+        # tagged proximity contacts are refined before registration.
+        yield from overlap.get('boundary_contacts', ())
+
+
+def _query_cut_face_contacts(csx_fn, curve, surface, pieces, split_axis,
+                             local_cuts, atol, budget):
+    """Query a parent face once, refining only a locally depth-limited solve."""
+    can_refine = len(pieces) > 1
+    result = csx_fn(curve, surface, atol=atol, rational=True,
+                    defer_local_depth=can_refine)
+    _surface_cut_face_fibers(result, budget)
+    contacts = list(_cut_face_contacts(result))
+    if not (can_refine and result.get('budget_exhausted')
+            and result.get('truncation_cause') == 'depth'):
+        return contacts
+    boundaries = [0., *local_cuts, 1.]
+    for index, piece in enumerate(pieces):
+        if budget.exhausted:
+            break
+        child = csx_fn(curve, piece, atol=atol, rational=True)
+        _surface_cut_face_fibers(child, budget)
+        low, high = boundaries[index:index + 2]
+        key = 'u' if split_axis == 0 else 'v'
+        for point in _cut_face_contacts(child):
+            mapped = dict(point)
+            mapped[key] = low + float(point[key]) * (high - low)
+            contacts.append(mapped)
+    return contacts
+
+
+def _register_cut_contacts(cell, contacts, own_axis, cut_value, cut_index,
+                            other_axis, other_cuts, grid):
+    """Share each paired root across its closed incident child domains."""
+    other_start = 2 if own_axis < 2 else 0
+    free_axis = own_axis ^ 1
+    boundaries = [cell.box[other_axis][0], *other_cuts,
+                  cell.box[other_axis][1]]
+    for point in contacts:
+        if not all(np.isfinite(point[key]) and 0. <= point[key] <= 1.
+                   for key in ('t', 'u', 'v')):
+            continue
+        xyz = np.asarray(point['point'], dtype=np.float64)
+        if not np.all(np.isfinite(xyz)):
+            continue
+        stuv = np.empty(4, dtype=np.float64)
+        stuv[own_axis] = cut_value
+        for axis, key in ((free_axis, 't'), (other_start, 'u'),
+                          (other_start + 1, 'v')):
+            low, high = cell.box[axis]
+            stuv[axis] = low + float(point[key]) * (high - low)
+        local = _global_to_local(stuv, cell.box)
+        multiplicity_polished = False
+        if point.get('certification') == 'tolerance':
+            # A CAD nearest contact is a useful proposal, but its gap
+            # does not determine an SSI crossing direction. Refine on
+            # this fixed face, just as for an original domain boundary,
+            # before turning it into a continuation registration.
+            work_budget = getattr(cell, 'work_budget', None)
+            if (work_budget is not None
+                    and not work_budget.charge_cells(1, 'cut_contact_refine')):
+                break
+            raw_local = local.copy()
+            local, residual, _ = _ssx_correct_fixed(
+                cell.g1.surface, cell.g2.surface, local,
+                fixed_axis=own_axis, fixed_value=float(local[own_axis]),
+                rational=True)
+            if not (np.all(np.isfinite(local))
+                    and np.all((0. <= local) & (local <= 1.))
+                    and np.isfinite(residual)
+                    and residual <= _strict_ssx_root_tol(
+                        cell.g1.surface, cell.g2.surface, rational=True)):
+                continue
+            for axis, (low, high) in enumerate(cell.box):
+                stuv[axis] = low + float(local[axis]) * (high - low)
+            stuv[own_axis] = cut_value
+            xyz = eval_surface(cell.g1.surface, local[0], local[1],
+                               rational=True)
+            multiplicity_polished = bool(np.max(np.abs(local - raw_local))
+                                          > 64. * np.finfo(float).eps)
+        tangent, _, _ = _ssx_tangent_4d(
+            cell.g1.surface, cell.g2.surface, *local, rational=True)
+        crossing = BoundaryPoint(stuv=stuv, xyz=xyz,
+                                 face=(own_axis, -1), tangent_raw=tangent,
+                                 multiplicity_polished=multiplicity_polished)
+        for index, (low, high) in enumerate(zip(boundaries, boundaries[1:])):
+            # Share a face root across rounding differences at a common
+            # cut, without assigning a nearby exterior root to that child.
+            margin = (64. * np.finfo(float).eps
+                      * max(1., abs(low), abs(high), abs(stuv[other_axis])))
+            if not low - margin <= stuv[other_axis] <= high + margin:
+                continue
+            if own_axis < 2:
+                grid[cut_index][index].append(crossing)
+                grid[cut_index + 1][index].append(crossing)
+            else:
+                grid[index][cut_index].append(crossing)
+                grid[index][cut_index + 1].append(crossing)
+
+
 def _surface_cut_face_fibers(csx_result, work_budget):
     """Ledger L49: name positive-dimensional cut-face preimages, never drop them.
 
@@ -6734,6 +6860,165 @@ def _surface_cut_face_fibers(csx_result, work_budget):
     """
     if work_budget is not None and csx_result.get('parameter_fibers'):
         work_budget.mark_incomplete(REASON_PARAMETER_FIBER)
+
+
+def _discover_c1_singularities(S1_h, S2_h, atol, ptol4, budget, existing=()):
+    """Locate parameter singularities within the call's remaining allowance.
+
+    C1 is a property of the supplied surfaces, independent of tracing.
+    Its existing shared tier runs once; publication is charged immediately
+    so a later cleanup stop cannot erase already found cusps.
+    Branch links are attached only after branch assembly. Geometry already
+    found by a reduction is retained; duplicate observations enrich those
+    records before allocating any additional output item.
+    """
+    from mmcore.numeric.intersection.ssx._ssx5_singular import c1_pass
+
+    out = []
+    if budget.exhausted:
+        return out
+    stats = {}
+    tier = min(20_000, budget.remaining_cells)
+    hits, curve = c1_pass(
+        S1_h, S2_h, atol, ptol4, max_cells=tier,
+        charge_box=_charge_hook(budget, "c1"), stats=stats)
+    if stats.get("external_budget_exhausted", False):
+        budget.mark_incomplete(REASON_WORK_BUDGET)
+    elif stats.get("budget_exhausted", False) or stats.get("incomplete", False):
+        # A full-tier positive-dimensional census is structurally partial;
+        # a tier reduced by the shared allowance is still a resource stop.
+        budget.mark_incomplete(
+            REASON_SINGULAR_SET if curve and tier == 20_000 else REASON_WORK_BUDGET)
+    for hit in hits:
+        if "curve_samples" in hit:
+            samples = np.asarray(hit["curve_samples"], dtype=np.float64)
+            anchor = samples[0] if len(samples) else np.full(4, np.nan)
+            xyz = (eval_surface(S1_h, *anchor[:2], rational=True)
+                   if len(samples) else np.full(3, np.nan))
+            item = SSXSingularity(
+                kind="cusp_curve", stuv=anchor, xyz=xyz,
+                samples=samples, surface=hit.get("surface"))
+        else:
+            item = SSXSingularity(
+                kind="cusp", stuv=np.asarray(hit["stuv"], dtype=np.float64),
+                xyz=np.asarray(hit["xyz"], dtype=np.float64),
+                surface=hit.get("surface"))
+        if item.kind == "cusp_curve" and len(item.samples):
+            remaining = np.ones(len(item.samples), dtype=bool)
+            for known in existing:
+                if (known.kind != "cusp_curve" or known.surface != item.surface
+                        or known.samples is None or len(known.samples) < 2):
+                    continue
+                parameters = np.asarray(known.samples, dtype=np.float64)
+                merge_cost = int(np.count_nonzero(remaining))*max(1, len(parameters)-1)
+                if not _assembly_spend(budget, max(1, merge_cost)):
+                    break
+                xyz_samples = np.array([
+                    eval_surface(S1_h, *q[:2], rational=True) for q in parameters])
+                matched = []
+                for index in np.flatnonzero(remaining):
+                    q = item.samples[index]
+                    xyz = eval_surface(S1_h, *q[:2], rational=True)
+                    if _point_on_branch_both_guards(
+                            xyz, q, xyz_samples, parameters, atol, ptol4,
+                            S1_h, S2_h):
+                        matched.append(index)
+                if not matched:
+                    continue
+                # C1 returns samples, not an ordered boundary polygon. Keep
+                # both observations of this locus: the reduction may know
+                # its whole extent while enumeration covers only part of it.
+                known.samples = np.vstack((parameters, item.samples[matched]))
+                remaining[matched] = False
+                if not any(known is entry for entry in out):
+                    out.append(known)
+            if not np.any(remaining):
+                continue
+            item.samples = item.samples[remaining]
+            item.stuv = item.samples[0].copy()
+            item.xyz = eval_surface(S1_h, *item.stuv[:2], rational=True)
+        elif item.kind == "cusp":
+            match = next((known for known in existing
+                          if known.kind == "cusp" and known.surface == item.surface
+                          and np.all(np.abs(known.stuv-item.stuv) <= ptol4)
+                          and np.linalg.norm(known.xyz-item.xyz) <= atol), None)
+            if match is not None:
+                if not any(match is entry for entry in out):
+                    out.append(match)
+                continue
+        budget.append_output(out, item, "singularity")
+    return out
+
+
+
+def _link_c1_and_discover_c3(S1_h_top, S2_h_top, all_branches,
+                             all_singularities, c1_singularities,
+                             atol, ptol4_global, budget):
+    """Apply the same singularity postprocessing to every geometry path."""
+    # Attach C1 links after branch filters; the singularities themselves
+    # have already been published by their discovery path.
+    for singularity in c1_singularities:
+        if singularity.kind != "cusp":
+            continue
+        links = []
+        cost = sum(max(1, len(np.asarray(b.curve[1]))-1) for b in all_branches)
+        if not _assembly_spend(budget, max(1, cost)):
+            break
+        for bi, branch in enumerate(all_branches):
+            xyz = np.asarray(branch.curve[1], dtype=np.float64)
+            if len(xyz) < 2 or _dist_point_polyline(singularity.xyz, xyz) > 4.0*atol:
+                continue
+            a, b = xyz[:-1], xyz[1:]
+            delta = b-a
+            square = np.einsum("ij,ij->i", delta, delta)
+            fraction = np.clip(np.einsum(
+                "ij,ij->i", singularity.xyz[None, :]-a, delta)
+                / np.maximum(square, 1e-30), 0., 1.)
+            distance = np.linalg.norm(a+fraction[:, None]*delta-singularity.xyz, axis=1)
+            segment = int(distance.argmin())
+            vertex = (segment if np.linalg.norm(xyz[segment]-singularity.xyz)
+                      <= np.linalg.norm(xyz[segment+1]-singularity.xyz) else segment+1)
+            links.append((bi, vertex))
+        singularity.branch_links = links
+
+    # --- C3 pass (paper §5.4): 3D self-intersections of the SSI image ---
+    # Runs AFTER tracing (branch geometry drives the candidate search).
+    # Ledger L8: the old trigger — "some traced cell failed the per-cell
+    # Theorem-3 certificate" — was semantically wrong: Theorem 3 certifies
+    # only that ONE box's image is injective; a C3 whose two preimages lie
+    # in DIFFERENT traced cells (figure-eight wall: s≈0.08 and s≈0.92
+    # strips, each cell truthfully certified) passes every per-cell check
+    # and the pass never ran. Run it whenever a collision is possible at
+    # all: >= 2 branches (cross-branch), or a branch long enough to reach
+    # its own segments past the broadphase index gap >= 3 (>= 8 segments,
+    # within-branch). The vectorized AABB broadphase keeps the fired path
+    # free on regular geometry (measured: 0 candidate pairs on coverage
+    # case 10's 115 segments, ~0.3 ms; the old gate fired on every regular
+    # coverage case anyway — top-cell T-hulls touch zero at domain edges —
+    # so this was already the de-facto hot path).
+    if (not budget.exhausted and all_branches
+            and (len(all_branches) >= 2 or any(
+            len(np.asarray(b.curve[1])) >= 9 for b in all_branches))):
+        from mmcore.numeric.intersection.ssx._ssx5_singular import c3_pass
+
+        _c3_stats = {}
+        _c3_hits = c3_pass(
+            S1_h_top, S2_h_top, all_branches, atol, ptol4_global,
+            max_work=budget.remaining_cells,
+            charge_work=_charge_hook(budget, "c3"),
+            stats=_c3_stats,
+        )
+        for hit in _c3_hits:
+            budget.append_output(all_singularities, SSXSingularity(
+                kind="self_intersection",
+                stuv=np.asarray(hit["stuv"], dtype=np.float64),
+                stuv_mate=np.asarray(hit["stuv_mate"], dtype=np.float64),
+                xyz=np.asarray(hit["xyz"], dtype=np.float64),
+                branch_links=hit["links"]), "singularity")
+        if _c3_stats.get("incomplete", False):
+            budget.mark_incomplete(REASON_WORK_BUDGET)
+
+
 
 
 @dataclass
@@ -6768,6 +7053,12 @@ class _Cell:
     # crossings are in `crossings` for tracing but should not be re-used for
     # cutting — cutting at inherited coordinates produces zero-info strips.
     new_crossings: list = field(default_factory=list)
+    # Squared-distance Bernstein net (4D scalar tensor), propagated from the
+    # top level by de Casteljau-splitting alongside TΨᵢ. Avoids reconstructing
+    # the net per cell; only the cheap min-of-net check runs per cell.
+    F_sq: Optional[NDArray[np.float64]] = None
+    # Top-level w_scale (max weight product) — constant across the tree.
+    w_scale: float = 1.0
     # Ledger L4: a probe-only cell hunts Δ-touches the parent's center
     # witness missed (loop-free arm, hull gate fired, witness failed). It
     # carries ONLY nets/boxes — no crossings, no partitions — and its
@@ -6776,178 +7067,73 @@ class _Cell:
     # (the parent already traced its geometry — that is what keeps the
     # descent duplication-free) and never runs cut-face CSX.
     probe_only: bool = False
-    # A parent already traced/enumerated its singular locus, but that does
-    # not certify absence of ordinary components in the remaining box.
-    # Descendants still run the full geometric subdivision and tracing
-    # search; this flag only avoids repeating the singular census.
-    regular_complement: bool = False
-    # Set by a tracer which could not cover a registered incident arc.
-    # Such a cell still needs subdivision even if it has no interior loops.
-    trace_incomplete: bool = False
-    # A regular cell with several ports must separate its arc ownership
-    # along a strict monotone parameter. Numerical guidance only.
-    trace_split_axis: Optional[int] = None
-    # All faces exhaustively enumerated with isolated roots only.
-    boundary_complete: bool = False
-    # Closed source boxes localize missing boundary events. None on an
-    # incomplete cell means unknown localization, never an empty census.
-    boundary_obligations: Optional[tuple] = None
-    root_matcher: Optional[object] = None
-    straight_path: Optional[object] = None
-    path_representation: Optional[object] = None
-    arc_image: Optional[object] = None
-    arc_chord: Optional[object] = None
-    source_root_exact: Optional[object] = None
-    source_singular_candidate: Optional[object] = None
-    source_singular_sink: Optional[object] = None
-    source_cofactors: Optional[object] = None
-    unresolved_regions: Optional[list] = None
     # Every nested solver and every descendant spends from the top-level
     # call's shared budget.  ``csx_fn`` is the bounded adapter installed by
     # bez_ssx; keeping it on the cell also covers helper subdivision paths.
     work_budget: Optional[_SSXSoftBudget] = None
     csx_fn: Optional[object] = None
-
-
-def _probe_split_axis(cell):
-    """Choose a varying singular constraint's largest derivative bound.
-
-    For a Bernstein polynomial, degree*diff(control_net) is its exact
-    derivative control net on the local unit interval. Its largest
-    absolute coefficient bounds the coordinate sensitivity. Restricting
-    an axis shrinks this bound; coordinates on which all T constraints
-    are constant do not compete with genuinely varying constraints.
-    The necessary T=0 constraints take priority over Psi=0, which avoids
-    replicating the same critical-strip search along free extrusion axes.
-    This only chooses subdivision order; all exclusion and root tests
-    remain unchanged. No coefficient is rounded to zero or discarded.
-    """
-    def variation(nets):
-        scores = np.zeros(4, dtype=np.float64)
-        for net in nets:
-            if net is None:
-                continue
-            net = np.asarray(net, dtype=np.float64)
-            for axis in range(4):
-                degree = net.shape[axis] - 1
-                if degree:
-                    bound = degree * float(np.max(np.abs(np.diff(net, axis=axis))))
-                    if np.isfinite(bound):
-                        scores[axis] = max(scores[axis], bound)
-        return scores
-
-    scores = variation((cell.T1, cell.T2, cell.T3, cell.T4))
-    if not np.any(scores):
-        from mmcore.numeric.intersection.ssx._ssx5_singular import psi_vector_net
-        psi = psi_vector_net(cell.g1.surface, cell.g2.surface)
-        scores = variation(psi[..., k] for k in range(3))
-    if np.any(scores):
-        return int(np.argmax(scores))
-    # Fully constant constraints have no preferred algebraic coordinate.
-    # Keep a geometric descent in that inconclusive degenerate situation.
-    return int(np.argmax([hi-lo for lo, hi in cell.box]))
+    # Continuation can produce a useful prefix without resolving the cell.
+    # The caller must then keep the unsearched remainder in the frontier.
+    trace_incomplete: bool = False
+    # A tangent component has already been traced in an ancestor. The
+    # remaining domain still needs searching; this flag only enables
+    # coverage checks against geometry that has actually been retained.
+    tangency_remainder: bool = False
 
 
 def _probe_children(cell):
-    """Bisect one active singular-constraint axis; carry every equation.
+    """Lean 2x2 net-split of a probe(-able) cell (ledger L4).
 
-    Probe cells have no crossings/partitions and never trace or run CSX.
-    Splitting one parameter produces two children covering exactly the
-    parent box, without copying the same critical-strip uncertainty into
-    all combinations of unconstrained surface extrusion parameters.
-    T1..T4 retain their de Casteljau restrictions.
+    Splits each surface at the midpoint of its longest GLOBAL axis and
+    de Casteljau-propagates T1..T4 and F_sq — nothing else: no cut-face
+    CSX, no crossing distribution, no partitions (the children are
+    probe_only and never trace). Cost per level is four de Casteljau
+    sweeps vs the main subdivision's CSX-per-cut (measured ~60 ms per
+    fall-through on case 5's 20 near-tangent cells — the lean descent is
+    what keeps the L4 recovery inside the coverage timing budget).
+
+    Termination of the descent (probe arm): AABB/GJK/F_sq prunes, hull
+    gate clearing (near-tangent cells: T hulls exclude 0 within a few
+    levels), witness success (touch emitted), or the 4·unify_tol size
+    gate — each level halves one axis per surface, longest-first, so all
+    four spans reach the gate in finitely many levels.
     """
-    axis = _probe_split_axis(cell)
     b = cell.box
-    if axis < 2:
-        g1 = cell.g1.split_u(0.5) if axis == 0 else cell.g1.split_v(0.5)
-        g2 = (cell.g2, cell.g2)
-    else:
-        g1 = (cell.g1, cell.g1)
-        g2 = cell.g2.split_u(0.5) if axis == 2 else cell.g2.split_v(0.5)
+    s1_axis = 0 if (b[0][1] - b[0][0]) >= (b[1][1] - b[1][0]) else 1
+    s2_axis = 2 if (b[2][1] - b[2][0]) >= (b[3][1] - b[3][0]) else 3
+    g1_lr = cell.g1.split_u(0.5) if s1_axis == 0 else cell.g1.split_v(0.5)
+    g2_lr = cell.g2.split_u(0.5) if s2_axis == 2 else cell.g2.split_v(0.5)
 
-    def split(net):
-        return ((None, None) if net is None else
-                _split_bern_scalar_tensor(net, axis=axis, t=0.5))
+    def _split2(T):
+        # -> [i1][i2] pieces along (s1_axis, s2_axis), local midpoints
+        if T is None:
+            return [[None, None], [None, None]]
+        a, c = _split_bern_scalar_tensor(T, axis=s1_axis, t=0.5)
+        a1, a2 = _split_bern_scalar_tensor(a, axis=s2_axis, t=0.5)
+        c1, c2 = _split_bern_scalar_tensor(c, axis=s2_axis, t=0.5)
+        return [[a1, a2], [c1, c2]]
 
-    tensors = [split(net) for net in (cell.T1, cell.T2, cell.T3, cell.T4)]
-    midpoint = 0.5 * (b[axis][0] + b[axis][1])
-    children = []
-    for side in range(2):
-        sub = list(b)
-        sub[axis] = ((b[axis][0], midpoint) if side == 0
-                     else (midpoint, b[axis][1]))
-        children.append(_Cell(
-            g1=g1[side], g2=g2[side], crossings=[], box=tuple(sub),
-            depth=cell.depth + 1,
-            T1=tensors[0][side], T2=tensors[1][side],
-            T3=tensors[2][side], T4=tensors[3][side],
-            new_crossings=[],
-            probe_only=True, work_budget=cell.work_budget, csx_fn=cell.csx_fn,
-            source_root_exact=cell.source_root_exact,
-            source_singular_candidate=cell.source_singular_candidate,
-            source_singular_sink=cell.source_singular_sink,
-            source_cofactors=cell.source_cofactors,
-            unresolved_regions=cell.unresolved_regions,
-        ))
-    return children
-
-
-def _contract_source_domain(cell, necessary_box, gauss_sources, minor_sources):
-    budget = cell.work_budget
-    # Constraint propagation preserves the entire source zero set. A
-    # new exact extreme in one affine component is attained on an old
-    # face of another variable; outward rounding only adds root-free
-    # boundary faces. Thus an exhaustive old boundary census remains
-    # exhaustive. Keep its root objects/enclosures, never filter them
-    # by rounded representatives. If one representative lies outside,
-    # simply retain the larger numerical domain for this cell.
-    if (necessary_box == cell.box
-            or any(lo >= hi for lo, hi in necessary_box)
-            or any(not all(lo <= value <= hi for value, (lo, hi)
-                           in zip(point.stuv, necessary_box))
-                   for point in cell.crossings)):
-        return
-    changed = [axis for axis, pair in enumerate(necessary_box) if pair != (0., 1.)]
-    coefficients = len(changed)*sum(net.size for net in minor_sources)
-    coefficients += sum((source.surface.size+source._map.size)
-                        *sum(axis//2 == side for axis in changed)
-                        for side, source in enumerate(gauss_sources))
-    units = max(1, (coefficients+127)//128)
-    if not budget.charge_cells(units, 'affine_domain'):
-        return
-    # Always restrict the original numerical sources, avoiding an
-    # additional accumulated chain of rounded child restrictions.
-    def patch(source, offset):
-        current = source
-        for local_axis in (0, 1):
-            axis = offset+local_axis
-            lo, hi = necessary_box[axis]
-            if hi < 1.:
-                current = (current.split_u(hi) if local_axis == 0
-                           else current.split_v(hi))[0]
-            if lo > 0.:
-                current = (current.split_u(lo/hi) if local_axis == 0
-                           else current.split_v(lo/hi))[1]
-        return current
-    from mmcore.numeric._bezier_common import restrict_net_axis_v
-    tensors = []
-    for source in minor_sources:
-        restricted = source[..., None]
-        for axis, (lo, hi) in enumerate(necessary_box):
-            restricted = restrict_net_axis_v(restricted, axis, lo, hi, 0., 1.)
-        tensors.append(restricted[..., 0])
-    cell.g1, cell.g2 = patch(gauss_sources[0], 0), patch(gauss_sources[1], 2)
-    cell.T1, cell.T2, cell.T3, cell.T4 = tensors
-    cell.box = necessary_box
-    for partition in cell.partitions:
-        partition.registrations[:] = [r for r in partition.registrations
-                                      if r.owner is not cell]
-    cell.partitions = _build_cell_partitions(cell)
-    for point in cell.crossings:
-        point.registrations[:] = [registration for registration in point.registrations
-                                  if registration.owner is not cell]
-        _classify_boundary_point(point, cell)
+    Ts = [_split2(T) for T in (cell.T1, cell.T2, cell.T3, cell.T4)]
+    Fs = _split2(cell.F_sq)
+    m1 = 0.5 * (b[s1_axis][0] + b[s1_axis][1])
+    m2 = 0.5 * (b[s2_axis][0] + b[s2_axis][1])
+    out = []
+    for i1 in range(2):
+        for i2 in range(2):
+            sub = list(b)
+            sub[s1_axis] = (b[s1_axis][0], m1) if i1 == 0 else (m1, b[s1_axis][1])
+            sub[s2_axis] = (b[s2_axis][0], m2) if i2 == 0 else (m2, b[s2_axis][1])
+            out.append(_Cell(
+                g1=g1_lr[i1], g2=g2_lr[i2], crossings=[], box=tuple(sub),
+                depth=cell.depth + 1,
+                T1=Ts[0][i1][i2], T2=Ts[1][i1][i2],
+                T3=Ts[2][i1][i2], T4=Ts[3][i1][i2],
+                new_crossings=[], F_sq=Fs[i1][i2], w_scale=cell.w_scale,
+                probe_only=True, work_budget=cell.work_budget,
+                csx_fn=cell.csx_fn,
+                tangency_remainder=cell.tangency_remainder,
+            ))
+    return out
 
 
 def bez_ssx(
@@ -6955,7 +7141,7 @@ def bez_ssx(
     S2,
     atol=1e-3,
     rational=True,
-    max_depth=None,
+    max_depth=13,
     max_xyz_step=None,
     max_cells=250_000,
     max_csx_calls=10_000,
@@ -6987,45 +7173,32 @@ def bez_ssx(
     smaller attempt. Assembly and
     containment use one separate call-wide ``max_postprocess_work`` cap
     (default: ``max_cells``), so a stopped search can still assemble its
-    certified partial fragments without opening an unbounded second phase.
-    Exhaustion is a soft stop: already-certified output is always returned.
-
-    ``max_depth=None`` leaves refinement governed by the shared work limits
-    and representable parameter partitions. An explicit integer remains a
-    hard subdivision ceiling. A fixed default depth is unrelated to source
-    root separation or cofactor certification and must not stop a still
-    productive search merely because its owner reached that level.
+    computed fragments without opening an unbounded second phase.
+    Exhaustion is a soft stop: geometry found so far is retained.
 
     Returns dict with 'branches', 'points', 'singularities', plus the
     schema-v2 status fields (2026-07-12 review doc §6):
 
-    - ``complete`` (bool) — the one bit consumers act on; ``True`` iff the
-      search finished without a recorded unresolved obligation under the
-      implemented predicates. This is not a proof for every algebraic input.
+    - ``complete`` (bool) — the numerical search finished without reaching
+      a work limit or leaving a detected structure unhandled. This is a
+      tolerance-based numerical solver, not an algebraic proof API.
     - ``status['reasons']`` (list[str]) — empty iff complete; each entry is
       one of the REASON_* strings at the top of this module and names a
       root cause (work/output/postprocess caps, depth ceiling, or the
       structural parameter-fiber / overlap-region / tangential-zone /
-      multiplicity / unverified-trace partialities). The structural
-      ``parameter_representation`` reason means floating parameters cannot
-      represent a source solution within the requested world tolerance.
+      multiplicity / unverified-trace partialities).
     - ``status['work']`` — usage counters (cells, CSX calls, output items,
       postprocess work, per-source ``cell_counts``) against their caps.
 
-    The kwargs stay expert knobs with safe defaults: read ``complete`` (and
-    ``reasons`` if you care why); never tune knobs to get correctness.
-
-    Source control data must be finite. Rational inputs require strictly
-    positive weights; zero or negative weights raise ``ValueError`` before
-    control-hull exclusions or normalization.
+    ``atol`` is the requested geometric accuracy. Work limits control the
+    amount of computation rather than changing that requested accuracy.
 
     Numerical frame (P1, 2026-07-21 design + amendments 1-2): inputs
     whose joint coordinate magnitude falls outside `_NORM_IDENTITY_WINDOW`
     run in a canonical frame — both nets jointly centered at the AABB
     midpoint and scaled by a power of two into the native-proven band
     (AABB diagonal ~[11.3, 22.6]; max|coords| ~[3.3, 11.3]) — so the
-    strict Psi-zero certificates,
-    fixed corrector tolerances, and marching machinery see calibrated
+    residual evaluation, corrector tolerances, and marching machinery see calibrated
     coordinates for any world placement; in-window inputs keep the
     bit-for-bit legacy frame.  The contract stays world-in/world-out:
     xyz outputs are un-mapped exactly once at exit; parameters and
@@ -7040,8 +7213,6 @@ def bez_ssx(
     from mmcore.numeric.intersection.ssx._ssx_input import validate_bezier_surface
     validate_bezier_surface(S1, rational=rational, context='bez_ssx surface 1')
     validate_bezier_surface(S2, rational=rational, context='bez_ssx surface 2')
-    source_identity_surfaces = (S1, S2)
-    source_atol = float(atol)
     # P1 invariance (2026-07-21 design + amendments): OUT-OF-WINDOW models
     # run in a canonical frame — jointly centered, power-of-two scaled into
     # the native band — so the absolute roundoff envelopes below see
@@ -7074,108 +7245,29 @@ def bez_ssx(
                               else max(0, int(max_postprocess_work))),
     )
 
-    # A local face solver limit does not exhaust unrelated SSX cells.
-    # Keep each owner box once so partial output identifies the unresolved
-    # complement without manufacturing one diagnostic per repeated call.
-    csx_unresolved_boxes = {}
-    active_csx_box = ((0.0, 1.0),) * 4
-
     def _result(branches=None, points=None, singularities=None,
-                overlap_regions=None, unresolved_regions=None):
-        unresolved_regions = ([] if unresolved_regions is None
-                              else list(unresolved_regions))
-        for diagnostic in csx_unresolved_boxes.values():
-            if diagnostic not in unresolved_regions:
-                if not budget.append_output(
-                        unresolved_regions, diagnostic, "unresolved_region"):
-                    break
+                overlap_regions=None):
         result = {
             'branches': [] if branches is None else branches,
             'points': [] if points is None else points,
             'singularities': [] if singularities is None else singularities,
             'overlap_regions': ([] if overlap_regions is None
                                 else overlap_regions),
-            # L52 slice 9b (§7.3): typed diagnostic complement — 'partial'
-            # names WHAT is unresolved (each entry = a 4-D stuv AABB + the
-            # reason it was left behind), the parameter_fibers pattern.
-            'unresolved_regions': ([] if unresolved_regions is None
-                                   else unresolved_regions),
         }
         result.update(budget.result_fields())
         return _denormalize_result(result, _norm_c, _norm_k)
 
     # A zero public allowance is a hard promise that no expensive solver
-    # setup runs. Product residual and minor tensors are preflighted before
-    # allocation, including work before the first subdivision cell exists.
+    # setup runs.  In particular, the 4-D squared-distance Bernstein net can
+    # allocate work quadratic in the tensor-product control count before the
+    # first subdivision cell exists.
     if budget.max_cells <= 0 or budget.max_csx_calls <= 0:
         budget.mark_exhausted()
         return _result()
 
-    # Use source hulls so normalization cannot perturb this exclusion.
-    if _ssx_control_aabbs_disjoint(*source_identity_surfaces, rational=rational):
+    # Reject disjoint control hulls before preflighting the distance net.
+    if _ssx_control_aabbs_disjoint(S1, S2, rational=rational):
         return _result()
-
-    from mmcore.numeric.intersection.ssx._ssx_exact_region import exact_affine_plane_region_ssx
-    exact_region = exact_affine_plane_region_ssx(
-        *source_identity_surfaces, source_atol, rational, budget)
-    if exact_region is not None:
-        exact_region.update(budget.result_fields())
-        return exact_region
-    if budget.exhausted:
-        return _result(unresolved_regions=[{
-            'stuv_min': (0.,)*4, 'stuv_max': (1.,)*4,
-            'reason': REASON_WORK_BUDGET}])
-
-    # A proven convex rational-bilinear 2D relation cannot be resolved by
-    # repeatedly searching for isolated roots. Preserve its entire source
-    # owner and exact image polygon while paired UV region representation
-    # remains unsupported. Zero-area contacts retain the curve solver.
-    from mmcore.numeric.intersection.ssx._ssx_positive_dimensional import exact_convex_bilinear_region_owner
-    region_owner = exact_convex_bilinear_region_owner(
-        *source_identity_surfaces, rational, budget)
-    if region_owner is not None:
-        region_owner.update(budget.result_fields())
-        return region_owner
-    if budget.exhausted:
-        return _result(unresolved_regions=[{
-            'stuv_min': (0.,)*4, 'stuv_max': (1.,)*4,
-            'reason': REASON_WORK_BUDGET}])
-
-    # An affine ruling parallel to a plane reduces the entire zero set to
-    # one scalar polynomial. Work on the supplied source coefficients so
-    # normalization cannot perturb a high-multiplicity root. This path's
-    # XYZ is already in world coordinates and must bypass denormalization.
-    if max_xyz_step is None:
-        from mmcore.numeric.intersection.ssx._ssx_quadratic_constraints import exact_quadratic_constraint_ssx
-        exact_quadratic = exact_quadratic_constraint_ssx(
-            *source_identity_surfaces, source_atol, rational, budget)
-        if exact_quadratic is not None:
-            exact_quadratic.update(budget.result_fields())
-            return exact_quadratic
-        if budget.exhausted:
-            return _result(unresolved_regions=[{
-                'stuv_min': (0.,)*4, 'stuv_max': (1.,)*4,
-                'reason': REASON_WORK_BUDGET}])
-        from mmcore.numeric.intersection.ssx._ssx_boundary_strata import exact_boundary_strata_ssx
-        exact_boundary = exact_boundary_strata_ssx(
-            *source_identity_surfaces, source_atol, rational, budget)
-        if exact_boundary is not None:
-            exact_boundary.update(budget.result_fields())
-            return exact_boundary
-        if budget.exhausted:
-            return _result(unresolved_regions=[{
-                'stuv_min': (0.,)*4, 'stuv_max': (1.,)*4,
-                'reason': REASON_WORK_BUDGET}])
-        from mmcore.numeric.intersection.ssx._ssx_extrusion import exact_extrusion_plane_ssx
-        exact_rulings = exact_extrusion_plane_ssx(
-            *source_identity_surfaces, source_atol, rational, budget)
-        if exact_rulings is not None:
-            exact_rulings.update(budget.result_fields())
-            return exact_rulings
-        if budget.exhausted:
-            return _result(unresolved_regions=[{
-                'stuv_min': (0.,)*4, 'stuv_max': (1.,)*4,
-                'reason': REASON_WORK_BUDGET}])
 
     if rational:
         S1_h_top, S2_h_top = S1, S2
@@ -7185,228 +7277,42 @@ def bez_ssx(
         S2_h_top = np.concatenate(
             [S2, np.ones(S2.shape[:-1] + (1,))], axis=-1)
 
-    # Preflight the four residual/minor coefficient tensors before any
-    # product-net construction. Normal cross products use per-surface
-    # Bernstein convolutions; quotient-rule rational columns can reach
-    # four times each original degree. Count those actual tensor sizes,
-    # instead of the now-removed quadratic-in-product Gram allocation.
-    degree_factor = (4 if rational and not (
-        _weight_net_uniform(S1) and _weight_net_uniform(S2)) else 2)
-    expanded_counts = [degree_factor*(n-1)+1
-                       for n in S1.shape[:2]+S2.shape[:2]]
-    net_coefficients = 4*math.prod(expanded_counts)
-    precompute_units = max(1, (net_coefficients+127)//128)
+    if max_xyz_step is None:
+        isolines = _try_isoline_intersection(S1_h_top, S2_h_top, atol, budget)
+        if isolines is not None:
+            # A lower-dimensional geometric reduction replaces tracing,
+            # not singularity detection. The same surfaces can still have
+            # cusps or distinct preimages crossing in their spatial image.
+            from mmcore.nurbs._nurbs_param_tol import bez_surface_param_tolerance
+            ptol4 = np.maximum(np.array([
+                *bez_surface_param_tolerance(S1_h_top, atol, rational=True),
+                *bez_surface_param_tolerance(S2_h_top, atol, rational=True),
+            ], dtype=np.float64), 1e-9)
+            singularities = isolines.setdefault("singularities", [])
+            c1 = _discover_c1_singularities(
+                S1_h_top, S2_h_top, atol, ptol4, budget,
+                existing=singularities)
+            singularities.extend(g for g in c1
+                                 if not any(g is known for known in singularities))
+            _link_c1_and_discover_c3(
+                S1_h_top, S2_h_top, isolines.get("branches", []),
+                singularities, c1, atol, ptol4, budget)
+            return _result(**isolines)
+
+    # The current distance-net constructor forms a pairwise Gram tensor over
+    # the full four-axis control product.  Charge one shared work unit per
+    # 128 pair coefficients before entering it; denial returns immediately
+    # instead of allowing a high-degree input to freeze or exhaust memory.
+    control_product = (
+        int(S1.shape[0]) * int(S1.shape[1])
+        * int(S2.shape[0]) * int(S2.shape[1]))
+    pair_coefficients = control_product * control_product
+    precompute_units = max(1, (pair_coefficients + 127) // 128)
     if not budget.charge_cells(precompute_units, "precompute"):
-        return _result(unresolved_regions=[
-            {'stuv_min': (0.0, 0.0, 0.0, 0.0),
-             'stuv_max': (1.0, 1.0, 1.0, 1.0),
-             'reason': REASON_WORK_BUDGET}])
-
-    from mmcore.numeric.intersection.ssx._ssx_root_identity import BoundaryRootIdentity
-    identity_sources_h = tuple(surface if rational else np.concatenate([
-        surface, np.ones(surface.shape[:-1]+(1,))], axis=-1)
-        for surface in source_identity_surfaces)
-    root_identity = BoundaryRootIdentity(
-        *identity_sources_h,
-        charge=lambda amount: budget.charge_cells(amount, "root_identity"))
-    from mmcore.numeric.intersection.ssx._ssx_affine_constraints import (
-        AffineParameterConstraints, augment_constant_coordinates,
-        augment_projected_coordinates)
-    constraint_maps = augment_constant_coordinates(
-        identity_sources_h, root_identity.affine,
-        charge=lambda amount: budget.charge_cells(amount, "affine_constants"))
-    if constraint_maps is not None:
-        projected_maps = augment_projected_coordinates(
-            identity_sources_h, constraint_maps,
-            charge=lambda amount: budget.charge_cells(amount, "affine_projections"))
-        if projected_maps is not None:
-            constraint_maps = projected_maps
-    affine_constraints = AffineParameterConstraints(
-        root_identity.affine if constraint_maps is None else constraint_maps,
-        charge=lambda amount: budget.charge_cells(amount, "affine_constraints"))
-    root_identity.affine_constraints = affine_constraints
-    from mmcore.numeric.intersection.ssx._ssx_cofactor_bounds import (
-        SourceCofactorBounds, SourceZeroSetCofactorBounds)
-    source_cofactors = SourceZeroSetCofactorBounds(SourceCofactorBounds(
-        *identity_sources_h,
-        charge=lambda amount: budget.charge_cells(amount, "cofactor_bounds")),
-        affine_constraints)
-    from mmcore.numeric.intersection.ssx._ssx_face_residual import SourceFaceResiduals
-    source_face_residuals = SourceFaceResiduals(
-        source_cofactors.source_bounds,
-        charge=lambda amount: budget.charge_cells(amount, 'source_face_residual'),
-        sources=identity_sources_h)
-    from mmcore.numeric.intersection.ssx._ssx_source_residual import SourceResidualExclusions
-    source_residual_excludes = SourceResidualExclusions(
-        source_cofactors.source_bounds,
-        charge=lambda amount: budget.charge_cells(amount,'source_residual'))
-    if budget.exhausted:
-        return _result(unresolved_regions=[{
-            'stuv_min': (0.,)*4, 'stuv_max': (1.,)*4,
-            'reason': REASON_WORK_BUDGET}])
-
-    from mmcore.numeric.intersection.ssx._ssx_planar_cut import (
-        exact_source_planar_cut, supported_source_pair, source_cut_construction_work)
-    source_cut_supported = supported_source_pair(*identity_sources_h)
-    source_cut_setup = source_cut_construction_work(*identity_sources_h)
-
-    def _source_cut_uncached(axis, value, box, *, allowance_cap=None, soft=False):
-        # Unsupported high-degree pairs need no exact planar setup. A
-        # supported face, including a reverse plane-owner face, spends
-        # from the same CSX/cell allowances as every other cut census.
-        if not source_cut_supported:
-            return None
-        allowance = min(max(0, int(csx_max_cells if allowance_cap is None else allowance_cap)),
-                        budget.remaining_cells)
-        if not budget.charge_csx_call():
-            budget.mark_exhausted()
-            return {'isolated': [], 'boundary_topology_complete': False,
-                    'budget_exhausted': True, 'truncation_cause': 'max_cells'}
-        if allowance <= 0 or int(csx_max_results) <= 0:
-            if not soft:
-                budget.mark_exhausted()
-            return {'isolated': [], 'boundary_topology_complete': False,
-                    'budget_exhausted': True, 'truncation_cause': 'max_cells'}
-        result = exact_source_planar_cut(
-            *identity_sources_h, axis, value, box, max_cells=allowance,
-            max_results=int(csx_max_results), atol=source_atol)
-        if result is None:
-            # Exact applicability checks can do source-coefficient work
-            # before declining a cut. Bill a conservative setup bound.
-            budget.charge_cells(min(allowance, max(1, source_cut_setup)), 'source_cut')
-        else:
-            budget.charge_cells(max(1, int(result.get('cells_processed', 0))), 'source_cut')
-        return result
-
-    from mmcore.numeric.intersection.ssx._ssx_source_cut_cache import SourceFaceCensusCache
-    source_face_censuses = SourceFaceCensusCache(
-        _source_cut_uncached, affine_constraints, root_identity.source_ids,
-        charge=lambda amount: budget.charge_cells(amount, 'source_cut_filter'),
-        can_retry=lambda: not budget.exhausted and budget.remaining_cells > 0)
-
-    def _source_cut_census(axis, value, box):
-        if not source_cut_supported:
-            return None
-        return source_face_censuses(axis, value, box)
-
-    root_identity.source_census = _source_cut_census
-
-    def _source_straight_path(start, end):
-        if max_xyz_step is not None:
-            return None
-        from mmcore.numeric.intersection.ssx._ssx_affine_path import certified_straight_isocurve_path
-        path = certified_straight_isocurve_path(
-            *source_identity_surfaces, start, end, source_atol, rational,
-            charge=lambda amount: budget.charge_cells(amount, "straight_path"))
-        if path is None:
-            return None
-        local_xyz = (path[1]-_norm_c)/_norm_k
-        if not _source_path_representation(start, end, local_xyz):
-            return None
-        return path[0], local_xyz
-
-    def _source_path_representation(start, end, local_xyz):
-        from mmcore.numeric.intersection.ssx._ssx_affine_path import affine_path_representation_bounded
-        # Validate the actual rounded world output, including normalization
-        # round-trip error at large offsets and small geometric tolerances.
-        world_xyz = np.asarray(local_xyz)*_norm_k+_norm_c
-        if (max_xyz_step is not None and float(np.linalg.norm(
-                world_xyz[-1]-world_xyz[0])) > max_xyz_step*_norm_k):
-            return False
-        return affine_path_representation_bounded(
-            *source_identity_surfaces, start, end, world_xyz, source_atol,
-            rational=rational,
-            charge=lambda amount: budget.charge_cells(amount, "path_representation"))
-
-    def _source_arc_image(box,local_xyz):
-        from mmcore.numeric.intersection.ssx._ssx_affine_path import source_box_image_diameter_bounded
-        world_xyz = np.asarray(local_xyz)*_norm_k+_norm_c
-        return source_box_image_diameter_bounded(
-            *source_identity_surfaces, box, world_xyz, source_atol,
-            rational=rational,
-            charge=lambda amount: budget.charge_cells(amount, "arc_image"))
-
-    def _source_fallback_path_representation(stuv, xyz):
-        # Continuation from an unresolved fiber/proposal is useful partial
-        # output only after every lifted chord has an original-source
-        # representation bound. This establishes approximation, not an
-        # exact zero or exhaustive connectivity of the unresolved face.
-        if len(stuv) < 2 or len(stuv) != len(xyz):
-            return False
-        for index in range(len(stuv)-1):
-            if not _source_path_representation(
-                    stuv[index], stuv[index+1], xyz[index:index+2]):
-                budget.mark_incomplete(REASON_PARAMETER_REPRESENTATION)
-                return False
-        return True
-
-    source_arc_chord_bounds = None
-    def _source_arc_chord(box, root_boxes, local_xyz, axis, bounds):
-        nonlocal source_arc_chord_bounds
-        if source_arc_chord_bounds is None:
-            from mmcore.numeric.intersection.ssx._ssx_affine_path import SourceArcChordBounds
-            source_arc_chord_bounds = SourceArcChordBounds(
-                *source_identity_surfaces, rational=rational,
-                charge=lambda amount: budget.charge_cells(amount, "arc_chord"))
-        world_xyz = np.asarray(local_xyz)*_norm_k+_norm_c
-        return source_arc_chord_bounds.bounded(
-            box, root_boxes, world_xyz, axis, bounds, source_atol)
-
-    exact_source_root_cache = {}
-    def _source_root_exact(stuv):
-        key = tuple(float(value) for value in stuv)
-        if key not in exact_source_root_cache:
-            if not budget.charge_cells(max(1, sum(surface.size for surface in identity_sources_h)//32),
-                                       "singular_existence"):
-                return False
-            from mmcore.numeric.intersection._root_box_certificate import exact_bernstein_value
-            first = exact_bernstein_value(identity_sources_h[0], key[:2])
-            second = exact_bernstein_value(identity_sources_h[1], key[2:])
-            exact_source_root_cache[key] = all(
-                first[axis]*second[3] == second[axis]*first[3] for axis in range(3))
-        return exact_source_root_cache[key]
-
-    singular_candidate_source = None
-    def _source_singular_candidate(stuv):
-        nonlocal singular_candidate_source
-        if singular_candidate_source is None:
-            from mmcore.numeric.intersection.ssx._ssx_singular_candidate import SourceSingularCandidates
-            charge = lambda amount: budget.charge_cells(amount, 'singular_source')
-            singular_candidate_source = SourceSingularCandidates(
-                *identity_sources_h, affine_constraints, charge=charge)
-        return singular_candidate_source(stuv)
-
-    registered_singular_checked = set()
-    def _source_registered_singularity(point, cell):
-        # Boundary roots can expose an exact singular point even after a
-        # parent has transferred its ordinary complement to descendants.
-        # This adds an independently proved feature; it consumes no cell.
-        key = tuple(point.stuv)
-        if key in registered_singular_checked or budget.exhausted:
-            return
-        bounds = source_cofactors.bounds(cell.box)
-        if bounds is None or np.any(np.asarray(bounds[0]) > 0.) or np.any(np.asarray(bounds[1]) < 0.):
-            return
-        registered_singular_checked.add(key)
-        corrected = _source_singular_candidate(point.stuv)
-        if corrected is None:
-            return
-        corrected = singular_candidate_source.isolated_regular(corrected)
-        if corrected is None:
-            return
-        if any(g.kind == 'tangent_point' and np.array_equal(g.stuv, corrected)
-               for g in all_singularities):
-            return
-        world = eval_surface(source_identity_surfaces[0], corrected[0], corrected[1], rational=rational)
-        local_xyz = (world-_norm_c)/_norm_k
-        if not _source_path_representation(corrected, corrected, np.array([local_xyz, local_xyz])):
-            reason = REASON_WORK_BUDGET if budget.exhausted else REASON_PARAMETER_REPRESENTATION
-            budget.mark_incomplete(reason)
-            budget.append_output(unresolved_regions, dict(
-                stuv_min=tuple(corrected), stuv_max=tuple(corrected), reason=reason), 'unresolved_region')
-            return
-        budget.append_output(all_singularities, SSXSingularity(
-            kind='tangent_point', stuv=corrected.copy(), xyz=local_xyz), 'singularity')
+        return _result()
+    F_sq_top = surface_surface_distance_squared_net_homog(
+        S1_h_top, S2_h_top, rational=True)
+    F_sq_top = _distance_net_lower_bound(S1_h_top, S2_h_top, F_sq_top, True)
 
     # Uncertified curved-UV overlap spans surfaced by nested CSX calls
     # (ledger L42's typed fallback): the L28 region assembler consumes them
@@ -7416,22 +7322,9 @@ def bez_ssx(
 
     def _run_csx(
         curve, surface, *, local_truncation_is_soft=False,
-        pending_partition=False, source_face=None, **kwargs,
+        defer_local_depth=False, **kwargs,
     ):
         """Bounded adapter used by every boundary and cut-face CSX call."""
-        source_residual = None
-        if source_face is not None:
-            source_residual = source_face_residuals(*source_face)
-            if source_residual is None:
-                return {
-                    'isolated': [], 'overlaps': [], 'parameter_fibers': [],
-                    'budget_exhausted': True, 'cells_processed': 0,
-                    'boundary_topology_complete': False,
-                    'truncation_cause': 'cells' if budget.exhausted else 'resolution',
-                    'unresolved_parameter_boxes': [{
-                        't_range': (0., 1.), 'u_range': (0., 1.), 'v_range': (0., 1.),
-                        'reason': 'source_residual'}],
-                }
         if budget.remaining_cells <= 0 or not budget.charge_csx_call():
             budget.mark_exhausted()
             return {
@@ -7442,21 +7335,9 @@ def bez_ssx(
             attempt_kwargs = dict(kwargs)
             attempt_kwargs['max_cells'] = allowance
             attempt_kwargs['max_results'] = int(csx_max_results)
-            # SSX needs exact zero-set topology: a nearby curve is not
-            # an overlap skeleton and cannot own or suppress true branches.
-            attempt_kwargs['tolerance_tier'] = False
-            if source_residual is not None:
-                attempt_kwargs['source_residual'] = source_residual
-                attempt_kwargs['source_exact_root'] = (
-                    lambda parameters: source_face_residuals.exact_root(
-                        source_face, parameters, prepaid=True))
-                attempt_kwargs['source_exact_root_work'] = max(
-                    1, (sum(net.size for net in identity_sources_h)+31)//32)
             if csx_max_depth is not None:
                 attempt_kwargs['max_depth'] = int(csx_max_depth)
             attempt_result = bez_csx(curve, surface, **attempt_kwargs)
-            if source_residual is not None:
-                attempt_result['_ssx_source_residual'] = True
             attempt_used = max(
                 0, int(attempt_result.get('cells_processed', 0)))
             if not budget.charge_cells(attempt_used, "csx"):
@@ -7480,25 +7361,26 @@ def bez_ssx(
         else:
             result, used = _attempt(allowance)
         if result.get('budget_exhausted', False):
-            # A locally truncated CSX root set is not safe input for SSX
-            # topology decisions, even if the outer allowance has room.
+            # A locally truncated CSX root set cannot establish complete
+            # face topology, even if the outer allowance has room.
             # The eight TOP-LEVEL boundary faces are independent, however:
-            # discard this face's partial entities, mark the public result
-            # incomplete, and continue to the remaining faces while shared
-            # work remains.  This preserves certified output from later
+            # retain individually validated face witnesses, mark the public
+            # result incomplete, and continue to the remaining faces while
+            # shared work remains. This preserves useful output from later
             # faces (case 14's second collapsed apex fiber).  Internal cut
             # faces are dependencies of child topology and keep the hard-stop
             # behavior below.
             #
             # Attribution (L28): a truncation whose ONLY cause is the L42
-            # uncertified-overlap fallback is STRUCTURAL — the curve lies on
-            # the surface over the span and the endpoint-range schema cannot
-            # certify it — so it feeds `overlap_region_unsupported` (which
+            # uncertified-overlap fallback is STRUCTURAL — the samples may
+            # represent a curved correspondence or a flat multiple-root
+            # neighborhood — so it feeds `overlap_region_unsupported` (which
             # the region assembler can retire), not `work_budget`.
             span = result.get('uncertified_overlap_span')
-            span_only = (span is not None
-                         and not result.get('non_span_truncation', False))
-            if span_only:
+            span_only = ((span is not None
+                          and not result.get('non_span_truncation', False))
+                         or result.get('truncation_cause') == 'overlap')
+            if span_only and span is not None:
                 uncertified_overlap_spans.append(
                     (np.array(curve, dtype=np.float64, copy=True),
                      (float(span[0]), float(span[1])),
@@ -7519,39 +7401,27 @@ def bez_ssx(
             # it does not exhaust the run.  Type it `depth_limit` (the
             # vocabulary already had the word) and keep going.
             _cause = result.get('truncation_cause')
-            _structural_limit = (span_only
-                                 or _cause in ('depth', 'resolution'))
-            if _structural_limit:
-                reason = (REASON_OVERLAP_REGION if span_only
-                          else REASON_DEPTH_LIMIT if _cause == 'depth'
-                          else REASON_MULTIPLICITY)
-                if not pending_partition:
-                    budget.mark_incomplete(reason)
-                    csx_unresolved_boxes[(active_csx_box, reason)] = {
-                        'stuv_min': tuple(float(lo) for lo, hi in active_csx_box),
-                        'stuv_max': tuple(float(hi) for lo, hi in active_csx_box),
-                        'reason': reason,
-                    }
-                # Exact-mode CSX roots remain valid evidence even when
-                # another root box could not be isolated.  Keep those
-                # roots for branch discovery and surface the unresolved
-                # complement separately; an empty face would lose them.
-                result['boundary_topology_complete'] = False
-                return result
+            _structural_depth = (_cause == 'depth' and not span_only)
+            if _structural_depth:
+                if not defer_local_depth:
+                    budget.mark_incomplete(REASON_DEPTH_LIMIT)
+                # A parent cut can be retried on its already constructed
+                # child pieces. Keep its found roots in either case; only
+                # that parent's local depth reason is deferred, never a
+                # resource stop or an earlier unrelated reason.
+                return dict(result, boundary_topology_complete=False,
+                            cells_processed=used)
             if local_truncation_is_soft and not budget.exhausted:
-                reason = (REASON_OVERLAP_REGION if span_only
-                          else REASON_WORK_BUDGET)
-                budget.mark_incomplete(reason)
-                csx_unresolved_boxes[(active_csx_box, reason)] = {
-                    'stuv_min': tuple(float(lo) for lo, hi in active_csx_box),
-                    'stuv_max': tuple(float(hi) for lo, hi in active_csx_box),
-                    'reason': reason,
-                }
-                # A partial census does not invalidate the roots it did
-                # find.  Boundary polishing still verifies every seed;
-                # dropping them here can remove both ends of a real arc.
-                result['boundary_topology_complete'] = False
-                return result
+                budget.mark_incomplete(
+                    REASON_OVERLAP_REGION if span_only
+                    else REASON_WORK_BUDGET)
+                # The face census is incomplete, but its returned roots
+                # remain useful proposals. Boundary admission polishes
+                # each one against both surfaces before tracing. Dropping
+                # them here loses high-order tangent lines when many raw
+                # samples consume CSX's local result allowance.
+                return dict(result, boundary_topology_complete=False,
+                            cells_processed=used)
             budget.mark_exhausted(
                 REASON_OVERLAP_REGION if span_only else REASON_WORK_BUDGET)
         # L59: CERTIFIED overlap spans are rim evidence for the L28 region
@@ -7570,80 +7440,9 @@ def bez_ssx(
                      bool(kwargs.get('rational', True))))
         return result
 
-    def _run_top_boundary_csx(curve, surface, axis, value, **kwargs):
-        from mmcore.numeric.intersection.ssx._ssx_boundary_fibers import (
-            source_boundary_fiber_candidate, source_boundary_fiber_seeds)
-        gate_work = max(1, (curve.size+31)//32)
-        if not budget.charge_cells(gate_work, 'source_fiber'):
-            return dict(isolated=[], overlaps=[], parameter_fibers=[],
-                        boundary_topology_complete=False, budget_exhausted=True,
-                        truncation_cause='max_cells')
-        if source_boundary_fiber_candidate(*identity_sources_h, axis, value):
-            if not budget.charge_csx_call():
-                return dict(isolated=[], overlaps=[], parameter_fibers=[],
-                            boundary_topology_complete=False, budget_exhausted=True,
-                            truncation_cause='max_cells')
-            result = source_boundary_fiber_seeds(
-                *identity_sources_h, axis, value, atol=source_atol,
-                max_cells=min(boundary_csx_max_cells, budget.remaining_cells),
-                max_results=csx_max_results)
-            budget.charge_cells(result['cells_processed'], 'source_fiber')
-            if result['parameter_fibers'] or result['boundary_seed_proposals']:
-                for seed in result['parameter_fibers']+result['boundary_seed_proposals']:
-                    seed['point'] = (np.asarray(seed['point'])-_norm_c)/_norm_k
-                # Fibers and numerical seed proposals never certify a finite
-                # source boundary census. Preserve the whole face obligation.
-                reason = (REASON_PARAMETER_FIBER if result['parameter_fibers']
-                          else REASON_MULTIPLICITY)
-                budget.mark_incomplete(reason)
-                face_box = list(((0., 1.),)*4)
-                face_box[axis] = value, value
-                face_box = tuple(face_box)
-                csx_unresolved_boxes[(face_box, reason)] = {
-                    'stuv_min': tuple(lo for lo, hi in face_box),
-                    'stuv_max': tuple(hi for lo, hi in face_box), 'reason': reason}
-                return result
-            # No seed is absence of a witness, not an unresolved source
-            # root. Let the complete source census prove this face empty
-            # or find roots the boundary-only seed search could not see.
-        # A supported original-source scalar reduction also proves roots
-        # on other closed faces, where strict three-dimensional interior
-        # Krawczyk inclusion is unavailable. Its own boundary allowance
-        # and source certificates remain authoritative.
-        source = _source_cut_uncached(
-            axis, value, ((0., 1.),)*4,
-            allowance_cap=boundary_csx_max_cells, soft=True)
-        if source is not None:
-            result = dict(source)
-            result['_ssx_source_residual'] = True
-            order = [axis ^ 1]+([2, 3] if axis < 2 else [0, 1])
-            roots = []
-            for entry in source.get('isolated', []):
-                root = dict(entry)
-                for name, coordinate in zip(('t', 'u', 'v'), order):
-                    root[name] = float(entry['stuv'][coordinate])
-                root['parameter_root_box'] = np.asarray(entry['parameter_root_box'])[order]
-                root['point'] = (np.asarray(entry['point'])-_norm_c)/_norm_k
-                root['root_existence_certification'] = 'exact_source_planar_cut'
-                roots.append(root)
-            result['isolated'] = roots
-            if (result.get('budget_exhausted', False)
-                    or not result.get('boundary_topology_complete', True)):
-                cause = result.get('truncation_cause')
-                reason = (REASON_MULTIPLICITY if cause == 'resolution'
-                          else REASON_DEPTH_LIMIT if cause == 'depth'
-                          else REASON_WORK_BUDGET)
-                budget.mark_incomplete(reason)
-                face_box = list(((0., 1.),)*4)
-                face_box[axis] = value, value
-                face_box = tuple(face_box)
-                csx_unresolved_boxes[(face_box, reason)] = {
-                    'stuv_min': tuple(lo for lo, hi in face_box),
-                    'stuv_max': tuple(hi for lo, hi in face_box), 'reason': reason}
-            return result
+    def _run_top_boundary_csx(curve, surface, **kwargs):
         return _run_csx(
-            curve, surface, local_truncation_is_soft=True,
-            source_face=(axis, value, ((0., 1.),)*4), **kwargs)
+            curve, surface, local_truncation_is_soft=True, **kwargs)
 
     # Reproducibility: the Gauss-separability witness search draws from
     # module-global PRNGs; without a per-call reset, bit-identical inputs
@@ -7651,9 +7450,9 @@ def bez_ssx(
     # (trace-vs-subdivide flips on marginal near-tangent cells).
     reset_witness_rng()
 
-    # Original-source coefficients own every destructive exclusion. The
-    # normalized operands below support numerical proposals only.
-    if source_residual_excludes(((0.,1.),)*4):
+    # --- Level 1: Pruning ---
+    if _prune_ssx_cell(
+            S1, S2, atol, rational=rational, F=F_sq_top):
         return _result()
 
     # --- Build GaussMapBern ONCE ---
@@ -7668,39 +7467,28 @@ def bez_ssx(
 
     # --- Level 2: Boundary CSX (8 calls, once) ---
     # Crossings are already in global [0,1]⁴ coords (top-level box is [0,1]⁴).
-    # _find_ssx_boundary_zeros already filters crossings that coincide with
-    # overlap endpoints by stuv (design §10.6); nothing more to do here.
+    # Overlap endpoints remain crossings because ordinary arcs can meet
+    # them; _find_ssx_boundary_zeros deduplicates paired geometric events.
     boundary_parameter_fibers = []
-    boundary_census = {}
     crossings, boundary_overlaps = _find_ssx_boundary_zeros(
-        S1, S2, atol, rational=rational, face_csx_fn=_run_top_boundary_csx,
-        fiber_sink=boundary_parameter_fibers, census_sink=boundary_census,
-        root_matcher=root_identity,
-        source_point_representation=lambda parameters, xyz: _source_path_representation(
-            parameters, parameters, np.array([xyz, xyz])))
+        S1, S2, atol, rational=rational, csx_fn=_run_top_boundary_csx,
+        fiber_sink=boundary_parameter_fibers)
     _capped_boundary_fibers = []
     budget.extend_output(
         _capped_boundary_fibers, boundary_parameter_fibers,
         "boundary_parameter_fiber")
     boundary_parameter_fibers = _capped_boundary_fibers
     if boundary_parameter_fibers:
-        # Exact fibers certify sets, not incident branch multiplicity.
-        # Numerical nearcollapse seeds certify neither. Preserve useful
-        # verified approximations with an explicit unresolved complement.
-        budget.mark_incomplete(REASON_PARAMETER_FIBER if any(
-            point.parameter_fiber for point in boundary_parameter_fibers)
-            else REASON_MULTIPLICITY)
+        # A fiber is certified output as a set, but its incident SSI branch
+        # multiplicity is not.  Preserve useful branches while refusing a
+        # complete-topology claim until that limiting topology is proved.
+        budget.mark_incomplete(REASON_PARAMETER_FIBER)
     _overlap_candidates = _overlaps_to_branches(
         boundary_overlaps, S1, atol, rational)
     overlap_branches = []
     budget.extend_output(overlap_branches, _overlap_candidates, "branch")
     if budget.exhausted:
-        # L52 slice 9b: the interior search never ran — the whole domain
-        # is the unresolved complement (typed, not just flagged).
-        return _result(branches=overlap_branches, unresolved_regions=[
-            {'stuv_min': (0.0, 0.0, 0.0, 0.0),
-             'stuv_max': (1.0, 1.0, 1.0, 1.0),
-             'reason': REASON_WORK_BUDGET}])
+        return _result(branches=overlap_branches)
 
     # --- Level 3: TΨᵢ (once at top level) ---
     if rational:
@@ -7739,21 +7527,31 @@ def bez_ssx(
     T3_arr = _tpsi_to_numpy(T3)
     T4_arr = _tpsi_to_numpy(T4)
 
+    # The preflighted top-level net is propagated by De Casteljau split.
+    _, S1w_top = extract_weights(S1_h_top, rational=True)
+    _, S2w_top = extract_weights(S2_h_top, rational=True)
+    w_scale_top = _weight_max_product(S1w_top.ravel(), S2w_top.ravel())
+
     # Global per-axis parametric tolerance (from the full surfaces):
-    # Candidate matching proposals use these scales; root identity still
-    # requires source existence and a shared uniqueness certificate.
+    # crossings/exit points whose stuv agree within this radius are the
+    # same physical point. CSX roots and marcher exits are each accurate
+    # to ~ptol, so 4x covers both ends.
     from mmcore.nurbs._nurbs_param_tol import bez_surface_param_tolerance
     _gp_s, _gp_t = bez_surface_param_tolerance(S1_h_top, atol, rational=True)
     _gp_u, _gp_v = bez_surface_param_tolerance(S2_h_top, atol, rational=True)
     unify_tol = 4.0 * np.maximum(
         np.array([float(_gp_s), float(_gp_t), float(_gp_u), float(_gp_v)]), 1e-12)
-    # Initial source-root enclosure proposals use the smaller scale and
-    # refine adaptively when a first proposal is too wide.
+    # Destructive dedup uses the tight 1·ptol radius (plus an xyz guard at
+    # the call sites); the looser 4·ptol box is reserved for matching /
+    # unification where a miss is recoverable.
     dedup_tol = unify_tol / 4.0
 
-    # Independent parameter projections are not a paired correspondence.
-    # Supported complete planar regions were handled by the exact tier.
-    overlap_boxes = []
+    # Ledger L6(ii): parametric boxes of the detected coplanar overlap
+    # regions — every tangency emission site skips witness roots inside
+    # them (the overlap interior is a 2-dim C2 set the overlap branches
+    # already report; an "isolated" point there is a phantom).
+    overlap_boxes = _overlap_region_boxes(
+        boundary_overlaps, S1_h_top, atol, unify_tol)
 
     # Global xyz step ceiling for all marchers. NOT an accuracy criterion —
     # accuracy is governed by the chord-deviation (sagitta) control at
@@ -7786,10 +7584,6 @@ def bez_ssx(
             if not budget.charge_cells(promotion_work, "fiber_promotion"):
                 promoted_fibers = []
                 promoted_path = None
-            if (promoted_path is not None and not
-                    _source_fallback_path_representation(*promoted_path)):
-                promoted_fibers = []
-                promoted_path = None
             if promoted_fibers and promoted_path is not None:
                 promoted_fiber_fragment = _Fragment(
                     start_point=promoted_fibers[0],
@@ -7799,25 +7593,11 @@ def bez_ssx(
                     tangential=False,
                 )
 
-    unresolved_regions: list[dict] = []
-    all_singularities: list[SSXSingularity] = []
     top_cell = _Cell(
         g1=g1, g2=g2, crossings=crossings, box=box, depth=0,
         T1=T1_arr, T2=T2_arr, T3=T3_arr, T4=T4_arr,
         new_crossings=list(crossings),
-        boundary_complete=bool(boundary_census.get("complete", False)),
-        boundary_obligations=tuple(boundary_census['boundary_obligations'])
-            if 'boundary_obligations' in boundary_census else None,
-        root_matcher=root_identity,
-        straight_path=_source_straight_path,
-        path_representation=_source_path_representation,
-        arc_image=_source_arc_image,
-        arc_chord=_source_arc_chord,
-        source_root_exact=_source_root_exact,
-        source_singular_candidate=_source_singular_candidate,
-        source_singular_sink=_source_registered_singularity,
-        source_cofactors=source_cofactors,
-        unresolved_regions=unresolved_regions,
+        F_sq=F_sq_top, w_scale=w_scale_top,
         work_budget=budget, csx_fn=_run_csx,
     )
     top_cell.partitions = _build_outer_partitions(top_cell)
@@ -7831,8 +7611,8 @@ def bez_ssx(
     # A purely interior intersection (e.g. case 7's closed loop strictly
     # inside [0,1]⁴) has zero boundary crossings on the top-level box but is
     # still a real intersection. The midpoint-fallback path inside the
-    # subdivision loop discovers it. Source residual and strict cofactor
-    # certificates inside the loop terminate cells with no actual
+    # subdivision loop discovers it. Cheap certificates (AABB, GJK, F_sq,
+    # loop_free) inside the loop will terminate cells with no actual
     # intersection.
 
     # --- Iterative domain decomposition (single code path, design §6) ---
@@ -7844,15 +7624,21 @@ def bez_ssx(
     queue = deque([top_cell])
     all_fragments: list[_Fragment] = []
     all_points = []
-    provisional_traces = []
+    all_singularities: list[SSXSingularity] = []
+    ptol4_global = np.maximum(np.array(
+        [float(_gp_s), float(_gp_t), float(_gp_u), float(_gp_v)]), 1e-9)
+    # A failed parent's output is provisional while descendants search the
+    # same domain. Charge it when found, but publish it only if that search
+    # remains partial; a completed replacement must not duplicate its prefix.
+    provisional_trace_batches = []
     if promoted_fiber_fragment is not None:
         budget.append_output(
             all_fragments, promoted_fiber_fragment, "fragment")
-    # Crossing-less Phi seeding is complete for the whole cell it slices;
-    # descendant reconfirmations must not repay the 4-plane search. Keep
-    # ancestor boxes rather than keying on emitted points: a 1-D tangent
-    # loop deliberately emits no isolated tangent_point but still needs one
-    # Phi seed pass (the case13 dedup fix must not suppress that path).
+    # Memoize productive Phi seeding passes so descendants do not repeat
+    # the same four-plane search. These boxes are not absence or coverage
+    # proofs: the ordinary domain search still owns the remaining geometry.
+    # A tangent loop need not emit an isolated tangent_point, so productive
+    # passes cannot be identified only by those point records.
     phi_seeded_boxes: list[tuple] = []
     phi_seed_attempts: list[NDArray[np.float64]] = []
     # NOTE no per-cell C3 gate here (ledger L8): Theorem 3 is a PER-BOX
@@ -7873,88 +7659,36 @@ def bez_ssx(
         return max(0, budget.remaining_cells - len(queue))
 
     def _enqueue_probe_children(parent) -> bool:
-        if _available_queue_slots() < 2:
+        if _available_queue_slots() < 4:
             budget.mark_exhausted()
-            queue.appendleft(parent)
             return False
         queue.extend(_probe_children(parent))
         return True
 
-    def _unresolved_singular_cell(pending_cell):
-        # A numerical witness, or a parameter-size floor, does not prove
-        # that every component in this box has been represented.
-        budget.mark_incomplete(REASON_MULTIPLICITY)
-        budget.append_output(
-            unresolved_regions,
-            {'stuv_min': tuple(float(lo) for lo, hi in pending_cell.box),
-             'stuv_max': tuple(float(hi) for lo, hi in pending_cell.box),
-             'reason': REASON_MULTIPLICITY},
-            'unresolved_region')
+    from mmcore.numeric.intersection.ssx._ssx_bernstein_clip import residual_coordinate_scale
+    from mmcore.numeric.intersection.ssx._ssx_trace_coverage import TangentialTraceCoverage
+    tangent_coverage = TangentialTraceCoverage(
+        atol, unify_tol, residual_coordinate_scale(S1_h_top, S2_h_top),
+        charge=lambda amount: budget.charge_cells(amount, "tangent_coverage"))
 
-    def _unresolved_parameter_cell(pending_cell):
-        for point in pending_cell.crossings:
-            budget.append_output(all_points,_registered_point(point),'point')
-        budget.mark_incomplete(REASON_PARAMETER_REPRESENTATION)
-        budget.append_output(unresolved_regions, {
-            'stuv_min': tuple(lo for lo,hi in pending_cell.box),
-            'stuv_max': tuple(hi for lo,hi in pending_cell.box),
-            'reason': REASON_PARAMETER_REPRESENTATION},'unresolved_region')
+    def _known_tangent_crossings(cell):
+        return bool(cell.tangency_remainder and cell.crossings
+                    and tangent_coverage.covers_points(
+                        [point.stuv for point in cell.crossings],
+                        [point.xyz for point in cell.crossings]))
 
     while queue:
         if not budget.charge_cells(1, "ssx"):
             break
         cell = queue.popleft()
-        # Original-source affine identities are exact necessary conditions,
-        # including in cells carrying approximate borrowed boundary points.
-        # A denied contraction returns the unchanged box, never emptiness.
-        necessary_box = affine_constraints.contract(cell.box)
-        if necessary_box is None:
-            continue
-        fixed_axes = [axis for axis, (lo, hi) in enumerate(necessary_box) if lo == hi]
-        if fixed_axes:
-            # A necessary fixed parameter reduces the ENTIRE zero set of
-            # this owner to one source face. An exhaustive isolated-root
-            # census on that face can settle it directly, without creating
-            # a zero-width surface chart or retaining an outside borrowed
-            # corner representative. Positive-dimensional/unknown censuses
-            # retain the general search owner below.
-            axis = fixed_axes[0]
-            fixed_census = _source_cut_census(axis, necessary_box[axis][0], cell.box)
-            if (fixed_census is not None
-                    and fixed_census.get('boundary_topology_complete', False)
-                    and not fixed_census.get('budget_exhausted', False)
-                    and not fixed_census.get('overlaps')
-                    and not fixed_census.get('parameter_fibers')):
-                for root in fixed_census.get('isolated', []):
-                    point = BoundaryPoint(
-                        np.asarray(root['stuv']),
-                        (np.asarray(root['point'])-_norm_c)/_norm_k, (axis, -1),
-                        root_box=np.asarray(root['parameter_root_box']))
-                    point._source_root_box = True
-                    root_identity.register_source_root(point, root['source_cut_certificate'])
-                    budget.append_output(all_points, _registered_point(point), 'point')
+        if cell.tangency_remainder:
+            tangent_coverage.update(all_fragments)
+            if tangent_coverage.covers_cell(
+                    cell.g1.surface, cell.g2.surface, cell.box,
+                    allow_empty=not cell.crossings):
                 continue
-        for point in cell.crossings:
-            if point.root_box is not None and getattr(point, '_source_root_box', False):
-                enclosure = affine_constraints.contract(point.root_box)
-                if enclosure is not None:
-                    # Necessary source equations preserve the established
-                    # root, and can prove exact linked face coordinates.
-                    # This is not clipping an enclosure to the owner cell.
-                    point.root_box = np.asarray(enclosure)
-        outside = [point for point in cell.crossings
-                   if _source_boundary_outside(cell, point)]
-        if outside:
-            outside_ids = {id(point) for point in outside}
-            cell.crossings = [point for point in cell.crossings if id(point) not in outside_ids]
-            cell.new_crossings = [point for point in cell.new_crossings
-                                  if id(point) not in outside_ids]
-            for point in outside:
-                point.registrations[:] = [registration for registration in point.registrations
-                                          if registration.owner is not cell]
-        _contract_source_domain(cell, necessary_box, (g1, g2),
-                                (T1_arr, T2_arr, T3_arr, T4_arr))
-        active_csx_box = cell.box
+        if budget.exhausted:
+            break
 
         # P1c soundness guard (2026-07-21): a cell carrying registered
         # crossings holds strict-certified Psi roots ON it — any exclusion
@@ -7967,10 +7701,29 @@ def bez_ssx(
         # approximate exclusion: crossing-bearing cells always proceed to
         # classification/tracing.
         if not cell.crossings:
-            # Restrict the original residual with its inherited absolute
-            # coefficient error, including normalization-independent data.
-            if source_residual_excludes(cell.box):
+            # Cheap AABB pruning first: if control-point bounding boxes
+            # don't overlap, there is no intersection in this cell.
+            if _aabb_disjoint(cell.g1.surface, cell.g2.surface, atol):
                 continue
+
+            # GJK separability: tighter than AABB, much cheaper than the
+            # sq-dist net or Gauss separability. Test the convex hulls of
+            # the two control nets — if they're separated, the surfaces
+            # don't intersect.
+            if _trust_gjk(cell.g1) and _trust_gjk(cell.g2):
+                P1_pts = (cell.g1.surface[..., :-1] / cell.g1.surface[..., -1:]).reshape(-1, 3)
+                P2_pts = (cell.g2.surface[..., :-1] / cell.g2.surface[..., -1:]).reshape(-1, 3)
+                if not gjk(P1_pts, P2_pts, atol, 15):
+                    continue
+
+            # Sq-dist net pruning using the PROPAGATED F_sq (built once at
+            # top, split alongside TΨᵢ at every subdivision — never
+            # reconstructed).
+            if cell.F_sq is not None:
+                if _check_min_of_net(cell.F_sq, atol, cell.w_scale):
+                    continue
+                if _check_lipschitz(cell.F_sq, atol, cell.w_scale):
+                    continue
 
         # Ledger L4 probe descent: a probe-only cell exists solely to find
         # the Δ-touch its loop-free ancestor's center witness missed (the
@@ -7984,76 +7737,225 @@ def bez_ssx(
         # never trace and never CSX — the ancestor already traced this
         # geometry, which is what keeps the descent duplication-free.
         if cell.probe_only:
-            source_bounds = source_cofactors.bounds(cell.box)
-            if tuple(map(tuple,cell.box)) in getattr(source_cofactors,'empty_boxes',()):
+            if (cell.T1 is None or any(
+                    hull_excludes_zero(T)
+                    for T in (cell.T1, cell.T2, cell.T3, cell.T4))):
                 continue
-            if (source_bounds is not None and np.any(
-                    (source_bounds[0] > 0.) | (source_bounds[1] < 0.))):
+            # Component-wise Ψ hull exclusion (sound: a Δ-root needs Ψ = 0
+            # too). The T hulls alone cannot end a probe line along the
+            # TRAP SHEET — the critical set where all four TΨ vanish but
+            # Ψ != 0 (the touch-plus-loop valley floor: a 1-dim ring with
+            # |Ψ_z| = eps²/4, INSIDE the atol tolerance band, so the
+            # F_sq-vs-atol prune above keeps it too) — and the descent
+            # walked that ring to the size gate (measured +3.7 s on the
+            # off-lattice repro). A sign-carrying Ψ component excludes it
+            # as soon as the cell-local range drops under the floor value
+            # (1-2 probe levels here); touch cells keep Ψ = 0 and survive.
+            # Margin at COORDINATE scale, not per-component net scale
+            # (`hull_excludes_zero`'s max|c| convention is WRONG here —
+            # the L1 drift race): the split drift in a mathematically-zero
+            # corner coefficient originates from the O(coordinate)-scale
+            # surface nets, while a touch-hugging component's own range
+            # shrinks without bound (measured on the touch cell at d=8:
+            # G_z hull [-3.9e-4, -9.8e-17] — true max is 0 AT the corner,
+            # drift 1e-16, per-component margin 1.1e-17 wrongly excluded
+            # and the touch was lost again).
+            S1h_p, S2h_p = cell.g1.surface, cell.g2.surface
+            G = psi_vector_net(S1h_p, S2h_p)
+            from mmcore.numeric.intersection.ssx._ssx5_singular import (
+                _HULL_MARGIN_K_EPS as _gK)
+            gm = _gK * (float(np.abs(S1h_p[..., :-1]).max())
+                        * float(np.abs(S2h_p[..., -1]).max())
+                        + float(np.abs(S2h_p[..., :-1]).max())
+                        * float(np.abs(S1h_p[..., -1]).max()))
+            if any(float(G[..., k].min()) > gm or float(G[..., k].max()) < -gm
+                   for k in range(3)):
                 continue
-            # The original-operand residual exclusion already ran above;
-            # do not repeat it with a child-scaled error floor.
             ok, roots = _emit_tangent_roots(cell, atol, unify_tol,
                                             all_singularities,
                                             enumerate_all=False,
                                             overlap_boxes=overlap_boxes)
-            if np.all(np.array([hi-lo for lo, hi in cell.box])
-                      <= 4.0*unify_tol):
-                _unresolved_singular_cell(cell)
-            else:
+            if not (ok and roots) and not np.all(
+                    np.array([hi - lo for (lo, hi) in cell.box])
+                    <= 4.0 * unify_tol):
                 _enqueue_probe_children(cell)
             continue
 
-        # A strict original-source cofactor proves both regularity and
-        # monotonicity of one global parameter throughout the possible zero set.
+        # Loop-absence on this sub-cell — TΨᵢ monotonicity (cheap) tried first,
+        # Gauss map separability as fallback (design §6, §10 principle 8).
 
-        source_bounds = source_cofactors.bounds(cell.box)
-        if tuple(map(tuple,cell.box)) in getattr(source_cofactors,'empty_boxes',()):
-            # Necessary-domain contraction of the original equations can
-            # prove this entire owner empty, including borrowed events
-            # whose representatives merely round into it.
-            continue
-        source_regular = bool(source_bounds is not None and np.any(
-            (source_bounds[0] > 0.) | (source_bounds[1] < 0.)))
         if _check_loop_free(cell.g1, cell.g2,
-                            cell.T1, cell.T2, cell.T3, cell.T4,
-                            source_bounds=source_bounds, source_context=True):
-            if not cell.boundary_complete:
-                # Loop absence only reduces discovery to the boundary; an
-                # unfinished boundary census cannot establish emptiness.
-                cell.trace_incomplete = True
-            single_source_root = False
-            if cell.boundary_complete and len(cell.crossings) == 1 and source_regular:
-                point = cell.crossings[0]
-                enclosure = root_identity.enclose(point,4.*dedup_tol)
-                single_source_root = enclosure is not None
-                if not single_source_root:
-                    single_source_root = _source_root_exact(point.stuv)
-            if single_source_root:
-                # A regular component in this closed box is an arc or a
-                # loop. Strict monotonicity excludes loops; an arc needs
-                # two distinct boundary roots. An exhaustive one-root
-                # census therefore describes at most a clipped boundary
-                # touch. The globally valid root may be a borrowed event
-                # just outside this owner: retaining that source root still
-                # represents every possible zero here without asserting
-                # local membership from its rounded parameters.
-                budget.append_output(all_points,
-                                     _registered_point(cell.crossings[0]), "point")
-                continue
-
+                            cell.T1, cell.T2, cell.T3, cell.T4):
+            # C2 touch ON the subdivision lattice: when the tangent point
+            # coincides with cut values (the saddle's X at s=t=1/2 under
+            # midpoint cuts), the children are loop-free via a NON-STRICT
+            # monotone T net that attains 0 exactly at the touch corner,
+            # so no cell holding the touch ever reaches the tangency arms
+            # below — the touch surfaces only as a boundary crossing of
+            # loop-free cells and would go unreported. Emit the Δ-witness
+            # here too, gated by the necessary condition for any TΨ = 0
+            # in the cell: ALL FOUR T-net hulls contain 0 (a strictly
+            # one-signed net excludes tangency). Regular transversal
+            # cells almost always carry a strictly one-signed net, so the
+            # gate costs 8 min/max on already-carried nets. Near-tangent
+            # (but touch-free) geometries DO pass the hull gate (case 5:
+            # 13 cells, case 11's near-tangent loop: 5), so the witness
+            # runs center-GN only (enumerate_all=False, ~1 ms/call —
+            # full solve_zero_dim enumeration on those cells measured
+            # ~2 s per case, a 1.3–1.6x coverage-case regression). The
+            # center start suffices here: a lattice touch is pinned to a
+            # corner of a small post-subdivision cell (guided cuts pass
+            # exactly through the discovered touch crossing), unlike the
+            # crossing-less arm whose one large cell can hold several
+            # distant touches and keeps the full enumeration.
+            # "Contains 0" is margin-consistent with the L1 hull
+            # convention: a hull counts as containing 0 unless it CLEARS
+            # zero by the roundoff margin (`not hull_excludes_zero`) —
+            # a lattice touch's mathematically-zero T coefficient drifts
+            # to ~eps/8 after the guided cut through it, and the strict
+            # `min <= 0` gate then never fired. The margin makes the
+            # probe fire MORE often — the safe direction.
+            tangent_gate = (cell.T1 is not None and not any(
+                hull_excludes_zero(T)
+                for T in (cell.T1, cell.T2, cell.T3, cell.T4)))
+            if tangent_gate:
+                ok, roots = _emit_tangent_roots(cell, atol, unify_tol,
+                                                all_singularities,
+                                                enumerate_all=False,
+                                                overlap_boxes=overlap_boxes,
+                                                defer_inconclusive=bool(
+                                                    cell.crossings))
+                # Ledger L4: the hull gate says a touch is POSSIBLE but
+                # the center-only witness failed (GN diverged or landed
+                # outside — e.g. an off-lattice touch sitting at this
+                # cell's box corner, where the center start dies in the
+                # touch/valley trap: the (0.3,0.3) touch-plus-loop lost
+                # its touch through exactly this arm's old unconditional
+                # `continue`). Push a lean PROBE descent (probe_only
+                # cells: hull gate + center witness + net-split, no
+                # tracing/CSX — see the probe arm above) to hunt the
+                # missed root, bounded by the same 4·unify_tol size gate.
+                # The cell itself still traces below exactly as before —
+                # probes never trace, so nothing is double-collected, and
+                # the traced geometry is bit-identical to the pre-L4
+                # baseline. Guided-cut subdivision instead of probes
+                # measured +1.2 s on case 5 (20 near-tangent witness
+                # failures x ~60 ms of cut-face CSX) and degraded the
+                # off-lattice ring's arc coverage (descendant traces
+                # replaced the parent's) — the lean descent costs ~ms and
+                # keeps the traced geometry untouched.
+                if not (ok and roots) and not np.all(
+                        np.array([hi - lo for (lo, hi) in cell.box])
+                        <= 4.0 * unify_tol):
+                    _enqueue_probe_children(cell)
             if cell.crossings:
-                fr, pt = _trace_cell_by_registrations(cell, atol, h_max=h_max)
+                # A loop-free cell whose registrations all collapse onto
+                # one isolated tangent witness has no certified through-arc.
+                # In this configuration the ordinary tracer's displaced-seed
+                # recovery can walk the sub-atol tolerance valley and invent
+                # an unregistered partner endpoint (regular isolated touch:
+                # two complete-looking 20*atol "transversal" branches).
+                # Require a crossing distinct from the tangent cluster before
+                # regular tracing.  Both the parameter and xyz guards follow
+                # the module's matching ladder; failure stays explicitly
+                # partial until a second-order isolation certificate exists.
+                tangent_cluster_only = False
+                if tangent_gate and ok and roots:
+                    root_clusters = []
+                    for root in roots:
+                        root = np.asarray(root, dtype=np.float64)
+                        root_clusters.append((
+                            _local_to_global(root, cell.box),
+                            eval_surface(
+                                cell.g1.surface, root[0], root[1],
+                                rational=True),
+                        ))
+                    tangent_cluster_only = all(
+                        any(
+                            np.all(np.abs(np.asarray(c.stuv) - rg)
+                                   <= unify_tol)
+                            and float(np.linalg.norm(
+                                np.asarray(c.xyz) - rx)) <= 2.0 * atol
+                            for rg, rx in root_clusters)
+                        for c in cell.crossings)
+
+                if tangent_cluster_only:
+                    for rg, _rx in root_clusters:
+                        budget.structural_sites.append(
+                            (REASON_MULTIPLICITY,
+                             np.asarray(rg, dtype=np.float64).copy()))
+                    budget.mark_incomplete(REASON_MULTIPLICITY)
+                    fr, pt = [], []
+                else:
+                    cell.trace_surfaces = (S1_h_top, S2_h_top)
+                    fr, pt = _trace_cell_by_registrations(
+                        cell, atol, h_max=h_max)
+                if tangent_gate:
+                    # Ledger L5: a tangent CURVE traces fine through this
+                    # loop-free path (non-strict monotone T-hulls) but
+                    # shipped kind='transversal'. Tag by MEASUREMENT
+                    # (`_fragment_on_tangent_locus`: normal alignment,
+                    # escalating to the Δ-snap for valley-wandered
+                    # samples) => tangential fragment (propagates to the
+                    # branch kind via assembly's any-fragment rule, and
+                    # the kind-keyed subsumption filter then eats the
+                    # stray on-curve witnesses). Only fired-gate cells are
+                    # measured — transversal fragments exit on their first
+                    # failing sample.
+                    for f in fr:
+                        if (not f.tangential and len(f.stuv_path) >= 2
+                                and _fragment_on_tangent_locus(cell, f,
+                                                               atol)):
+                            f.tangential = True
+
+                # A high-multiplicity tangent curve can leave Delta' at
+                # rank 2 everywhere, so the local rank-3 continuation test
+                # is intentionally inconclusive.  A strict traced tangent
+                # path through that same 4-D root is a stronger direct
+                # certificate of local one-dimensionality.  Resolve only
+                # against the SAME-LENGTH-SCALE stuv and xyz location;
+                # otherwise preserve the earlier conservative partial flag
+                # (isolated high-order touch beside an unrelated branch).
+                deferred = getattr(cell, "_deferred_delta_roots", [])
+                if deferred:
+                    scale4 = np.maximum(
+                        np.asarray(unify_tol, dtype=np.float64), 1e-12)
+                    for root in deferred:
+                        root_g = _local_to_global(root, cell.box)
+                        root_xyz = eval_surface(
+                            cell.g1.surface, root[0], root[1],
+                            rational=True)
+                        covered = False
+                        for f in fr:
+                            if not f.tangential or len(f.stuv_path) < 2:
+                                continue
+                            if (_dist_point_polyline(
+                                    root_xyz,
+                                    np.asarray(f.xyz_path,
+                                               dtype=np.float64))
+                                    > 2.0 * atol):
+                                continue
+                            scaled_poly = (np.asarray(
+                                f.stuv_path, dtype=np.float64)
+                                / scale4[None, :])
+                            if (_dist_point_polyline_nd(
+                                    root_g / scale4, scaled_poly) <= 2.0):
+                                covered = True
+                                break
+                        if not covered:
+                            budget.structural_sites.append(
+                                (REASON_MULTIPLICITY,
+                                 np.asarray(root_g,
+                                            dtype=np.float64).copy()))
+                            budget.mark_incomplete(REASON_MULTIPLICITY)
+                            break
                 if cell.trace_incomplete:
-                    # The complete child partition, not a failed parent
-                    # march, owns the next search attempt over this domain.
-                    # Keep already found geometry as a bounded fallback;
-                    # publishing it now would duplicate the descendants'
-                    # independently sampled traversals of the same arc.
                     pending_fragments, pending_points = [], []
                     budget.extend_output(pending_fragments, fr, "fragment")
                     budget.extend_output(pending_points, pt, "point")
-                    provisional_traces.append(
-                        (cell.box, pending_fragments, pending_points))
+                    if pending_fragments or pending_points:
+                        provisional_trace_batches.append(
+                            (pending_fragments, pending_points))
                 else:
                     budget.extend_output(all_fragments, fr, "fragment")
                     budget.extend_output(all_points, pt, "point")
@@ -8078,8 +7980,7 @@ def bez_ssx(
         _cell_fibers = (boundary_parameter_fibers
                         if cell.depth == 0 else [])
         _has_boundary_seeds = bool(cell.crossings or _cell_fibers)
-        is_clearly_transversal = (cell.regular_complement
-                                  or cell.trace_incomplete)
+        is_clearly_transversal = False
         if not _has_boundary_seeds:
             # An isolated tangency or interior tangent loop lives in exactly
             # this kind of cell (no boundary crossings). Whether tangency is
@@ -8123,7 +8024,8 @@ def bez_ssx(
                     is_clearly_transversal = True
                     break
 
-        if is_clearly_transversal:
+        if (cell.trace_incomplete or is_clearly_transversal
+                or _known_tangent_crossings(cell)):
             tangency = False
         else:
             local_box = ((0.0, 1.0),) * 4
@@ -8172,6 +8074,15 @@ def bez_ssx(
             _phi_already_attempted = any(
                 np.all(np.abs(_seed_anchor - prior) <= unify_tol)
                 for prior in phi_seed_attempts)
+            if cell.tangency_remainder and _root_globals:
+                # Reuse a known tangent path only for these actual roots.
+                # Do not mark its whole ancestor box searched: another
+                # unknown tangent loop can coexist in the same domain.
+                _phi_already_attempted = (
+                    _phi_already_attempted or tangent_coverage.covers_points(
+                        _root_globals,
+                        [eval_surface(S1_h_top, point[0], point[1], rational=True)
+                         for point in _root_globals]))
             if (ok and not _phi_already_seeded
                     and not _phi_already_attempted and not budget.exhausted):
                 # Paper §5.3.2: slice the regulated Φ curve with the four
@@ -8201,8 +8112,8 @@ def bez_ssx(
             # here silently deleted the ring (the ring is transversal and
             # NOT on Φ — even the Φ∩L seeding above only reaches it through
             # the full-Ψ refinement of nearby Φ points, which is
-            # opportunistic, not certified). Record unresolved status when
-            # stopping at parameter tolerance scale;
+            # opportunistic, not certified). Stop only when the cell is at
+            # tolerance scale (all four GLOBAL spans within 4·unify_tol);
             # otherwise fall through to the subdivision path like any other
             # uncertified cell — descendants that re-confirm the same
             # tangency are absorbed by the emission dedup above.
@@ -8212,7 +8123,6 @@ def bez_ssx(
             # emission nor subdivision.
             spans = np.array([hi - lo for (lo, hi) in cell.box])
             if ok and np.all(spans <= 4.0 * unify_tol):
-                _unresolved_singular_cell(cell)
                 continue
 
         if tangency is True and _has_boundary_seeds:
@@ -8235,14 +8145,10 @@ def bez_ssx(
             # owner for crossing-bearing cells: it suppresses roots in tubes
             # measured tangent along their whole path, but enumerates and
             # emits an isolated saddle/off-curve touch.
-            # The center witness can be an independently verified isolated
-            # source root even when rounded off-curve enumeration misses
-            # it. Apply the same source canonicalization/dimension typing
-            # used by crossing-less cells; genuine curve samples stay out
-            # of the isolated-point output.
-            _ok_curve, _curve_roots = _emit_tangent_roots(
-                cell, atol, unify_tol, all_singularities,
-                enumerate_all=False, overlap_boxes=overlap_boxes)
+            _ok_curve, _curve_roots, _curve_fn, _curve_exhausted = (
+                _tangency_witness(cell, atol, enumerate_all=False))
+            if _curve_exhausted and cell.work_budget is not None:
+                cell.work_budget.mark_incomplete(REASON_TANGENTIAL_ZONE)
             # Boundary roots on a collapsed apex edge carry an arbitrary
             # free parameter. Canonicalize it to the interior Delta
             # witness before Phi tracing; otherwise identical physical
@@ -8302,9 +8208,6 @@ def bez_ssx(
                 stuv_glob = np.empty_like(f.stuv_path)
                 for k in range(len(f.stuv_path)):
                     stuv_glob[k] = _local_to_global(f.stuv_path[k], cell.box)
-                if (_cell_fibers and not _source_fallback_path_representation(
-                        stuv_glob, f.xyz_path)):
-                    continue
                 _fragment = _Fragment(
                     start_point=f.start_point, end_point=f.end_point,
                     stuv_path=stuv_glob, xyz_path=f.xyz_path,
@@ -8314,58 +8217,30 @@ def bez_ssx(
             # pt_local's SSXPoint.stuv is already global — we passed
             # `originals` so _deflate_tangent_cell copied from them.
             budget.extend_output(all_points, pt_local, "point")
-            # Tracing the Φ curve between this cell's crossings does NOT by
-            # itself resolve the cell: the deflation only reaches features
-            # ON Φ through the boundary crossings, and the center witness
-            # converges into the CURVE's basin — a coexisting ISOLATED
-            # touch in the same cell (z = (2t-1)^2*((s-0.7)^2+(t-0.2)^2):
-            # tangent line at t=0.5 PLUS a touch at (0.7,0.2)) is off every
-            # traced fragment and the plain `continue` deleted it with NO
-            # descendants ever seeing it (this cell was the only holder —
-            # there is no "some other cell covers it" on this path).
-            # Subdividing instead (the crossing-less arm's e1db506
-            # treatment) is correct but measured 1349x slower on the legacy
-            # crossed-saddles case (0.15 s -> 200 s): cells along a
-            # 1-dimensional tangent curve can never be certified away, so
-            # the size gate forces a full dyadic descent along the curve's
-            # length. Enumerate the cell's REMAINING Δ-roots here instead:
-            # hull-exclusion subdivision with the Newton attempts SKIPPED
-            # inside the traced fragments' tube (those roots are curve
-            # samples the subsumption filter would delete anyway),
-            # far-from-tube boxes explored FIRST, and only Newton attempts
-            # charged against the budget (skip-exempt charging — under
-            # per-pop charging the flood's excluded siblings starved the
-            # budget and touches at 5-15*atol from the curve fell into a
-            # blind band).
-            # This census resolves only Delta roots.  An ordinary loop
-            # can coexist with this tangent curve in the same cell, so the
-            # remaining parameter domain still needs ordinary subdivision.
+            # The traced tangency is one component, not the solution of
+            # this whole cell. Search for off-curve isolated touches, then
+            # retain the ordinary subdivision frontier for regular branches
+            # or closed loops that do not lie on the deflated system.
             _emit_offcurve_tangent_roots(cell, fr_local, atol, unify_tol,
                                          all_singularities,
                                          overlap_boxes=overlap_boxes)
-            # Existence of one singular component is not a classification
-            # of the whole cell.  Preserve the ordinary complement in the
-            # subdivision queue.  Repeating Delta enumeration in every
-            # descendant instead makes a tangent curve consume the entire
-            # budget before those ordinary components are reached.
-            cell.regular_complement = True
+            cell.tangency_remainder = True
+            tangent_coverage.update(all_fragments)
+            if tangent_coverage.covers_cell(
+                    cell.g1.surface, cell.g2.surface, cell.box,
+                    allow_empty=not cell.crossings):
+                continue
+            if budget.exhausted:
+                break
 
-        if max_depth is not None and cell.depth >= max_depth:
+        if cell.depth >= max_depth:
             for c in cell.crossings:
                 budget.append_output(
-                    all_points, _registered_point(c), "point")
+                    all_points, SSXPoint(stuv=c.stuv, xyz=c.xyz), "point")
             # Reaching the caller's depth ceiling after all sound
             # certificates above failed leaves this cell unresolved.  The
             # boundary samples are useful partial output, not a proof that
             # no interior component exists (case 7 at max_depth=0).
-            # L52 slice 9b: name the complement — the cell's 4-D box is a
-            # typed diagnostic entity, not just a flag.
-            budget.append_output(
-                unresolved_regions,
-                {'stuv_min': tuple(float(cell.box[i][0]) for i in range(4)),
-                 'stuv_max': tuple(float(cell.box[i][1]) for i in range(4)),
-                 'reason': REASON_DEPTH_LIMIT},
-                "unresolved_region")
             budget.mark_incomplete(REASON_DEPTH_LIMIT)
             continue
 
@@ -8376,6 +8251,7 @@ def bez_ssx(
 
         s1_axis, s1_cuts, s2_axis, s2_cuts = _compute_split_plan(
             cell.new_crossings, cell.box, cut_tol=dedup_tol, max_cuts=8)
+        #print(s1_axis, s1_cuts, s2_axis, s2_cuts,cell.box,[nc.xyz.tolist() for nc in cell.new_crossings])
         # Midpoint fallback per surface when no guided cuts
         if s1_axis is None:
             s1_span_s = cell.box[0][1] - cell.box[0][0]
@@ -8387,85 +8263,6 @@ def bez_ssx(
             s2_span_v = cell.box[3][1] - cell.box[3][0]
             s2_axis = 2 if s2_span_u >= s2_span_v else 3
             s2_cuts = [0.5 * (cell.box[s2_axis][0] + cell.box[s2_axis][1])]
-        # Inherited roots also constrain partition placement. Cutting at
-        # their polished coordinate creates a new endpoint on a rounded
-        # restricted isocurve, where source-root existence is no longer
-        # implied by the old representative. Separate every known event,
-        # including when the axis itself came from midpoint fallback.
-        s1_cuts = (_root_separating_cuts(cell.crossings, s1_axis,
-                                        cell.box, dedup_tol)
-                   or [0.5*(cell.box[s1_axis][0]+cell.box[s1_axis][1])])
-        s2_cuts = (_root_separating_cuts(cell.crossings, s2_axis,
-                                        cell.box, dedup_tol)
-                   or [0.5*(cell.box[s2_axis][0]+cell.box[s2_axis][1])])
-        if not source_regular:
-            # Boundary-event gaps need not shrink the unresolved interior.
-            # In particular, repeated cuts between nearby ports can retain
-            # the same off-curve stationary corner forever. Until a source
-            # minor proves monotonicity, split centrally on each chart's
-            # longest axis so the whole owner shrinks. Avoid known event
-            # bands only within that central progress interval.
-            s1_axis = max((0, 1), key=lambda axis: cell.box[axis][1]-cell.box[axis][0])
-            s2_axis = max((2, 3), key=lambda axis: cell.box[axis][1]-cell.box[axis][0])
-            s1_cuts = [_balanced_root_avoiding_cut(cell.crossings, s1_axis, cell.box)]
-            s2_cuts = [_balanced_root_avoiding_cut(cell.crossings, s2_axis, cell.box)]
-        if any(T is not None and not np.any(T)
-               for T in (cell.T1, cell.T2, cell.T3, cell.T4)):
-            # A zero minor cannot prove loop absence, but it often exposes
-            # free extrusion coordinates. Refine a varying constraint
-            # instead of duplicating its uncertainty across a 2x2 product
-            # of unrelated chart directions. This changes search order
-            # only; both halves retain every equation and boundary event.
-            active_axis = _probe_split_axis(cell)
-            active_cuts = ((_root_separating_cuts(
-                cell.crossings, active_axis, cell.box, dedup_tol)
-                if source_regular else []) or [
-                    _balanced_root_avoiding_cut(cell.crossings, active_axis, cell.box)])
-            if active_axis < 2:
-                s1_axis, s1_cuts, s2_cuts = active_axis, active_cuts, []
-            else:
-                s2_axis, s2_cuts, s1_cuts = active_axis, active_cuts, []
-        if getattr(cell, 'trace_split_axis', None) is not None:
-            # Separate several certified monotone arcs along their active
-            # tangent coordinate, instead of repeatedly narrowing a normal
-            # strip that still carries all four ports.
-            axis = cell.trace_split_axis
-            cuts = (_root_separating_cuts(cell.crossings, axis, cell.box, dedup_tol)
-                    or [0.5*sum(cell.box[axis])])
-            if axis < 2:
-                s1_axis, s1_cuts, s2_cuts = axis, cuts, []
-            else:
-                s2_axis, s2_cuts, s1_cuts = axis, cuts, []
-        empty_cut_certificate = getattr(cell, '_regular_empty_cut_certificate', None)
-        if (empty_cut_certificate is not None
-                and empty_cut_certificate['owner_box'] == cell.box):
-            axis, cuts = empty_cut_certificate['axis'], list(empty_cut_certificate['cuts'])
-            if axis < 2:
-                s1_axis, s1_cuts, s2_cuts = axis, cuts, []
-            else:
-                s2_axis, s2_cuts, s1_cuts = axis, cuts, []
-        if s1_cuts and s2_cuts and affine_constraints.components is not None:
-            linked = any(s1_axis in {entry[0] for entry in expressions}
-                         and s2_axis in {entry[0] for entry in expressions}
-                         for expressions, fixed in affine_constraints.components)
-            if linked:
-                # Both cut families vary the same exact affine component.
-                # Either family already partitions the whole owner; source
-                # domain contraction transfers its bounds to the other
-                # chart. The second family only creates redundant corner
-                # cells and repeated censuses of their common source face.
-                if len(s2_cuts) > len(s1_cuts):
-                    s1_cuts = []
-                else:
-                    s2_cuts = []
-        # At adjacent floating endpoints even a mathematical midpoint
-        # need not be representable. Such a cut cannot make progress and
-        # must not create a zero-width child or recycle its parent.
-        s1_cuts = _strict_interior_cuts(cell.box,s1_axis,s1_cuts)
-        s2_cuts = _strict_interior_cuts(cell.box,s2_axis,s2_cuts)
-        if not s1_cuts and not s2_cuts:
-            _unresolved_parameter_cell(cell)
-            continue
         # Guard the Cartesian product BEFORE allocating split nets/grids.
         # Productive crossings are only guides; midpoint subdivision is a
         # sound fallback when noisy guides would consume the remaining call
@@ -8475,232 +8272,87 @@ def bez_ssx(
         if projected_children > _available_queue_slots():
             if _available_queue_slots() < 4:
                 budget.mark_exhausted()
-                queue.appendleft(cell)
                 break
-            s1_cuts = _strict_interior_cuts(cell.box,s1_axis,
-                [0.5 * (cell.box[s1_axis][0] + cell.box[s1_axis][1])])
-            s2_cuts = _strict_interior_cuts(cell.box,s2_axis,
-                [0.5 * (cell.box[s2_axis][0] + cell.box[s2_axis][1])])
-            if not s1_cuts and not s2_cuts:
-                _unresolved_parameter_cell(cell)
-                continue
+            s1_cuts = [0.5 * (cell.box[s1_axis][0] + cell.box[s1_axis][1])]
+            s2_cuts = [0.5 * (cell.box[s2_axis][0] + cell.box[s2_axis][1])]
         #print(s1_axis, s1_cuts, s2_axis, s2_cuts, cell.box,[nc.xyz.tolist() for nc in cell.new_crossings])
-        # Census each cut against the unsplit opposite parent chart.
-        # Re-solving it separately on every opposite child introduced
-        # rounded endpoint subproblems and duplicated one root per piece.
-        # A registration discovered here is shared by all incident cells.
-        cut_obligations = []
-
-        def _cut_roots(axis, cuts):
-            owner = cell.g1.surface if axis < 2 else cell.g2.surface
-            target = cell.g2.surface if axis < 2 else cell.g1.surface
-            varying_axis = axis ^ 1
-            target_axes = (2, 3) if axis < 2 else (0, 1)
-            result_groups = []
-            lo, hi = cell.box[axis]
-            mappings = [(varying_axis, *cell.box[varying_axis]),
-                        *((k, *cell.box[k]) for k in target_axes)]
-
-            def _recover_source_roots(result, value):
-                pending = result.get('unresolved_parameter_boxes', [])
-                if not pending:
-                    return result
-                remaining, recovered = [], []
-                for obligation in pending:
-                    candidate = obligation.get('candidate')
-                    if obligation.get('reason') != 'root_existence' or candidate is None:
-                        remaining.append(obligation)
-                        continue
-                    stuv = np.empty(4)
-                    stuv[axis] = value
-                    for x, (k, start, stop) in zip(candidate, mappings):
-                        stuv[k] = start+float(x)*(stop-start)
-                    local_box = tuple(obligation[key] for key in ('t_range','u_range','v_range'))
-                    region = _mapped_root_box({'parameter_root_box': local_box},
-                                              axis, value, mappings)
-                    proposed = BoundaryPoint(stuv, np.zeros(3), (axis,-1))
-                    enclosure = root_identity.resolve_region(
-                        proposed, 4.*dedup_tol, region)
-                    if enclosure is None:
-                        remaining.append(obligation)
-                        continue
-                    if any(np.all(enclosure[:,0] >= prior[:,0])
-                           and np.all(enclosure[:,1] <= prior[:,1])
-                           for prior in recovered):
-                        continue
-                    recovered.append(region)
-                    stuv = enclosure.mean(axis=1)
-                    entry = {'_ssx_source_stuv': stuv,
-                             '_ssx_source_root_box': enclosure}
-                    for key, (k, start, stop) in zip(('t','u','v'), mappings):
-                        entry[key] = (stuv[k]-start)/(stop-start)
-                    local = _global_to_local(stuv, cell.box)
-                    entry['point'] = eval_surface(cell.g1.surface, *local[:2], rational=True)
-                    result.setdefault('isolated', []).append(entry)
-                result['unresolved_parameter_boxes'] = remaining
-                if (not remaining and result.get('unresolved_obligations_complete', False)
-                        and result.get('truncation_cause') == 'resolution'):
-                    result['budget_exhausted'] = False
-                    result['boundary_topology_complete'] = True
-                    result['truncation_cause'] = None
-                return result
-
-            for cut_index, value in enumerate(cuts):
-                if budget.exhausted:
-                    break
-                if (empty_cut_certificate is not None
-                        and empty_cut_certificate['owner_box'] == cell.box
-                        and empty_cut_certificate['axis'] == axis
-                        and value in empty_cut_certificate['cuts']):
-                    # The source boundary-level count proves this entire
-                    # slice empty. No new boundary root solve is needed.
-                    result_groups.append([])
-                    continue
-                result = _source_cut_census(axis, value, cell.box)
-                source_result = result is not None
-                if result is None:
-                    isoline = _extract_isoline(owner, axis % 2, (value-lo)/(hi-lo))
-                    result = _run_csx(isoline, target, atol=atol, rational=True,
-                                      pending_partition=True,
-                                      source_face=(axis, value, cell.box))
-                    result = _recover_source_roots(result, value)
-                if result.get('budget_exhausted', False) and not budget.exhausted:
-                    cause = result.get('truncation_cause')
-                    reason = (REASON_DEPTH_LIMIT if cause == 'depth'
-                              else REASON_MULTIPLICITY if cause == 'resolution'
-                              else REASON_WORK_BUDGET)
-                    budget.mark_incomplete(reason)
-                    csx_unresolved_boxes[(active_csx_box, reason)] = {
-                        'stuv_min': tuple(float(a) for a,b in active_csx_box),
-                        'stuv_max': tuple(float(b) for a,b in active_csx_box),
-                        'reason': reason}
-                _surface_cut_face_fibers(result, budget)
-                if (
-                    result.get('budget_exhausted', False)
-                    or not result.get('boundary_topology_complete', True)
-                    or result.get('overlaps') or result.get('parameter_fibers')):
-                    face_box = list(cell.box)
-                    face_box[axis] = (float(value),float(value))
-                    face_box = tuple(face_box)
-                    if face_box not in cut_obligations:
-                        cut_obligations.append(face_box)
-                points = []
-                for root in result.get('isolated', []):
-                    stuv = np.empty(4, dtype=np.float64)
-                    stuv[axis] = value
-                    if source_result:
-                        stuv = np.asarray(root['stuv']).copy()
-                    else:
-                        for key, (k, start, stop) in zip(('t', 'u', 'v'), mappings):
-                            stuv[k] = start + float(root[key])*(stop-start)
-                        stuv = root.get('_ssx_source_stuv', stuv)
-                    local = _global_to_local(stuv, cell.box)
-                    tangent, _, _ = _ssx_tangent_4d(
-                        cell.g1.surface, cell.g2.surface, *local, rational=True)
-                    point = BoundaryPoint(
-                        stuv=stuv, xyz=((np.asarray(root['point'])-_norm_c)/_norm_k
-                                       if source_result else np.asarray(root['point'])),
-                        face=(axis, -1), tangent_raw=tangent,
-                        root_box=(np.asarray(root['parameter_root_box']) if source_result else
-                                  root['_ssx_source_root_box']
-                                  if '_ssx_source_root_box' in root else
-                                  _mapped_root_box(root, axis, value, mappings)))
-                    if source_result:
-                        root_identity.register_source_root(point, root['source_cut_certificate'])
-                        point._source_root_box = True
-                    if '_ssx_source_root_box' in root:
-                        point._source_root_box = True
-                    if (result.get('_ssx_source_residual')
-                            and root.get('root_existence_certification')
-                            and point.root_box is not None):
-                        point._source_root_box = True
-                    points.append(point)
-                result_groups.append(points)
-            return result_groups
-
-        s1_cut_points = _cut_roots(s1_axis, s1_cuts)
-        if budget.exhausted:
-            queue.appendleft(cell)
-            break
-        # Once regularity is proved, the second set of planes may also
-        # separate the first cut census. Before then, retain balanced cuts
-        # on both charts: arbitrarily close root gaps cannot be allowed to
-        # prevent the unresolved four-dimensional owner from shrinking.
-        first_events = [p for group in s1_cut_points for p in group]
-        if source_regular and s2_cuts and not (empty_cut_certificate is not None
-                           and empty_cut_certificate['owner_box'] == cell.box
-                           and empty_cut_certificate['axis'] == s2_axis
-                           and all(value in empty_cut_certificate['cuts'] for value in s2_cuts)):
-            s2_cuts = (_root_separating_cuts(cell.crossings + first_events,
-                                            s2_axis, cell.box, dedup_tol)
-                       or [0.5*(cell.box[s2_axis][0]+cell.box[s2_axis][1])])
-            s2_cuts = _strict_interior_cuts(cell.box,s2_axis,s2_cuts)
-        if not s1_cuts and not s2_cuts:
-            _unresolved_parameter_cell(cell)
-            continue
-        if (len(s1_cuts)+1)*(len(s2_cuts)+1) > _available_queue_slots():
-            budget.mark_exhausted()
-            queue.appendleft(cell)
-            break
-        s2_cut_points = _cut_roots(s2_axis, s2_cuts)
-        if budget.exhausted:
-            queue.appendleft(cell)
-            break
-        n1, n2 = len(s1_cuts)+1, len(s2_cuts)+1
-        if n1*n2 > _available_queue_slots():
-            budget.mark_exhausted()
-            queue.appendleft(cell)
-            break
-
+        # Split S1 (Gauss map) along s1_axis
         g1_pieces = _split_surface_multi(cell.g1, s1_axis, s1_cuts, cell.box)
+        # Split S2 (Gauss map) along s2_axis
         g2_pieces = _split_surface_multi(cell.g2, s2_axis, s2_cuts, cell.box)
+
+        # Split TΨᵢ along BOTH axes sequentially
         T_list = [cell.T1, cell.T2, cell.T3, cell.T4]
         T_after_s1 = [_split_tensor_multi(T, s1_axis, s1_cuts, cell.box) for T in T_list]
         T_pieces = []
-        for i1 in range(n1):
+        F_sq_after_s1 = (_split_tensor_multi(cell.F_sq, s1_axis, s1_cuts, cell.box)
+                         if cell.F_sq is not None else None)
+        F_sq_pieces = []
+        for i1 in range(len(g1_pieces)):
             row = []
-            sub_box = list(cell.box)
-            sub_box[s1_axis] = (cell.box[s1_axis][0] if i1 == 0 else s1_cuts[i1-1],
-                                 s1_cuts[i1] if i1 < len(s1_cuts) else cell.box[s1_axis][1])
-            for tensor_index in range(4):
-                row.append(_split_tensor_multi(T_after_s1[tensor_index][i1],
-                                                 s2_axis, s2_cuts, tuple(sub_box)))
+            for T_idx in range(4):
+                T_s1_piece = T_after_s1[T_idx][i1]
+                sub_box = list(cell.box)
+                s1_lo = cell.box[s1_axis][0] if i1 == 0 else s1_cuts[i1 - 1]
+                s1_hi = s1_cuts[i1] if i1 < len(s1_cuts) else cell.box[s1_axis][1]
+                sub_box[s1_axis] = (s1_lo, s1_hi)
+                pieces_s2 = _split_tensor_multi(T_s1_piece, s2_axis, s2_cuts, tuple(sub_box))
+                row.append(pieces_s2)
             T_pieces.append(row)
+            # F_sq propagation (single 4D tensor, same axis convention)
+            if F_sq_after_s1 is not None:
+                sub_box = list(cell.box)
+                s1_lo = cell.box[s1_axis][0] if i1 == 0 else s1_cuts[i1 - 1]
+                s1_hi = s1_cuts[i1] if i1 < len(s1_cuts) else cell.box[s1_axis][1]
+                sub_box[s1_axis] = (s1_lo, s1_hi)
+                F_sq_pieces.append(
+                    _split_tensor_multi(F_sq_after_s1[i1], s2_axis, s2_cuts, tuple(sub_box)))
+            else:
+                F_sq_pieces.append([None] * (len(s2_cuts) + 1))
 
+        # Query each new isoline against the opposite parent once. A local
+        # CSX depth stop falls back to the already constructed pieces.
+        n1, n2 = len(g1_pieces), len(g2_pieces)
         new_cx_grid = [[[] for _ in range(n2)] for _ in range(n1)]
-        s1_bounds = [cell.box[s1_axis][0], *s1_cuts, cell.box[s1_axis][1]]
-        s2_bounds = [cell.box[s2_axis][0], *s2_cuts, cell.box[s2_axis][1]]
-        first_strips,second_strips = [],[]
-        for axis,bounds,strips in ((s1_axis,s1_bounds,first_strips),
-                                   (s2_axis,s2_bounds,second_strips)):
-            for low,high in zip(bounds,bounds[1:]):
-                strip = list(cell.box)
-                strip[axis] = low,high
-                strips.append(tuple(strip))
-        for cut_index, points in enumerate(s1_cut_points):
-            groups = _source_boundary_child_groups(
-                cell,points,second_strips,4.*dedup_tol)
-            for j,group in enumerate(groups):
-                new_cx_grid[cut_index][j].extend(group)
-                new_cx_grid[cut_index+1][j].extend(group)
-        for cut_index, points in enumerate(s2_cut_points):
-            groups = _source_boundary_child_groups(
-                cell,points,first_strips,4.*dedup_tol)
-            for i,group in enumerate(groups):
-                new_cx_grid[i][cut_index].extend(group)
-                new_cx_grid[i][cut_index+1].extend(group)
+        s1_local_cuts = [(value - cell.box[s1_axis][0])
+                         / (cell.box[s1_axis][1] - cell.box[s1_axis][0])
+                         for value in s1_cuts]
+        s2_local_cuts = [(value - cell.box[s2_axis][0])
+                         / (cell.box[s2_axis][1] - cell.box[s2_axis][0])
+                         for value in s2_cuts]
+        for cut_index, (value, local) in enumerate(zip(s1_cuts, s1_local_cuts)):
+            if budget.exhausted:
+                break
+            curve = _extract_isoline(cell.g1.surface, s1_axis, local)
+            contacts = _query_cut_face_contacts(
+                _run_csx, curve, cell.g2.surface,
+                [piece.surface for piece in g2_pieces], s2_axis - 2,
+                s2_local_cuts, atol, budget)
+            _register_cut_contacts(cell, contacts, s1_axis, value, cut_index,
+                                    s2_axis, s2_cuts, new_cx_grid)
 
-        child_boxes = []
-        for i1 in range(n1):
-            for i2 in range(n2):
-                sub = list(cell.box)
-                sub[s1_axis] = s1_bounds[i1],s1_bounds[i1+1]
-                sub[s2_axis] = s2_bounds[i2],s2_bounds[i2+1]
-                child_boxes.append(tuple(sub))
-        inherited_groups = _source_boundary_child_groups(
-            cell,cell.crossings,child_boxes,4.*dedup_tol)
-        child_obligations = _source_boundary_child_obligations(
-            cell,child_boxes,cut_obligations)
+        if budget.exhausted:
+            break
+        for cut_index, (value, local) in enumerate(zip(s2_cuts, s2_local_cuts)):
+            if budget.exhausted:
+                break
+            curve = _extract_isoline(cell.g2.surface, s2_axis - 2, local)
+            contacts = _query_cut_face_contacts(
+                _run_csx, curve, cell.g1.surface,
+                [piece.surface for piece in g1_pieces], s1_axis,
+                s1_local_cuts, atol, budget)
+            _register_cut_contacts(cell, contacts, s2_axis, value, cut_index,
+                                    s1_axis, s1_cuts, new_cx_grid)
+
+        if budget.exhausted:
+            break
+
+        # Cut-face CSX runs after the first fanout check and spends from the
+        # same global allowance. Re-check immediately before allocating the
+        # child cells so already-queued work plus this product still fits.
+        if n1 * n2 > _available_queue_slots():
+            budget.mark_exhausted()
+            break
 
         # Build Cartesian product of S1 pieces × S2 pieces
         for i1 in range(n1):
@@ -8715,9 +8367,10 @@ def bez_ssx(
                 sub_box[s2_axis] = (s2_lo, s2_hi)
                 sub_box = tuple(sub_box)
 
-                # Source enclosures cover every possible closed owner;
-                # display parameters cannot exclude the opposite child.
-                sub_inherited = inherited_groups[i1*n2+i2]
+                # Inherited crossings from parent — check ALL 4 axes
+                sub_inherited = [c for c in cell.crossings
+                                 if all(sub_box[ax][0]<= c.stuv[ax] <= sub_box[ax][1]
+                                        for ax in range(4))]
 
                 # New crossings: deterministic from per-piece CSX grid.
                 # Dedup against inherited crossings and against each other —
@@ -8732,14 +8385,13 @@ def bez_ssx(
                 # was merged into the domain-corner crossing).
                 sub_new_raw = new_cx_grid[i1][i2]
                 sub_new = []
-                for position, nc in enumerate(sub_new_raw):
-                    if root_identity.exhausted:
-                        sub_new.extend(sub_new_raw[position:])
-                        break
-                    if any(root_identity(nc, ec, dedup_tol, atol)
+                for nc in sub_new_raw:
+                    if any(np.all(np.abs(nc.stuv - ec.stuv) <= dedup_tol)
+                           and float(np.linalg.norm(nc.xyz - ec.xyz)) <= atol
                            for ec in sub_inherited):
                         continue
-                    if any(root_identity(nc, dc, dedup_tol, atol)
+                    if any(np.all(np.abs(nc.stuv - dc.stuv) <= dedup_tol)
+                           and float(np.linalg.norm(nc.xyz - dc.xyz)) <= atol
                            for dc in sub_new):
                         continue
                     sub_new.append(nc)
@@ -8752,78 +8404,32 @@ def bez_ssx(
                     T1=T_pieces[i1][0][i2], T2=T_pieces[i1][1][i2],
                     T3=T_pieces[i1][2][i2], T4=T_pieces[i1][3][i2],
                     new_crossings=sub_new,
+                    F_sq=F_sq_pieces[i1][i2] if F_sq_pieces[i1] else None,
+                    w_scale=cell.w_scale,
                     work_budget=budget, csx_fn=_run_csx,
-                    regular_complement=cell.regular_complement,
-                    boundary_complete=child_obligations[i1*n2+i2] == (),
-                    boundary_obligations=child_obligations[i1*n2+i2],
-                    root_matcher=root_identity,
-                    straight_path=_source_straight_path,
-                    path_representation=_source_path_representation,
-                    arc_image=_source_arc_image,
-                    arc_chord=_source_arc_chord,
-                    source_root_exact=_source_root_exact,
-                    source_singular_candidate=_source_singular_candidate,
-                    source_singular_sink=_source_registered_singularity,
-                    source_cofactors=source_cofactors,
-                    unresolved_regions=unresolved_regions,
+                    tangency_remainder=cell.tangency_remainder,
                 )
                 scell.partitions = _build_cell_partitions(scell)
                 for c in sub_cx:
                     _classify_boundary_point(c, scell)
-                if source_regular:
-                    # Finish an already certified regular owner's arc
-                    # partition before growing an unresolved singular
-                    # frontier. This changes scheduling only: every child
-                    # and every unfinished singular owner stays queued.
-                    queue.appendleft(scell)
-                else:
-                    queue.append(scell)
+                queue.append(scell)
 
-    # Every stop after popping an owner returns it to the frontier until
-    # its complete child partition has been queued. Otherwise this dump
-    # would omit the active owner and misclassify its staged parent traces
-    # as replaced by completed descendants.
-    # L52 slice 9b: cells abandoned by a work-exhausted queue are the other
-    # half of the unresolved complement — name them the same way the depth
-    # dump does (typed 4-D boxes; the output cap bounds the list and marks
-    # honestly if it saturates).
-    for cell in queue:
-        if not budget.append_output(
-                unresolved_regions,
-                {'stuv_min': tuple(float(cell.box[i][0]) for i in range(4)),
-                 'stuv_max': tuple(float(cell.box[i][1]) for i in range(4)),
-                 'reason': REASON_WORK_BUDGET},
-                "unresolved_region"):
-            break
-
-    # Retain provisional parent traces only where replacement search is
-    # still unresolved. This is partition ownership, not geometric
-    # containment: completed descendants account for the whole parent
-    # domain, including branches that its failed march never reached.
-    # Output was charged on staging, so restoring a fallback spends no
-    # second allowance and remains possible after a work-budget stop.
-    pending_regions = list(unresolved_regions) + list(csx_unresolved_boxes.values())
-    pending_boxes = [np.column_stack((region['stuv_min'], region['stuv_max']))
-                     for region in pending_regions
-                     if 'stuv_min' in region and 'stuv_max' in region]
-    pending_sites = [np.asarray(site, dtype=float)
-                     for _reason, site in budget.structural_sites]
-    unlocated_failure = bool(budget.incomplete and not pending_boxes and not pending_sites)
-    for box, fragments, points in provisional_traces:
-        bounds = np.asarray(box, dtype=float)
-        can_classify = (not budget.exhausted and not unlocated_failure
-                        and _assembly_spend(
-                            budget, 1+len(pending_boxes)+len(pending_sites)))
-        unresolved = (not can_classify
-                      or any(np.all(region[:, 0] <= bounds[:, 1])
-                             and np.all(bounds[:, 0] <= region[:, 1])
-                             for region in pending_boxes)
-                      or any(np.all(bounds[:, 0] <= site)
-                             and np.all(site <= bounds[:, 1])
-                             for site in pending_sites))
-        if unresolved:
+    if budget.incomplete:
+        # Search exhaustion must preserve useful geometry that was already
+        # found before its parent was handed over to smaller cells. These
+        # records were charged at discovery, so restoring them is not a new
+        # output allocation. Normal tolerant assembly removes retraced parts.
+        for fragments, points in provisional_trace_batches:
             all_fragments.extend(fragments)
             all_points.extend(points)
+
+    # Trace the intersection geometry before the independent C1 census.
+    # A positive-dimensional singular set can consume its entire remaining
+    # allowance; it must not prevent already seeded branches from being
+    # followed. C1 output is still published before optional cleanup.
+    c1_singularities = _discover_c1_singularities(
+        S1_h_top, S2_h_top, atol, ptol4_global, budget)
+    all_singularities.extend(c1_singularities)
 
     # --- §9 assembly: chain fragments by shared BoundaryPoint endpoints ---
     # Pass the original surfaces so the assembly can march any small chain
@@ -8834,7 +8440,6 @@ def bez_ssx(
         S1_for_close, S2_for_close, rational_close = S1, S2, True
     else:
         S1_for_close, S2_for_close, rational_close = S1, S2, False
-    root_identity.charge = lambda amount: _assembly_spend(budget, amount)
     all_branches = _assemble_fragments(
         all_fragments,
         S1_full=S1_for_close, S2_full=S2_for_close,
@@ -8842,85 +8447,23 @@ def bez_ssx(
         unify_tol=unify_tol, h_max=h_max,
         barrier_xyz=[g.xyz for g in all_singularities
                      if g.kind == "tangent_point"],
-        work_budget=budget, root_matcher=root_identity,
+        work_budget=budget,
     )
     all_branches.extend(overlap_branches)
 
-    # Everything below is post-assembly classification/filtering.  With no
-    # remaining allowance, do not enter its endpoint-pair, point/branch, or
-    # linkage scans. Keep the geometry already assembled; optional cleanup
-    # exhaustion cannot revoke completed discovery or erase its branches.
+    # A cleanup limit must not erase geometry already found and assembled.
+    # Return that geometry with the budget status when cleanup cannot run.
     if not _assembly_spend(budget):
         return _result(branches=all_branches, points=all_points,
-                       singularities=all_singularities,
-                       unresolved_regions=unresolved_regions)
+                       singularities=all_singularities)
 
-    # A boundary retrace needs actual source-boundary ownership on both
-    # operands. Matching approximation paths alone cannot identify arcs.
-    def _same_boundary_retrace(branch, overlap):
-        from mmcore.numeric.intersection.ssx._ssx_boundary_identity import (
-            certified_boundary_retrace)
-        stuv = np.asarray(branch.curve[0])
-        keeper = np.asarray(overlap.curve[0])
-        if not len(stuv) or not len(keeper):
-            return False
-        first_owner = getattr(branch,'_source_boundary_face',None)
-        second_owner = getattr(overlap,'_source_boundary_face',None)
-        if first_owner is None or first_owner != second_owner:
-            return False
-        for axis in range(4):
-            side = float(keeper[0, axis])
-            if side not in (0.0, 1.0) or first_owner != (axis,int(side)):
-                continue
-            if not (np.all(keeper[:, axis] == side)
-                    and np.all(stuv[:, axis] == side)):
-                continue
-            owner = axis//2
-            source, target = (source_identity_surfaces[owner],
-                              source_identity_surfaces[1-owner])
-            if not rational:
-                source = np.concatenate([
-                    source, np.ones(source.shape[:-1]+(1,))], axis=-1)
-                target = np.concatenate([
-                    target, np.ones(target.shape[:-1]+(1,))], axis=-1)
-            index = 0 if side == 0.0 else -1
-            curve = (source[index, :, :] if axis%2 == 0
-                     else source[:, index, :])
-            relation = certified_boundary_retrace(
-                stuv, np.asarray(branch.curve[1]), keeper,
-                np.asarray(overlap.curve[1]), curve, target,
-                2*owner+1-axis%2, (2*(1-owner), 2*(1-owner)+1),
-                (0.0, 1.0), unify_tol, atol,
-                charge=lambda n: _assembly_spend(budget, n))
-            if relation is True or relation is None:
-                return relation
-        return False
-
+    # Boundary registrations may trace several adjoining overlap edges in
+    # one path. Compare continuously against their paired segment union;
+    # testing each keeper separately leaves that complete retrace visible.
     if overlap_branches and len(all_branches) > len(overlap_branches):
-        kept = []
-        for branch in all_branches:
-            if branch.kind == "overlap" or getattr(branch,'_source_boundary_face',None) is None:
-                kept.append(branch)
-                continue
-            contained = False
-            for overlap in overlap_branches:
-                # Source boundary identity plus a proved unique target
-                # inverse owns this curve; an approximate chord does not.
-                relation = _same_boundary_retrace(branch, overlap)
-                if relation is True:
-                    overlap._registered_root_ids = (
-                        getattr(overlap, '_registered_root_ids', frozenset())
-                        | getattr(branch, '_registered_root_ids', frozenset()))
-                    overlap._registered_root_points = (
-                        getattr(overlap, '_registered_root_points', {})
-                        | getattr(branch, '_registered_root_points', {}))
-                    contained = True
-                    break
-                if relation is None:
-                    break
-            if not contained:
-                kept.append(branch)
-        all_branches = kept
+        all_branches = _drop_traces_covered_by_overlap_union(
+            all_branches, overlap_branches, atol, unify_tol, budget,
+            surfaces=(S1_h_top, S2_h_top))
 
     # --- Overlap-curve JUNCTION singularities ---
     # Two 1-dimensional overlap/tangential features meeting at a point are
@@ -8994,7 +8537,7 @@ def bez_ssx(
                 bc, pc, sc4, dc, kc, brc, stc = _ends[c]
                 if ba == bc:
                     continue
-                if not np.array_equal(sa4, sc4):
+                if float(np.linalg.norm(pa - pc)) > 2.0 * atol:
                     continue
                 # non-collinear meeting (collinear = artificial split)
                 if float(np.linalg.norm(np.cross(da, dc))) < 0.1:
@@ -9027,7 +8570,8 @@ def bez_ssx(
                         or _sin_ang_inward(brc, stc, d_iso_c) <= 1e-3):
                     continue
                 if not any(g.kind == "tangent_point"
-                           and np.array_equal(g.stuv, sa4)
+                           and np.all(np.abs(g.stuv - sa4) <= unify_tol)
+                           and float(np.linalg.norm(np.asarray(g.xyz) - pa)) <= 2.0 * atol
                            for g in all_singularities):
                     budget.append_output(all_singularities, SSXSingularity(
                         kind="tangent_point", stuv=np.asarray(sa4, dtype=np.float64),
@@ -9036,221 +8580,185 @@ def bez_ssx(
             if _junction_scan_denied:
                 break
 
-    # A tangent point can be a separate source component even when it
-    # lies on an approximate tangent-curve chord. Retain it unless actual
-    # source singular-stratum ownership is available.
+    # A tangent_point ON a 1-dimensional tangential feature is not an
+    # isolated C2 touch: overlap regions and traced tangent curves (branch
+    # kind 'overlap'/'tangential') consist entirely of Δ-roots, so the
+    # witness on a cell holding one converges to an arbitrary sample of the
+    # curve (measured: the legacy overlaps case emitted its domain corner;
+    # the crossed-saddles center witness lands on the tangent curve). The
+    # richer feature already reports the contact — drop the redundant point
+    # (Task 5 will type tangent curves explicitly). "ON a branch" is the
+    # BOTH-GUARDS test (ledger L3, _point_on_branch_both_guards): xyz
+    # point-to-segment ≤ 4·atol — same tolerance as the points-on-branch
+    # filter below; the polyline is a chorded approximation, so points ON
+    # the true curve sit up to the 2·atol sagitta off it (measured max
+    # 1.9e-3 = 1.9·atol) — AND per-axis stuv ≤ 2·unify_tol against the
+    # branch's stuv interpolated at the same segment location. xyz-only
+    # subsumption deleted a certified touch on a DIFFERENT sheet 3·atol
+    # from an overlap isoline (Δu = 0.8 in parameters, 640·atol z-wall
+    # between). Genuine on-curve witnesses lie on the branch in stuv too
+    # (they and the samples are ~ptol-accurate) and keep subsuming; a
+    # branch segment whose stored stuv fails its own xyz self-check (the
+    # known-corrupt legacy overlap bookkeeping) cannot subsume a point —
+    # see _point_on_branch_both_guards.
+    # Tangent points coexisting with TRANSVERSAL branches (the saddle X)
+    # are not affected — this tests tangential/overlap branches only.
+    # Runs FIRST so the micro-branch and near-touch point filters below see
+    # only genuinely isolated touches. Micro-scale tangential polylines
+    # (arc ≤ 16·atol — the micro-branch filter's cap, computed identically)
+    # are EXCLUDED from the subsuming set: a Ψ-valid Φ-micro-fragment AT a
+    # touch would otherwise eat the typed point here, drop it from
+    # _tangent_xyz, and thereby shield ITSELF from the micro-branch filter
+    # (junk kept, singularity lost). With the floor, micro-branches can
+    # never subsume a tangent_point, so the two filters are
+    # order-independent for micro-branches.
+    if (all_singularities
+            and _assembly_spend(budget, max(1, len(all_branches)))):
+        _one_dim_polys = []
+        for b in all_branches:
+            if b.kind not in ("overlap", "tangential"):
+                continue
+            _poly = np.asarray(b.curve[1], dtype=np.float64)
+            if len(_poly) < 2:
+                continue
+            _arc = float(np.linalg.norm(np.diff(_poly, axis=0), axis=1).sum())
+            if _arc > 16.0 * atol:
+                _one_dim_polys.append(
+                    (_poly, np.asarray(b.curve[0], dtype=np.float64)))
+        _subsumption_cost = (
+            len(all_singularities)
+            * sum(max(1, len(poly_xyz) - 1)
+                  for poly_xyz, _ in _one_dim_polys))
+        if (_one_dim_polys
+                and _assembly_spend(
+                    budget, max(1, _subsumption_cost))):
+            def _interior_subsumed(g):
+                # JUNCTION EXCEPTION (corner-sharing bilinear repro): a
+                # tangent_point at the ENDPOINT of an overlap/tangential
+                # branch is a structural feature — two shared-edge overlap
+                # curves meeting at a genuine surface-surface tangency
+                # (sin_ang = 0 measured) — not an interior re-confirmation
+                # of the 1-dim feature. Subsume only points whose nearest
+                # branch location is in the polyline INTERIOR (farther
+                # than 2·atol from both branch ends).
+                gxyz = np.asarray(g.xyz, dtype=np.float64)
+                gstuv = np.asarray(g.stuv, dtype=np.float64)
+                for poly_xyz, poly_stuv in _one_dim_polys:
+                    if not _point_on_branch_both_guards(
+                            gxyz, gstuv, poly_xyz, poly_stuv, atol,
+                            unify_tol, S1_h_top, S2_h_top):
+                        continue
+                    # The endpoint exception applies to genuinely OPEN
+                    # ends only: a CLOSED branch's start/end is an
+                    # assembly seam — interior in curve terms — and
+                    # witness debris near the seam must still be
+                    # subsumed (tangent-ring regression).
+                    branch_open = (float(np.linalg.norm(
+                        poly_xyz[0] - poly_xyz[-1])) > 2.0 * atol)
+                    near_end = branch_open and (
+                        float(np.linalg.norm(gxyz - poly_xyz[0])) <= 2.0 * atol
+                        or float(np.linalg.norm(gxyz - poly_xyz[-1])) <= 2.0 * atol)
+                    if not near_end:
+                        return True
+                return False
 
-    # A constant approximation polyline can represent a small source
-    # component. Its equality to a tangent-point sample cannot delete it.
+            all_singularities = [
+                g for g in all_singularities
+                if not (g.kind == "tangent_point" and _interior_subsumed(g))
+            ]
 
-    # --- C1 pass (paper Fig. 5): parameterization cusps ON the SSI ---
-    # Cusps are properties of a surface's parameterization (Sigma_i = 0),
-    # not of the marching — the 4D curve is REGULAR through a C1 point
-    # (T3=T4=0 but T1,T2 != 0 there), so the branches above already walk
-    # through it; this pass only locates and types the cusp. Runs AFTER the
-    # branch filters so branch_links index the FINAL branch list (the two
-    # filters above drop branches; everything below only touches points).
-    # Regular surfaces exit via c1_pass's Sigma-hull precheck at the cost
-    # of six min/max scans — zero measurable time on all coverage cases.
-    from mmcore.numeric.intersection.ssx._ssx5_singular import c1_pass
-
-    ptol4_global = np.maximum(np.array(
-        [float(_gp_s), float(_gp_t), float(_gp_u), float(_gp_v)]), 1e-9)
-    if budget.exhausted:
-        c1_hits, _c1_curve = [], False
-    else:
-        _c1_stats = {}
-        # The 20k tier is a per-call C1 allowance clamped by the shared
-        # remainder (L38 pattern). Justification kept WITH a measurement
-        # (§7.3): on positive-dimensional Σ sets the enumeration truncates
-        # on its RESULT cap long before the tier (interior-pinch fixture:
-        # 509 of 20,000 tier cells, 5.7k of 1M shared cells), so a larger
-        # tier buys nothing there; regular isolated-cusp enumerations on
-        # every gate case finish far below 20k.
-        _c1_tier = min(20_000, budget.remaining_cells)
-        # Review finding (slices-6-9a adversarial pass): when the tier is
-        # CLAMPED by the shared remainder, a local truncation is shared-
-        # budget scarcity in disguise (c1_pass's per-surface fair share is
-        # always <= the remainder, so charge_box never gets to deny and
-        # external_budget_exhausted stays False) — and c1's curve test has
-        # a documented blind spot (curve_like fires for a budget-truncated
-        # multi-cusp census). Structural classification is only trusted
-        # when the FULL tier was available.
-        _c1_tier_clamped = _c1_tier < 20_000
-        c1_hits, _c1_curve = c1_pass(
-            S1_h_top, S2_h_top, atol, ptol4_global,
-            max_cells=_c1_tier,
-            charge_box=_charge_hook(budget, "c1"),
-            stats=_c1_stats)
-        # Reason attribution (L52 slice 9 / §11.6 de-budget — the L49
-        # misbilling): c1_pass deliberately does NOT set `incomplete` when
-        # the detected cusp curve explains a truncated enumeration; the
-        # old wiring OR-ed all three flags into work_budget and erased
-        # that distinction (measured: reasons=['work_budget'] persisted at
-        # max_cells=1e6 with 5.7k cells spent — no knob could help).
-        if _c1_stats.get("external_budget_exhausted", False):
-            # the SHARED ledger ran dry mid-pass — genuinely budgetary.
-            budget.mark_incomplete(REASON_WORK_BUDGET)
-        elif (_c1_stats.get("budget_exhausted", False)
-                or _c1_stats.get("incomplete", False)):
-            if _c1_curve and not _c1_tier_clamped:
-                # A positive-dimensional Σ component was DETECTED this
-                # call: point enumeration of a curve saturates any finite
-                # cap (pinch fixture: truncated at 509 cells on the result
-                # cap; case 14: tier drained at 20,000 and a 5x tier
-                # measured >2 min without finishing). The typed cusp_curve
-                # carries the structure; the honesty flag is structural.
-                budget.mark_incomplete(REASON_SINGULAR_SET)
-            else:
-                # no curve found — the tier itself was the limit and more
-                # cells could genuinely finish an isolated-cusp census.
-                budget.mark_incomplete(REASON_WORK_BUDGET)
-    for hit in c1_hits:
-        if not _assembly_spend(budget):
-            break
-        if "curve_samples" in hit:
-            samples = np.asarray(hit["curve_samples"], dtype=np.float64)
-            anchor = samples[0] if len(samples) else np.full(4, np.nan)
-            xyz_anchor = (eval_surface(S1_h_top, anchor[0], anchor[1],
-                                       rational=True)
-                          if len(samples) else np.full(3, np.nan))
-            budget.append_output(all_singularities, SSXSingularity(
-                kind="cusp_curve", stuv=anchor, xyz=xyz_anchor,
-                samples=samples, surface=hit.get("surface")), "singularity")
-            continue
-        links = []
-        _link_cost = sum(max(1, len(np.asarray(b.curve[1])) - 1)
-                         for b in all_branches)
-        if _assembly_spend(budget, max(1, _link_cost)):
-            for bi, b in enumerate(all_branches):
+    # Spurious micro-branches at emitted tangent points: subdividing around
+    # a touch (the size-gated tangency arm above) re-exposes the old
+    # pathology — CSX grazing-valley roots near the touch yield ~2·atol
+    # micro-fragments, and crossing-bearing descendant tangent cells can add
+    # Ψ-valid Φ-fragments there. Drop a branch only when EVERY polyline
+    # vertex lies within 4·atol (xyz) of some emitted tangent point AND its
+    # total xyz arc length is ≤ 16·atol — the length cap is a safety net so
+    # nothing long can ever be eaten (the Mexican-hat ring's vertices sit
+    # ~0.35 from the touch; saddle arms extend far beyond 4·atol). The
+    # 16·atol constant is shared with the subsumption filter's floor above:
+    # tangential/overlap polylines AT or BELOW it cannot subsume a
+    # tangent_point there, so they are still deletable here.
+    _tangent_xyz = [g.xyz for g in all_singularities if g.kind == "tangent_point"]
+    if _tangent_xyz and all_branches:
+        _tp = np.asarray(_tangent_xyz, dtype=np.float64)          # (K, 3)
+        _kept_branches = []
+        _micro_cost = len(_tp) * sum(
+            max(1, len(np.asarray(b.curve[1]))) for b in all_branches)
+        if not _assembly_spend(budget, max(1, _micro_cost)):
+            _kept_branches = all_branches
+        else:
+            for b in all_branches:
                 xyz = np.asarray(b.curve[1], dtype=np.float64)
-                if len(xyz) < 2:
+                if len(xyz):
+                    d_min = np.linalg.norm(
+                        xyz[:, None, :] - _tp[None, :, :], axis=2).min(axis=1)
+                    if np.all(d_min <= 4.0 * atol):
+                        arc = (float(np.linalg.norm(
+                            np.diff(xyz, axis=0), axis=1).sum())
+                               if len(xyz) > 1 else 0.0)
+                        if arc <= 16.0 * atol:
+                            continue
+                _kept_branches.append(b)
+        all_branches = _kept_branches
+
+    _link_c1_and_discover_c3(
+        S1_h_top, S2_h_top, all_branches, all_singularities,
+        c1_singularities, atol, ptol4_global, budget)
+
+    # A reported point within 2·atol (xyz) of an emitted tangent_point is
+    # not a separate intersection — it is the certified tangency itself,
+    # re-found by CSX grazing-valley seeds while subdividing around the
+    # touch (measured on the paraboloid/Mexican-hat cases: 4 seeds at the
+    # touch + 4 at ±1·atol on the grazing valley). Subsume them into the
+    # typed singularity. Matching-ladder xyz guard only (2·atol); no param
+    # guard needed — any Ψ-point that close to the certified tangency is
+    # indistinguishable from it at tolerance.
+    if (all_points and _tangent_xyz
+            and _assembly_spend(
+                budget, max(1, len(all_points) * len(_tangent_xyz)))):
+        _tp_pts = np.asarray(_tangent_xyz, dtype=np.float64)      # (K, 3)
+        all_points = [
+            p for p in all_points
+            if float(np.linalg.norm(
+                _tp_pts - np.asarray(p.xyz, dtype=np.float64)[None, :],
+                axis=1).min()) > 2.0 * atol
+        ]
+
+    # A reported point that lies ON a found branch is not an isolated
+    # intersection — it is a corner-touch seed whose curve was traced by a
+    # neighboring cell. Keep only genuinely isolated points.
+    _point_branch_cost = (len(all_points) * sum(
+        max(1, len(np.asarray(b.curve[1])) - 1)
+        for b in all_branches))
+    if (all_points and all_branches
+            and _assembly_spend(budget, max(1, _point_branch_cost))):
+        kept_points = []
+        for p in all_points:
+            pxyz = np.asarray(p.xyz, dtype=np.float64)
+            on_branch = False
+            for b in all_branches:
+                poly = np.asarray(b.curve[1])
+                if len(poly) < 2:
                     continue
-                # Ledger L12: linkage must use point-to-SEGMENT distance — a
-                # cusp exactly ON a coarse low-curvature span sits up to
-                # half a chord (~h_max/2 >> 4·atol) from every VERTEX while
-                # the polyline passes through it. Anchor the link at the
-                # nearer endpoint of the nearest segment (same vertex
-                # contract as C3's branch_links, ledger L11).
-                if _dist_point_polyline(hit["xyz"], xyz) > 4.0 * atol:
-                    continue
-                a, bseg = xyz[:-1], xyz[1:]
-                ab = bseg - a
-                den = np.einsum("ij,ij->i", ab, ab)
-                den = np.where(den < 1e-30, 1e-30, den)
-                tt = np.clip(np.einsum(
-                    "ij,ij->i", hit["xyz"][None, :] - a, ab)
-                    / den, 0.0, 1.0)
-                dseg = np.linalg.norm(
-                    a + tt[:, None] * ab - hit["xyz"][None, :], axis=1)
-                kseg = int(dseg.argmin())
-                k = (kseg if np.linalg.norm(xyz[kseg] - hit["xyz"])
-                     <= np.linalg.norm(xyz[kseg + 1] - hit["xyz"])
-                     else kseg + 1)
-                links.append((bi, k))
-        budget.append_output(all_singularities, SSXSingularity(
-            kind="cusp", stuv=np.asarray(hit["stuv"], dtype=np.float64),
-            xyz=np.asarray(hit["xyz"], dtype=np.float64),
-            branch_links=links, surface=hit.get("surface")), "singularity")
+                if _point_on_branch_both_guards(
+                        pxyz, np.asarray(p.stuv), poly,
+                        np.asarray(b.curve[0]), atol, unify_tol,
+                        S1_h_top, S2_h_top):
+                    on_branch = True
+                    break
+            if not on_branch:
+                kept_points.append(p)
+        all_points = kept_points
 
-    # --- C3 pass (paper §5.4): 3D self-intersections of the SSI image ---
-    # Runs AFTER tracing (branch geometry drives the candidate search).
-    # Ledger L8: the old trigger — "some traced cell failed the per-cell
-    # Theorem-3 certificate" — was semantically wrong: Theorem 3 certifies
-    # only that ONE box's image is injective; a C3 whose two preimages lie
-    # in DIFFERENT traced cells (figure-eight wall: s≈0.08 and s≈0.92
-    # strips, each cell truthfully certified) passes every per-cell check
-    # and the pass never ran. Run it whenever a collision is possible at
-    # all: >= 2 branches (cross-branch), or a branch long enough to reach
-    # its own segments past the broadphase index gap >= 3 (>= 8 segments,
-    # within-branch). The vectorized AABB broadphase keeps the fired path
-    # free on regular geometry (measured: 0 candidate pairs on coverage
-    # case 10's 115 segments, ~0.3 ms; the old gate fired on every regular
-    # coverage case anyway — top-cell T-hulls touch zero at domain edges —
-    # so this was already the de-facto hot path).
-    source_chart_injective = [any(
-        (first_coordinate, 0) in chart and (second_coordinate, 1) in chart
-        for first_coordinate in range(3) for second_coordinate in range(3)
-        if first_coordinate != second_coordinate)
-        for chart in root_identity.affine]
-    c3_candidate = bool(all_branches and (len(all_branches) >= 2 or any(
-        len(np.asarray(b.curve[1])) >= 9 for b in all_branches)))
-    if not all(source_chart_injective) and c3_candidate and not budget.exhausted:
-        from mmcore.numeric.intersection.ssx._ssx5_overlap import _exact_surface_injective
-        for index, source in enumerate(identity_sources_h):
-            if source_chart_injective[index]:
-                continue
-            # The exact derivative-hull proof currently supports positive
-            # uniform weights. Reject unsupported charts before Fraction
-            # conversion, and prepay all four candidate left projections.
-            weights = source[...,3]
-            if (min(source.shape[:2]) < 2 or not np.all(np.isfinite(source))
-                    or weights.flat[0] <= 0. or not np.all(weights == weights.flat[0])):
-                continue
-            m,n = source.shape[:2]
-            derivative_coefficients = (m-1)*n+m*(n-1)
-            units = (12*m*n+96*derivative_coefficients+512+127)//128
-            # This is an optional sufficient certificate. If it cannot
-            # fit, retain the ordinary bounded C3 search's allowance.
-            if units > budget.remaining_cells:
-                continue
-            if not budget.charge_cells(units, 'global_injectivity'):
-                break
-            try:
-                source_chart_injective[index] = _exact_surface_injective(source)
-            except (OverflowError, FloatingPointError):
-                # A finite homogeneous chart can have unrepresentable
-                # Cartesian derivatives; that numerical projection is
-                # unsupported, not an injectivity or exclusion proof.
-                pass
-    globally_injective_sources = all(source_chart_injective)
-    # Two independently affine world coordinates recover both chart
-    # parameters exactly. If both ORIGINAL charts have this proof, two
-    # different lifted roots cannot share an XYZ image anywhere, so the
-    # self-intersection search has an empty candidate set by construction.
-    # The exact constant-projection derivative certificate above proves the
-    # same property for additional globally injective polynomial charts.
-    if (not globally_injective_sources and not budget.exhausted and all_branches
-            and c3_candidate):
-        from mmcore.numeric.intersection.ssx._ssx5_singular import c3_pass
-
-        _c3_stats = {}
-        _c3_hits = c3_pass(
-            S1_h_top, S2_h_top, all_branches, atol, ptol4_global,
-            max_work=budget.remaining_cells,
-            charge_work=_charge_hook(budget, "c3"),
-            stats=_c3_stats,
-        )
-        for hit in _c3_hits:
-            budget.append_output(all_singularities, SSXSingularity(
-                kind="self_intersection",
-                stuv=np.asarray(hit["stuv"], dtype=np.float64),
-                stuv_mate=np.asarray(hit["stuv_mate"], dtype=np.float64),
-                xyz=np.asarray(hit["xyz"], dtype=np.float64),
-                branch_links=hit["links"]), "singularity")
-        if _c3_stats.get("incomplete", False):
-            budget.mark_incomplete(REASON_WORK_BUDGET)
-
-    # A closed-cell corner can appear as point output while the adjacent
-    # cell traces its registered arc. The actual shared root object proves
-    # incidence even if the branch later resamples that endpoint.
-    all_points = _remove_source_incident_points(
-        all_points, all_branches, unify_tol, 4.*atol,
-        root_identity, work_budget=budget)
-
-    # Isolated output is coalesced only at the same lifted parameter root.
-    # Coincident images can have distinct surface preimages, even when all
-    # four parameters are closer than the modeling tolerance.
-    all_points = _remove_source_classified_points(
-        all_points, all_singularities, root_identity, unify_tol, 2.*atol, budget)
-
-    # Several closed cells can own the same isolated parameter root.
-    # Coalesce exact lifted duplicates; keep nearby unresolved preimages.
+    # The same isolated point can be reported by several cells/arms (e.g.
+    # touch-plus-loop at eps=0.02 surfaced two coincident SSXPoints ~2·atol
+    # from the touch). Standard matching-ladder dedup: unify_tol per-axis
+    # stuv box AND xyz <= 2·atol.
     if (all_points
             and _assembly_spend(
                 budget, _point_dedup_charge(len(all_points)))):
-        all_points = _deduplicate_ssx_points(
-            all_points, unify_tol, atol, exact_topology=True,root_matcher=root_identity)
+        all_points = _deduplicate_ssx_points(all_points, unify_tol, atol)
 
     # ------------------------------------------------------------------
     # L28: 2-D overlap regions (approved Option C, review doc §8).
@@ -9267,22 +8775,16 @@ def bez_ssx(
             assemble_overlap_regions)
         _non_ovl = [b for b in all_branches if b.kind != "overlap"]
         _ovl = [b for b in all_branches if b.kind == "overlap"]
-        if rational:
-            identity_surfaces = source_identity_surfaces
-        else:
-            identity_surfaces = tuple(
-                np.concatenate([surface, np.ones(surface.shape[:-1]+(1,))],
-                               axis=-1)
-                for surface in source_identity_surfaces)
         asm = assemble_overlap_regions(
             S1_h_top, S2_h_top, atol=atol, ptol4=dedup_tol,
-            identity_surfaces=identity_surfaces,
             existing_overlap_branches=_ovl,
+            existing_intersection_branches=_non_ovl,
             uncertified_spans=uncertified_overlap_spans,
             overlap_boxes=overlap_boxes,
             charge=lambda n: _assembly_spend(budget, n, "overlap_region"),
         )
         if asm["regions"]:
+            _non_ovl = asm["unmatched_intersection_branches"]
             base = len(_non_ovl)
             for reg in asm["regions"]:
                 reg.boundary = [[(base + k, rev) for (k, rev) in loop]
@@ -9292,11 +8794,43 @@ def bez_ssx(
             overlap_regions = asm["regions"]
             if asm["covered"] and not budget.exhausted:
                 budget.retire_reason(REASON_OVERLAP_REGION)
-                # Independent membership in the two projected UV loops
-                # does not establish the paired root's ownership, and a
-                # recorded point does not cover an unresolved root box.
-                # Keep multiplicity obligations until their full lifted
-                # domain has an exhaustive source certificate.
+                if asm["planar_pair_covered"]:
+                    # The convex planar chart intersection represents the
+                    # whole pair. Numerically valid interior traces and
+                    # tangency samples belong to this represented region.
+                    budget.retire_reason(REASON_TANGENTIAL_ZONE)
+                # An `unresolved_multiplicity` ambiguity whose Δ-root lies
+                # INSIDE a certified region is a region-interior sample of
+                # the represented 2-D C2 set — resolved.  Retire the reason
+                # only when EVERY recorded multiplicity site is explained;
+                # any site outside all regions keeps it (case-14 class).
+                from mmcore.numeric.intersection.ssx._ssx5_overlap import (
+                    _point_in_polygon, _dist_point_polyline_2d)
+                _mult_sites = [g for (rn, g) in budget.structural_sites
+                               if rn == REASON_MULTIPLICITY]
+                _p12 = 8.0 * max(float(dedup_tol[0]), float(dedup_tol[1]))
+                _p34 = 8.0 * max(float(dedup_tol[2]), float(dedup_tol[3]))
+
+                def _site_in_regions(g):
+                    for reg in overlap_regions:
+                        st, uv = g[:2], g[2:]
+                        in1 = (_point_in_polygon(st, reg.uv1_loops[0])
+                               and not any(_point_in_polygon(st, h)
+                                           for h in reg.uv1_loops[1:]))
+                        near1 = min(_dist_point_polyline_2d(st, lp)
+                                    for lp in reg.uv1_loops) <= _p12
+                        in2 = (_point_in_polygon(uv, reg.uv2_loops[0])
+                               and not any(_point_in_polygon(uv, h)
+                                           for h in reg.uv2_loops[1:]))
+                        near2 = min(_dist_point_polyline_2d(uv, lp)
+                                    for lp in reg.uv2_loops) <= _p34
+                        if (in1 or near1) and (in2 or near2):
+                            return True
+                    return False
+
+                if _mult_sites and all(_site_in_regions(g)
+                                       for g in _mult_sites):
+                    budget.retire_reason(REASON_MULTIPLICITY)
 
     return _result(all_branches, all_points, all_singularities,
-                   overlap_regions, unresolved_regions)
+                   overlap_regions)

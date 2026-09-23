@@ -503,19 +503,8 @@ def test_degree_one_line_no_false_positive_variants():
         )
 
 def test_case_13():
-    """A tolerance-only endpoint near miss must not become topology.
-
-    The formerly expected ``t=0`` item came from third-party tolerance
-    matching.  With ``t`` fixed at zero, the closest point on this surface
-    remains 2.328e-8 away from the curve endpoint, so it is not a root of
-    the supplied floating-point coefficients.  The interior root is real.
-    """
-
-
-    expected = {'t': 0.654374, 'u': 0.633137, 'v': 0.163511}
-
-
-
+    """Rounded CAD endpoint contact and the separate interior crossing survive."""
+    from mmcore.numeric._bezier_common import eval_curve, eval_surface
 
     C = np.array([[8.446359931193093, -39.19858842345994, 0.7182627669008318], [10.622854420468764, -38.91014606375564, 2.0882761678970088], [12.48389559934674, -38.81378122751128, 3.469350420794018], [15.0, -38.62105155502256, 5.071820879820981]])
 
@@ -524,26 +513,28 @@ def test_case_13():
     # Line parallel to y-axis at various (x, z) that don't satisfy z=x
     S =np.array( [[[7.4968198, -34.44808135, 6.627417], [4.89170045910665, -39.13729615771332, -4.42516829776066], [-0.016883173357102876, -44.594332395950104, 0.8101986397153593]], [[11.989753624247342, -35.42881907275406, 6.6274169999999994], [7.443691937074275, -40.76501466713547, -4.882652796843839], [3.454490070369776, -44.96214894393917, 0.5694145013516874]], [[14.847212913305142, -36.95471497775948, 6.6274169999999994], [9.56529033335222, -42.536197535294875, -4.488016026845241], [5.924649611832621, -46.255670751572566, 0.7771204997432491]], [[16.23843504869012, -39.53348121435317, 6.6274169999999994], [11.830092620085596, -44.58445479257182, -3.241257987764865], [8.72332454261908, -47.47050603984768, -0.38590063418195103]]]
                           )
-    result = bez_csx(C, S, atol=1e-3, rational=False)
-    assert len(result["isolated"]) == 1, result
-    assert result["overlaps"] == []
-    inter = result["isolated"][0]
-    assert np.allclose(
-        [inter[key] for key in ["t", "u", "v"]],
-        [expected[key] for key in ["t", "u", "v"]],
-    ), f"expected {expected}, got {inter}"
-
-    # Exact-set membership and polishing must not depend on a common world
-    # translation: preserve the real interior root without reviving the
-    # tolerance-only endpoint near miss.
-    translated = bez_csx(
-        C + 1.0e6, S + 1.0e6, atol=1e-3, rational=False)
-    assert len(translated["isolated"]) == 1, translated
-    translated_inter = translated["isolated"][0]
-    assert np.allclose(
-        [translated_inter[key] for key in ["t", "u", "v"]],
-        [expected[key] for key in ["t", "u", "v"]],
-    ), f"expected {expected}, got {translated_inter}"
+    atol = 1e-3
+    expected_interior = eval_curve(C, .654374, rational=False)
+    for shift in (0., 1e6):
+        curve, surface = C+shift, S+shift
+        result = bez_csx(curve, surface, atol=atol, rational=False)
+        assert not result['budget_exhausted'], result
+        assert len(result['isolated']) == 2, result
+        assert result['overlaps'] == []
+        points = np.array([entry['point'] for entry in result['isolated']])
+        # The input endpoint is about 2.3e-8 from the surface, well inside
+        # the requested CAD tolerance. It must not be rejected by an
+        # exact-set test on independently rounded source coefficients.
+        assert np.linalg.norm(points-(C[0]+shift), axis=1).min() <= atol
+        assert np.linalg.norm(points-(expected_interior+shift), axis=1).min() <= atol
+        for entry in result['isolated']:
+            q = np.array([entry[key] for key in ('t', 'u', 'v')])
+            assert np.all((0. <= q) & (q <= 1.))
+            a = eval_curve(curve, q[0], rational=False)
+            b = eval_surface(surface, q[1], q[2], rational=False)
+            assert np.linalg.norm(a-b) <= atol
+            assert np.linalg.norm(a-entry['point']) <= atol
+            assert np.linalg.norm(b-entry['point']) <= atol
 
 
 def test_case_14():
