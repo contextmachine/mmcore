@@ -147,7 +147,7 @@ def _bilinear_chord_error(S_h, start, end, xyz):
     return float(np.max(np.linalg.norm(elevated-line, axis=1))/np.min(c[:, 3]))
 
 
-def _planar_convex_rims(S1_h, S2_h, atol, charge, context, *, boundary_only=False):
+def _planar_convex_rims(S1_h, S2_h, atol, charge, context, *, include_boundary_contacts=False):
     """Clip convex bilinear chart images before inverting their shared rims.
 
     Positive-weight planar bilinear charts map the parameter square onto
@@ -237,8 +237,6 @@ def _planar_convex_rims(S1_h, S2_h, atol, charge, context, *, boundary_only=Fals
     area = abs(sum(cross(a, b) for a, b in
                    zip(polygon, np.roll(polygon, -1, axis=0))))
     if len(polygon) >= 3 and area > eps:
-        if boundary_only:
-            return None
         dimension = 2
     else:
         dimension = 0
@@ -252,7 +250,7 @@ def _planar_convex_rims(S1_h, S2_h, atol, charge, context, *, boundary_only=Fals
                 polygon = polygon[:1]
         context.update(origin=origin, scale=scale, basis=basis,
                        polygon=polygon, dimension=dimension)
-        if not boundary_only or not len(polygon):
+        if not include_boundary_contacts or not len(polygon):
             return []
 
     # Use normalized projected homogeneous coordinates for Newton. This
@@ -352,24 +350,55 @@ def _planar_convex_rims(S1_h, S2_h, atol, charge, context, *, boundary_only=Fals
     return rims
 
 
-def try_planar_boundary_intersection(S1_h, S2_h, atol, budget):
-    """Handle a shared edge or corner of regular convex planar charts."""
+def try_planar_intersection(S1_h, S2_h, atol, budget):
+    """Resolve convex planar chart intersections in dimensions zero to two.
+
+    A verified positive-area polygon owns the whole pair's intersection.
+    Its interior is not a one-dimensional tangency remainder to subdivide.
+    Unsupported charts still return ``None`` to the general SSX search.
+    """
     from mmcore.numeric.intersection.ssx._ssx_substrate import SSXBranch, SSXPoint
     context = {}
     try:
         rims = _planar_convex_rims(
             S1_h, S2_h, atol,
             lambda n: budget.charge_cells(n, 'planar_contact'), context,
-            boundary_only=True)
+            include_boundary_contacts=True)
     except _OverlapWorkStopped:
         return None
     if rims is None or not context:
         return None
     result = dict(branches=[], points=[], singularities=[], overlap_regions=[])
-    for rim in rims:
-        branch = SSXBranch(curve=(rim['stuv'], rim['xyz']),
-                           kind='overlap', overlap=True)
-        budget.append_output(result['branches'], branch, 'planar_contact')
+
+    def retain_rims():
+        for rim in rims:
+            branch = SSXBranch(curve=(rim['stuv'], rim['xyz']),
+                               kind='overlap', overlap=True)
+            budget.append_output(result['branches'], branch, 'planar_contact')
+
+    if context['dimension'] == 2:
+        from mmcore.nurbs._nurbs_param_tol import bez_surface_param_tolerance
+        ptol4 = np.array([*bez_surface_param_tolerance(S1_h, atol, rational=True),
+                         *bez_surface_param_tolerance(S2_h, atol, rational=True)])
+        assembled = assemble_overlap_regions(
+            S1_h, S2_h, atol=atol, ptol4=ptol4,
+            charge=lambda n: budget.charge_cells(n, 'planar_contact'),
+            _planar_data=(context, rims))
+        if not assembled['regions'] or not assembled['planar_pair_covered']:
+            if budget.exhausted:
+                # Every rim already passed paired source and chord checks.
+                # A denied interior-witness step cannot erase that geometry.
+                retain_rims()
+                return result
+            return None
+        budget.extend_output(result['branches'], assembled['rim_branches'], 'planar_contact')
+        # A region's boundary indices refer to this complete rim list.
+        # Preserve partial rim geometry on output denial, without emitting
+        # a region whose references would point beyond the returned list.
+        if len(result['branches']) == len(assembled['rim_branches']):
+            budget.extend_output(result['overlap_regions'], assembled['regions'], 'planar_contact')
+        return result
+    retain_rims()
     if 'contact' in context:
         q, xyz, _ = context['contact']
         budget.append_output(result['points'], SSXPoint(q, xyz), 'planar_contact')
@@ -684,6 +713,7 @@ def assemble_overlap_regions(
     uncertified_spans=(),
     overlap_boxes=(),
     charge=None,
+    _planar_data=None,
 ):
     """Assemble certified SSXOverlapRegion entities from rim evidence.
 
@@ -710,11 +740,16 @@ def assemble_overlap_regions(
              "unmatched_intersection_branches": intersections,
              "planar_pair_covered": False, "covered": False}
 
-    planar = {}
-    try:
-        rims = _planar_convex_rims(S1_h, S2_h, atol, _charge, planar)
-    except _OverlapWorkStopped:
-        return empty
+    if _planar_data is None:
+        planar = {}
+        try:
+            rims = _planar_convex_rims(S1_h, S2_h, atol, _charge, planar)
+        except _OverlapWorkStopped:
+            return empty
+    else:
+        # The early planar entry in this module has already validated and
+        # sampled these exact sources. Reuse its work, not a second clip.
+        planar, rims = _planar_data
     if rims is None:
         # 8 edges x (coarse + dense) inversions, each a bounded GN solve.
         if not _charge(8 * 33 + 8 * 17):

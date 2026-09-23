@@ -137,3 +137,92 @@ def test_planar_offset_is_judged_at_the_requested_cad_tolerance():
     result = assemble_overlap_regions(first, second, atol=atol, ptol4=np.full(4, atol))
     assert len(result['regions']) == 1 and result['planar_pair_covered']
     _assert_paired_chords(result, first, second, atol)
+
+
+@pytest.mark.parametrize('output_limit', [0, 2, 4, 5])
+def test_early_planar_region_never_references_unreturned_rims(output_limit):
+    from examples.ssx.bez_ssx5_case12 import S1, S2
+    from mmcore.numeric.intersection.ssx._bez_ssx5 import bez_ssx
+
+    result = bez_ssx(S1, S2, atol=1e-3, rational=False,
+                     max_output_items=output_limit, max_postprocess_work=0)
+    count = sum(len(result[key]) for key in
+                ('branches', 'points', 'singularities', 'overlap_regions'))
+    assert count <= output_limit
+    for region in result['overlap_regions']:
+        for loop in region.boundary:
+            for index, _reverse in loop:
+                assert 0 <= index < len(result['branches'])
+                assert result['branches'][index].kind == 'overlap'
+    if output_limit < 5:
+        assert result['overlap_regions'] == []
+        assert result['complete'] is False
+    else:
+        assert len(result['overlap_regions']) == 1
+        assert len(result['branches']) == 4
+        assert result['complete'] is True
+    assert result['status']['work']['postprocess_work'] == 0
+
+
+@pytest.mark.parametrize('allowance', [0, 25, 100])
+def test_early_planar_region_respects_shared_work_denial(allowance):
+    from examples.ssx.bez_ssx5_case12 import S1, S2
+    from mmcore.numeric.intersection.ssx._bez_ssx5 import bez_ssx
+
+    result = bez_ssx(S1, S2, atol=1e-3, rational=False, max_cells=allowance)
+    assert result['status']['work']['cells_processed'] <= allowance
+    assert result['complete'] is False
+    for region in result['overlap_regions']:
+        assert all(0 <= index < len(result['branches'])
+                   for loop in region.boundary for index, _reverse in loop)
+
+
+@pytest.mark.parametrize('kind', ['folded', 'nonplanar', 'higher_degree'])
+def test_early_planar_entry_leaves_unsupported_charts_to_general_search(kind):
+    from mmcore.numeric.intersection.ssx._ssx5_overlap import try_planar_intersection
+    from mmcore.numeric.intersection.ssx._bez_ssx5 import _SSXSoftBudget
+
+    points = np.array([[[0., 0., 0.], [0., 1., 0.]],
+                       [[1., 0., 0.], [1., 1., 0.]]])
+    first = _homogeneous(points, np.ones((2, 2)))
+    second = first.copy()
+    if kind == 'folded':
+        first[1] = first[1, ::-1]
+    elif kind == 'nonplanar':
+        first[1, 1, 2] = .1
+    else:
+        first = np.stack((first[0], .5*(first[0]+first[1]), first[1]))
+    budget = _SSXSoftBudget(max_cells=1000, max_csx_calls=10)
+    assert try_planar_intersection(first, second, 1e-3, budget) is None
+    assert not budget.exhausted
+
+
+def test_early_planar_witness_denial_retains_completed_rim_geometry(monkeypatch):
+    from mmcore.numeric.intersection.ssx import _ssx5_overlap as overlap
+    from mmcore.numeric.intersection.ssx._bez_ssx5 import bez_ssx
+
+    first = np.array([[[0., 0., 0.], [0., 1., 0.]],
+                      [[2., 0., 0.], [2., 1., 0.]]])
+    second = first + [1., 0., 0.]
+    surfaces = [_homogeneous(points, np.ones((2, 2))) for points in (first, second)]
+    used = 0
+    def measure(amount):
+        nonlocal used
+        used += amount
+        return True
+    context = {}
+    rims = overlap._planar_convex_rims(
+        *surfaces, 1e-3, measure, context, include_boundary_contacts=True)
+    assert context['dimension'] == 2 and len(rims) == 4
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError('interior validation ran after work denial')
+    monkeypatch.setattr(overlap, '_interior_witness', forbidden)
+    result = bez_ssx(first, second, atol=1e-3, rational=False, max_cells=used)
+    assert result['complete'] is False
+    assert result['status']['work']['cells_processed'] <= used
+    assert 'work_budget' in result['status']['reasons']
+    assert result['overlap_regions'] == []
+    assert len(result['branches']) == 4
+    assert all(branch.kind == 'overlap' for branch in result['branches'])
+    _assert_paired_chords({'rim_branches': result['branches']}, *surfaces, 1e-3)

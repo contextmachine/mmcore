@@ -309,11 +309,11 @@ def _distance_net_lower_bound(S1, S2, F, rational):
 
 
 def _try_isoline_intersection(first, second, atol, budget):
-    """Use a numerical one-variable reduction when the surface charts allow it."""
+    """Use planar or one-variable reductions when the surface charts allow it."""
     from mmcore.numeric.intersection.ssx._ssx_isolines import try_isoline_ssx, try_plane_coincidence
     from mmcore.numeric.intersection.ssx._ssx_matched_isolines import try_matched_isoline_ssx
-    from mmcore.numeric.intersection.ssx._ssx5_overlap import try_planar_boundary_intersection
-    result = try_planar_boundary_intersection(first, second, atol, budget)
+    from mmcore.numeric.intersection.ssx._ssx5_overlap import try_planar_intersection
+    result = try_planar_intersection(first, second, atol, budget)
     if result is not None or budget.exhausted:
         return result
     result = try_plane_coincidence(first, second, atol, budget)

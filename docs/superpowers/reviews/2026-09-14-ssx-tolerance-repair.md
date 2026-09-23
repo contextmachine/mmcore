@@ -46,6 +46,14 @@ control graphs fit the same published segment at the CAD tolerance. This uses
 floating-point geometry internally and adds no rational public diagnostics.
 Failed or interrupted coverage checks leave the ordinary search available.
 
+Convex planar bilinear pairs use the existing polygon clipper and overlap
+region assembler before the general search. Such a region represents the
+whole pair; its two-dimensional interior must not be repeatedly searched as
+a one-dimensional tangent remainder. The early return requires the checked
+whole-pair planar result, including paired rim geometry. Unsupported charts
+retain the general path, and an output limit cannot publish a region with
+missing boundary references.
+
 Tangent paths use half-atol chord sampling so reuse is consistent with their
 geometric accuracy. A later Phi-seeded retrace is classified over its whole
 path before assembly, preventing a regular-backend retrace from replacing the
