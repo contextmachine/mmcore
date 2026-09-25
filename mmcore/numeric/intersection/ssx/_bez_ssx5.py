@@ -309,11 +309,15 @@ def _distance_net_lower_bound(S1, S2, F, rational):
 
 
 def _try_isoline_intersection(first, second, atol, budget):
-    """Use planar or one-variable reductions when the surface charts allow it."""
+    """Use planar, spherical, or one-variable reductions when available."""
     from mmcore.numeric.intersection.ssx._ssx_isolines import try_isoline_ssx, try_plane_coincidence
     from mmcore.numeric.intersection.ssx._ssx_matched_isolines import try_matched_isoline_ssx
     from mmcore.numeric.intersection.ssx._ssx5_overlap import try_planar_intersection
+    from mmcore.numeric.intersection.ssx._ssx_spherical_overlap import try_spherical_overlap
     result = try_planar_intersection(first, second, atol, budget)
+    if result is not None or budget.exhausted:
+        return result
+    result = try_spherical_overlap(first, second, atol, budget)
     if result is not None or budget.exhausted:
         return result
     result = try_plane_coincidence(first, second, atol, budget)
@@ -558,23 +562,55 @@ def _weight_net_uniform(S) -> bool:
 
 
 def _on_collapsed_boundary_fiber(
-        S, u, v, rational=True, *, param_tol: float = 1e-10) -> bool:
+        S, u, v, rational=True, *, param_tol=1e-10,
+        distance_tol=None) -> bool:
     """True only for a parameter point on an identically collapsed edge.
 
     This is deliberately narrower than ``Sigma=0``: a C1 point can still
     be regular on the 4D Psi curve and may be a required branch seed.  We
     suppress only a certified positive-dimensional boundary preimage.
     """
-    eps = max(0.0, float(param_tol))
-    if abs(u) <= eps and _curve_geometry_collapsed(S[0, :, :], rational):
-        return True
-    if abs(u - 1.0) <= eps and _curve_geometry_collapsed(S[-1, :, :], rational):
-        return True
-    if abs(v) <= eps and _curve_geometry_collapsed(S[:, 0, :], rational):
-        return True
-    if abs(v - 1.0) <= eps and _curve_geometry_collapsed(S[:, -1, :], rational):
-        return True
+    eps = np.maximum(0., np.broadcast_to(param_tol, (2,)))
+    for coordinate, tolerance, low, high in (
+            (u, eps[0], S[0, :, :], S[-1, :, :]),
+            (v, eps[1], S[:, 0, :], S[:, -1, :])):
+        for side, edge in ((0., low), (1., high)):
+            if (not abs(coordinate - side) <= tolerance
+                    or not _curve_geometry_collapsed(edge, rational)):
+                continue
+            if distance_tol is None:
+                return True
+            point = eval_surface(S, u, v, rational=rational)
+            pole = eval_curve(edge, .5, rational=rational)
+            distance = float(np.linalg.norm(point - pole))
+            if np.isfinite(distance) and distance <= distance_tol:
+                return True
     return False
+
+
+def _cell_root_on_collapsed_fiber(cell, root, atol, global_ptol):
+    """Recognize original apex fibers after a thin child rescales UV.
+
+    A near-apex root can be far from the child's local parameter edge even
+    though its model-space image is at the original collapsed endpoint.
+    Check each fixed axis in the original chart and require spatial
+    proximity too; nearby parameters alone do not identify a CAD point.
+    """
+    def on_fiber(surfaces, parameters, tolerances):
+        return any(_on_collapsed_boundary_fiber(
+            surface, *parameters[2*i:2*i+2], rational=True,
+            param_tol=tolerances[2*i:2*i+2], distance_tol=atol)
+            for i, surface in enumerate(surfaces))
+
+    # A split can also expose an interior collapsed isoline. Retain that
+    # local evidence even when it is not an edge of either original chart.
+    if on_fiber((cell.g1.surface, cell.g2.surface), np.asarray(root),
+                _cell_ptol4(cell, atol)):
+        return True
+    sources = getattr(cell, 'source_surfaces', None)
+    return sources is not None and on_fiber(
+        sources, _local_to_global(np.asarray(root), cell.box),
+        np.asarray(global_ptol))
 
 
 def _canonicalize_collapsed_fiber_params(
@@ -1291,12 +1327,7 @@ def _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
         stuv_g = _local_to_global(np.asarray(xw), cell.box)
         if _stuv_in_overlap_boxes(stuv_g, overlap_boxes):
             continue
-        if (_on_collapsed_boundary_fiber(
-                cell.g1.surface, xw[0], xw[1], rational=True,
-                param_tol=float(max(local_ptol4[0], local_ptol4[1])))
-                or _on_collapsed_boundary_fiber(
-                    cell.g2.surface, xw[2], xw[3], rational=True,
-                    param_tol=float(max(local_ptol4[2], local_ptol4[3])))):
+        if _cell_root_on_collapsed_fiber(cell, xw, atol, unify_tol):
             # Every value of the collapsed edge's free parameter maps to
             # this endpoint.  It belongs to a C1/parameter-fiber set, never
             # an isolated C2 tangent point; relative normal tests are
@@ -1872,12 +1903,7 @@ def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
         stuv_g = _local_to_global(np.asarray(xw), cell.box)
         if _stuv_in_overlap_boxes(stuv_g, overlap_boxes):
             continue
-        if (_on_collapsed_boundary_fiber(
-                cell.g1.surface, xw[0], xw[1], rational=True,
-                param_tol=float(max(ptol4[0], ptol4[1])))
-                or _on_collapsed_boundary_fiber(
-                    cell.g2.surface, xw[2], xw[3], rational=True,
-                    param_tol=float(max(ptol4[2], ptol4[3])))):
+        if _cell_root_on_collapsed_fiber(cell, xw, atol, unify_tol):
             continue
         if _normals_degenerate_at(cell.g1.surface, cell.g2.surface, xw):
             continue    # L15: Sigma=0 root — C1 candidate, not a C2 touch
@@ -6953,7 +6979,7 @@ def _discover_c1_singularities(S1_h, S2_h, atol, ptol4, budget, existing=()):
 
 def _link_c1_and_discover_c3(S1_h_top, S2_h_top, all_branches,
                              all_singularities, c1_singularities,
-                             atol, ptol4_global, budget):
+                             atol, ptol4_global, budget, *, check_c3=True):
     """Apply the same singularity postprocessing to every geometry path."""
     # Attach C1 links after branch filters; the singularities themselves
     # have already been published by their discovery path.
@@ -6980,6 +7006,9 @@ def _link_c1_and_discover_c3(S1_h_top, S2_h_top, all_branches,
                       <= np.linalg.norm(xyz[segment+1]-singularity.xyz) else segment+1)
             links.append((bi, vertex))
         singularity.branch_links = links
+
+    if not check_c3:
+        return
 
     # --- C3 pass (paper §5.4): 3D self-intersections of the SSI image ---
     # Runs AFTER tracing (branch geometry drives the candidate search).
@@ -7079,6 +7108,9 @@ class _Cell:
     # remaining domain still needs searching; this flag only enables
     # coverage checks against geometry that has actually been retained.
     tangency_remainder: bool = False
+    # Original charts retain collapsed-edge identity when a tiny descendant
+    # rescales a near-apex point far from its local UV boundary.
+    source_surfaces: Optional[tuple] = None
 
 
 def _probe_children(cell):
@@ -7132,6 +7164,7 @@ def _probe_children(cell):
                 probe_only=True, work_budget=cell.work_budget,
                 csx_fn=cell.csx_fn,
                 tangency_remainder=cell.tangency_remainder,
+                source_surfaces=cell.source_surfaces,
             ))
     return out
 
@@ -7289,14 +7322,20 @@ def bez_ssx(
                 *bez_surface_param_tolerance(S2_h_top, atol, rational=True),
             ], dtype=np.float64), 1e-9)
             singularities = isolines.setdefault("singularities", [])
-            c1 = _discover_c1_singularities(
-                S1_h_top, S2_h_top, atol, ptol4, budget,
-                existing=singularities)
+            # A validated spherical area can also resolve its source
+            # regularity outside point-confined pole fibres. Their distinct
+            # parameter representatives belong to one geometric boundary
+            # point, not extra cusp curves or rim self-intersections.
+            c1 = ([] if getattr(isolines, '_c1_resolved', False) else
+                  _discover_c1_singularities(
+                      S1_h_top, S2_h_top, atol, ptol4, budget,
+                      existing=singularities))
             singularities.extend(g for g in c1
                                  if not any(g is known for known in singularities))
             _link_c1_and_discover_c3(
                 S1_h_top, S2_h_top, isolines.get("branches", []),
-                singularities, c1, atol, ptol4, budget)
+                singularities, c1, atol, ptol4, budget,
+                check_c3=not getattr(isolines, '_c3_resolved', False))
             return _result(**isolines)
 
     # The current distance-net constructor forms a pairwise Gram tensor over
@@ -7599,6 +7638,7 @@ def bez_ssx(
         new_crossings=list(crossings),
         F_sq=F_sq_top, w_scale=w_scale_top,
         work_budget=budget, csx_fn=_run_csx,
+        source_surfaces=(S1_h_top, S2_h_top),
     )
     top_cell.partitions = _build_outer_partitions(top_cell)
 
@@ -8408,6 +8448,7 @@ def bez_ssx(
                     w_scale=cell.w_scale,
                     work_budget=budget, csx_fn=_run_csx,
                     tangency_remainder=cell.tangency_remainder,
+                    source_surfaces=cell.source_surfaces,
                 )
                 scell.partitions = _build_cell_partitions(scell)
                 for c in sub_cx:
