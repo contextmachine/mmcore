@@ -102,6 +102,15 @@ exact-mode roots remain checked. The new narrow-strip test has an
 independent nonlinear parameter correspondence; its interval is only
 `0.0005` in curve parameters but spans fifty model tolerances.
 
+The full suites also exposed an inappropriate storage expectation in the
+cut-contact test: `C(t)=(t,0,(1-t)^2)` only meets the plane at its right
+endpoint, but the test required a tolerance-fringe overlap with no isolated
+point. That fringe has no domain entrance. The corrected test preserves
+the isolated endpoint, and an additional curve with height scaled to
+`atol/2` checks a genuine whole-domain CAD overlap retaining its paired
+endpoint contact. Both controls validate geometry at the requested model
+tolerance instead of imposing `1e-12` source-image equality.
+
 Contact proposals stored inside overlap records share the result allowance
 with isolated roots. A denied CAD-classification step reports the work
 stop and retains already found geometry. Completed paired rims also survive
