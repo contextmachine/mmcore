@@ -730,22 +730,24 @@ def _certify_affine_csx_overlap(C, S, a, b, rational):
 
 def _tolerance_csx_overlap_certificate(C, S, atol, rational, ptol_t,
                                         strict_context, n_samples=65,
-                                        on_dense=None):
+                                        on_dense=None, on_contact_work=None,
+                                        max_contacts=None, parameter_range=(0., 1.)):
     """Modeling-tolerance curve-on-surface span classification.
 
     Endpoint evidence, domain-pinned projections and sampled interior
-    witnesses classify within-atol spans. A sampled normal-side sign flip
-    refuses promotion, but finite sampling cannot guarantee separation of
-    every exact crossing. The legacy 'exact' label here describes the
+    witnesses classify within-atol spans. Normal-side sign changes do not
+    invalidate CAD coincidence; their paired contact proposals are retained
+    for consumers that need to refine individual crossings. Finite sampling
+    does not promise a census of every algebraic root. The 'exact' label describes the
     sampled residual tier, not an exact polynomial identity certificate.
     Exact-topology callers bypass this helper and use source identities.
 
     Returns overlap dictionaries (possibly multiple clipped spans), or
     None when no modeling span can be classified.
     """
-    diag = float(np.linalg.norm(
-        np.max(S.reshape(-1, S.shape[-1]), axis=0)
-        - np.min(S.reshape(-1, S.shape[-1]), axis=0))) or 1.0
+    cartesian = S[..., :-1] / S[..., -1:] if rational else S
+    points = np.asarray(cartesian).reshape(-1, cartesian.shape[-1])
+    diag = float(np.linalg.norm(points.max(axis=0) - points.min(axis=0))) or 1.0
     tiny = max(4096.0 * float(np.finfo(np.float64).eps), 1e-12) * max(1.0, diag)
     edge_pad = 1e-9
 
@@ -763,7 +765,8 @@ def _tolerance_csx_overlap_certificate(C, S, atol, rational, ptol_t,
         return p, u_cl, v_cl, float(dist)
 
     # --- (1) arming: coarse scan for ANY on-surface stretch -------------
-    coarse = np.linspace(0.0, 1.0, 17)
+    parameter_low, parameter_high = map(float, parameter_range)
+    coarse = np.linspace(parameter_low, parameter_high, 17)
     seed = (0.5, 0.5)
     hits = []
     for t in coarse:
@@ -782,7 +785,7 @@ def _tolerance_csx_overlap_certificate(C, S, atol, rational, ptol_t,
         on_dense()
 
     # --- (2) dense membership + witnesses --------------------------------
-    ts = np.linspace(0.0, 1.0, int(n_samples))
+    ts = np.linspace(parameter_low, parameter_high, int(n_samples))
     inside = np.zeros(len(ts), dtype=bool)
     res = np.zeros(len(ts))
     uvs = np.zeros((len(ts), 2))
@@ -830,6 +833,7 @@ def _tolerance_csx_overlap_certificate(C, S, atol, rational, ptol_t,
         return t_in, seed_uv
 
     overlaps = []
+    contact_count = 0
     for k0, k1 in runs:
         if k1 == k0:
             # Single-sample runs are the CORNER-CONTACT signature (the
@@ -863,30 +867,54 @@ def _tolerance_csx_overlap_certificate(C, S, atol, rational, ptol_t,
             # Probe one grid step OUTWARD: a domain-clipped span clamps to
             # an edge there; a genuine interior fade-out (the offset-twin
             # signature, which must stay refused) does not.
-            t_probe = min(1.0, max(0.0, t_end + outward / (len(ts) - 1.0)))
+            probe_step = (parameter_high - parameter_low) / (len(ts) - 1.)
+            t_probe = min(1.0, max(0.0, t_end + outward * probe_step))
             _p, u, v, _d = _member(t_probe, (u, v))
             return (min(u, 1.0 - u) <= 1e-6 or min(v, 1.0 - v) <= 1e-6)
         if not (_pinned(t_lo, -1.0) and _pinned(t_hi, +1.0)):
             continue
-        # (3) flip guard on the normal gaps INSIDE the span: root-like
-        # samples (abs(signed) <= tiny) are bridged; consecutive gap samples with
-        # opposite normal-side signs = crossing structure -> refuse.
-        # END-ADJACENT flips are exempt: a genuine touch AT a pinned span
-        # end (real-world-inexact data sits above the roundoff floor, so
-        # bridging cannot cover it) is the span's own endpoint root — the
-        # theorem terminates the overlap there anyway. INTERIOR flips
-        # still refuse (the never-merge-crossings invariant).
-        # A stopped projection can retain a tangential residual larger
-        # than this floor even on a planar overlap. Its normal component
-        # can still be pure rounding noise, so the total distance must
-        # not make that component's sign meaningful (or BLAS rounding
-        # alone can reject a full overlap).
+        # A within-atol span remains CAD-coincident when rounding puts
+        # samples on both sides of the target surface. Preserve bracketed
+        # contacts separately so SSX can refine them on its owning face;
+        # an overlap's unpaired UV ranges cannot stand in for those seeds.
+        # Use normal gaps only: tangential projection lag must not amplify
+        # an otherwise meaningless roundoff normal sign.
         idx = [k for k in range(k0, k1 + 1) if abs(signed[k]) > tiny]
-        flip = any(signed[a] * signed[b] < 0.0
-                   for a, b in zip(idx, idx[1:])
-                   if a != k0 and b != k1)
-        if flip:
-            continue
+        contacts = []
+        contact_results_exhausted = False
+        for a, b in zip(idx, idx[1:]):
+            if signed[a] * signed[b] >= 0.0:
+                continue
+            if max_contacts is not None and contact_count >= max_contacts:
+                contact_results_exhausted = True
+                break
+            if on_contact_work is not None and not on_contact_work(1):
+                break
+            fraction = signed[a] / (signed[a] - signed[b])
+            seed_t = float(ts[a] + fraction * (ts[b] - ts[a]))
+            seed_uv = uvs[a] + fraction * (uvs[b] - uvs[a])
+            t, u, v, _residual, root_ok = _polish_csx_root(
+                C, S, seed_t, *seed_uv, rational, strict_context)
+            if not (root_ok and ts[a] <= t <= ts[b]
+                    and 0. <= u <= 1. and 0. <= v <= 1.):
+                if on_contact_work is not None and not on_contact_work(1):
+                    break
+                t = seed_t
+                point, u, v, distance = _member(t, seed_uv)
+            else:
+                point = eval_curve(C, t, rational=rational)
+                distance = float(np.linalg.norm(
+                    point - eval_surface(S, u, v, rational=rational)))
+            if (np.isfinite([t, u, v, distance]).all()
+                    and np.isfinite(point).all() and distance <= atol):
+                # This is a source-validated proximity proposal. The SSX
+                # consumer applies its fixed-face root correction before
+                # registering a continuation crossing, even if this first
+                # polishing step already reached numerical equality.
+                contacts.append(dict(t=float(t), u=float(u), v=float(v),
+                                     point=np.asarray(point),
+                                     certification='tolerance', d_min=distance))
+                contact_count += 1
         span_res = float(res[k0:k1 + 1].max())
         cert = "exact" if span_res <= tiny else "tolerance"
         u_rng = (float(uvs[k0:k1 + 1, 0].min()),
@@ -902,6 +930,10 @@ def _tolerance_csx_overlap_certificate(C, S, atol, rational, ptol_t,
             "certification": cert,
             "residual_max": span_res,
         })
+        if contacts:
+            overlaps[-1]['boundary_contacts'] = contacts
+        if contact_results_exhausted:
+            overlaps[-1]['_contact_results_exhausted'] = True
     return overlaps or None
 
 
@@ -2162,8 +2194,9 @@ def bez_csx(
         Maximum total cells shared by boundary analysis, nested CCX calls,
         and Phase 2 (safety limit).
     max_results : int
-        Maximum isolated roots materialized before returning a partial
-        result. Positive-dimensional sets must be classified separately;
+        Maximum contact records materialized, including isolated roots
+        retained on overlaps, before returning a partial result.
+        Positive-dimensional sets must be classified separately;
         this cap prevents an unrecognized set from turning dedup quadratic.
     tolerance_tier : bool
         Allow curve/surface contacts and overlaps within ``atol``.
@@ -2409,6 +2442,12 @@ def bez_csx(
 
     t_exclude = []  # t-intervals to cut from the curve
 
+    def _contact_count():
+        # Moving a root onto an overlap preserves its materialization
+        # cost; it must not create new allowance for the remaining search.
+        return len(isolated) + sum(len(span.get('boundary_contacts', ()))
+                                   for span in overlaps)
+
     def _absorb_boundary_contacts(overlap, low, high):
         # A tolerance span can surround an isolated boundary contact.
         # Keep its already-polished parameters for consumers such as SSX
@@ -2416,7 +2455,7 @@ def bez_csx(
         # surrounding tolerance neighborhood as an overlap. These entries
         # were admitted under max_results; no new roots are generated here.
         nonlocal isolated
-        contacts, remaining = [], []
+        contacts, remaining = list(overlap.get('boundary_contacts', ())), []
         for entry in isolated:
             if low <= entry['t'] <= high:
                 contacts.append({key: entry[key]
@@ -2442,7 +2481,7 @@ def bez_csx(
     # boundary. Newton refinement converges to the real root if one
     # exists nearby; otherwise the candidate is rejected.
     for bz in csx_boundary_zeros:
-        if len(isolated) >= max_results:
+        if _contact_count() >= max_results:
             budget_exhausted = True
             obligations_complete = False
             truncation_cause = truncation_cause or 'results'
@@ -2624,45 +2663,75 @@ def bez_csx(
                     for o in overlaps] + unresolved_roots,
             }
 
-    # L59 (USER DECISION: theorem-first tier): certify tolerance/exact
-    # overlap spans whenever cheap endpoint evidence arms — a curve t-end
-    # lying ON the surface (an axis-0 boundary zero) or a valley pair —
-    # INDEPENDENTLY of the exact-affine identity.  The real-data class has
-    # only ONE boundary zero (the other span end pins on the uv-domain
-    # edge in the projected sense: measured 6.7e-4 clearance from the edge
-    # line — no exact 3-D root exists there for the boundary phase to
-    # find).  Certified spans bypass the Phase-2 grind entirely.
-    # Arming: a curve-end zero on-surface, a valley pair, OR a pair with
-    # NO boundary zeros at all (measured on user data: a coincident
-    # stretch that enters AND exits through patch edges with sub-atol
-    # clearance produces zero exact boundary roots — the certificate must
-    # still get its 17-sample look; transversal SSX-nested calls always
-    # carry boundary zeros, so their cost profile is untouched).
-    if (tolerance_tier and not boundary_exhausted and not overlaps
-            and (_valley_pair_seen
-                 or not csx_boundary_zeros
-                 or any(bz.axis == 0 for bz in csx_boundary_zeros))):
-        # Split pricing (§11.5 drift-gate lesson): the 17-projection
-        # arming scan is billed always; the dense pass (65 witnesses +
-        # refines) only when the scan HITS — nested cut-face calls
-        # routinely arm-and-miss and must not pay the full tier.
-        _tier_price = 17
-        _dense_price = 65 + 80
-        if cells.remaining > _tier_price + _dense_price:
-            cells.spend(_tier_price)
-            _tol_overlaps = _tolerance_csx_overlap_certificate(
+    # Classify CAD-coincident spans independently of affine identity.
+    # A whole-curve grid alone can miss a short domain-clipped interval,
+    # even when the boundary pass has already found both of its ends.
+    if tolerance_tier and not boundary_exhausted and not overlaps:
+        tier_price = 17
+        dense_price = 65 + 80
+        seed_contacts = sorted(isolated, key=lambda point: point['t'])
+
+        def _contact_work(amount):
+            nonlocal budget_exhausted, truncation_cause
+            if amount > cells.remaining:
+                budget_exhausted = True
+                truncation_cause = truncation_cause or 'cells'
+                return False
+            cells.spend(amount)
+            return True
+
+        def _sample_span(parameter_range):
+            nonlocal budget_exhausted, truncation_cause
+            nonlocal non_affine_overlap_span
+            if cells.remaining <= tier_price + dense_price:
+                budget_exhausted = True
+                truncation_cause = truncation_cause or 'cells'
+                return
+            cells.spend(tier_price)
+            candidates = _tolerance_csx_overlap_certificate(
                 C, S, atol, rational, ptol_t, strict_root_tol,
+                parameter_range=parameter_range,
                 on_dense=lambda: cells.spend(
-                    min(_dense_price, max(0, cells.remaining))))
-            if _tol_overlaps:
-                for _o in _tol_overlaps:
-                    overlaps.append(_o)
-                    _t_lo, _t_hi = _o["t_range"]
-                    t_exclude.append((_t_lo - ptol_t, _t_hi + ptol_t))
-                    _absorb_boundary_contacts(_o, _t_lo - atol, _t_hi + atol)
-                # the span(s) are certified: the L42 uncertified-span
-                # fallback no longer applies to them.
+                    min(dense_price, max(0, cells.remaining))),
+                on_contact_work=_contact_work,
+                max_contacts=max(0, int(max_results) - _contact_count()))
+            for overlap in candidates or ():
+                if overlap.pop('_contact_results_exhausted', False):
+                    budget_exhausted = True
+                    truncation_cause = truncation_cause or 'results'
+                overlaps.append(overlap)
+                low, high = overlap['t_range']
+                t_exclude.append((low - ptol_t, high + ptol_t))
+                _absorb_boundary_contacts(overlap, low - atol, high + atol)
                 non_affine_overlap_span = None
+
+        if (_valley_pair_seen or not csx_boundary_zeros
+                or any(point.axis == 0 for point in csx_boundary_zeros)):
+            _sample_span((0., 1.))
+
+        # Consecutive validated boundary contacts bound candidate spans.
+        # A cheap middle projection proposes coincidence; the same dense
+        # membership and domain-pinning checks must still validate it.
+        # This also covers entering and leaving through the same UV face.
+        for left, right in zip(seed_contacts, seed_contacts[1:]):
+            low, high = float(left['t']), float(right['t'])
+            if high - low < 4. * ptol_t:
+                continue
+            if any(a - ptol_t <= low and high <= b + ptol_t
+                   for a, b in (overlap['t_range'] for overlap in overlaps)):
+                continue
+            if cells.remaining <= tier_price + dense_price:
+                budget_exhausted = True
+                truncation_cause = truncation_cause or 'cells'
+                break
+            cells.spend(1)
+            middle = .5 * (low + high)
+            point = eval_curve(C, middle, rational=rational)
+            _u, _v, distance = _project_point_on_surface(
+                point, S, .5 * (left['u'] + right['u']),
+                .5 * (left['v'] + right['v']), atol, rational)
+            if np.isfinite(distance) and distance <= atol:
+                _sample_span((low, high))
 
     # ===================================================================
     # PHASE 2: Isolated intersection search on remaining curve intervals
@@ -2732,7 +2801,7 @@ def bez_csx(
             non_affine_overlap_span is not None
             and any(not _interval_hits_span(a, b)
                     for a, b in t_intervals[_ii:] if (b - a) >= ptol_t))
-        if cells.remaining <= 0 or len(isolated) >= max_results:
+        if cells.remaining <= 0 or _contact_count() >= max_results:
             budget_exhausted = True
             truncation_cause = truncation_cause or (
                 "cells" if cells.remaining <= 0 else "results")
@@ -2757,7 +2826,7 @@ def bez_csx(
             t_lo, t_hi, atol, rational, ptol_t, ptol_u, ptol_v,
             known_points=isolated,
             max_depth=max_depth, max_cells=phase2_cell_limit,
-            max_results=max_results - len(isolated),
+            max_results=max_results - _contact_count(),
             exact_topology=exact_topology,
             unresolved_root_boxes=search_unresolved_boxes,
             obligation_diagnostics=phase2_obligations,

@@ -309,11 +309,15 @@ def _distance_net_lower_bound(S1, S2, F, rational):
 
 
 def _try_isoline_intersection(first, second, atol, budget):
-    """Use planar or one-variable reductions when the surface charts allow it."""
+    """Use planar, spherical, or one-variable reductions when available."""
     from mmcore.numeric.intersection.ssx._ssx_isolines import try_isoline_ssx, try_plane_coincidence
     from mmcore.numeric.intersection.ssx._ssx_matched_isolines import try_matched_isoline_ssx
     from mmcore.numeric.intersection.ssx._ssx5_overlap import try_planar_intersection
+    from mmcore.numeric.intersection.ssx._ssx_spherical_overlap import try_spherical_overlap
     result = try_planar_intersection(first, second, atol, budget)
+    if result is not None or budget.exhausted:
+        return result
+    result = try_spherical_overlap(first, second, atol, budget)
     if result is not None or budget.exhausted:
         return result
     result = try_plane_coincidence(first, second, atol, budget)
@@ -6953,7 +6957,7 @@ def _discover_c1_singularities(S1_h, S2_h, atol, ptol4, budget, existing=()):
 
 def _link_c1_and_discover_c3(S1_h_top, S2_h_top, all_branches,
                              all_singularities, c1_singularities,
-                             atol, ptol4_global, budget):
+                             atol, ptol4_global, budget, *, check_c3=True):
     """Apply the same singularity postprocessing to every geometry path."""
     # Attach C1 links after branch filters; the singularities themselves
     # have already been published by their discovery path.
@@ -6980,6 +6984,9 @@ def _link_c1_and_discover_c3(S1_h_top, S2_h_top, all_branches,
                       <= np.linalg.norm(xyz[segment+1]-singularity.xyz) else segment+1)
             links.append((bi, vertex))
         singularity.branch_links = links
+
+    if not check_c3:
+        return
 
     # --- C3 pass (paper §5.4): 3D self-intersections of the SSI image ---
     # Runs AFTER tracing (branch geometry drives the candidate search).
@@ -7289,14 +7296,20 @@ def bez_ssx(
                 *bez_surface_param_tolerance(S2_h_top, atol, rational=True),
             ], dtype=np.float64), 1e-9)
             singularities = isolines.setdefault("singularities", [])
-            c1 = _discover_c1_singularities(
-                S1_h_top, S2_h_top, atol, ptol4, budget,
-                existing=singularities)
+            # A validated spherical area can also resolve its source
+            # regularity outside point-confined pole fibres. Their distinct
+            # parameter representatives belong to one geometric boundary
+            # point, not extra cusp curves or rim self-intersections.
+            c1 = ([] if getattr(isolines, '_c1_resolved', False) else
+                  _discover_c1_singularities(
+                      S1_h_top, S2_h_top, atol, ptol4, budget,
+                      existing=singularities))
             singularities.extend(g for g in c1
                                  if not any(g is known for known in singularities))
             _link_c1_and_discover_c3(
                 S1_h_top, S2_h_top, isolines.get("branches", []),
-                singularities, c1, atol, ptol4, budget)
+                singularities, c1, atol, ptol4, budget,
+                check_c3=not getattr(isolines, '_c3_resolved', False))
             return _result(**isolines)
 
     # The current distance-net constructor forms a pairwise Gram tensor over

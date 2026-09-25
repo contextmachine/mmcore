@@ -14,12 +14,13 @@ at atol; they are not an exact-algebraic intersection contract.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import comb
 
 import numpy as np
 from numpy.typing import NDArray
 
 from mmcore.numeric._bezier_common import (
-    eval_curve, eval_surface, eval_surface_d1,
+    eval_curve, eval_surface, eval_surface_d1, restrict_net_axis_v,
 )
 from mmcore.numeric.intersection.ssx._ssx_substrate import SSXBranch
 
@@ -145,6 +146,53 @@ def _bilinear_chord_error(S_h, start, end, xyz):
     line = np.array([np.zeros(3), c[0, 3]*delta/3.,
                      2.*c[1, 3]*delta/3., c[2, 3]*delta])
     return float(np.max(np.linalg.norm(elevated-line, axis=1))/np.min(c[:, 3]))
+
+
+def _surface_roundoff(surface, xyz=()):
+    """Arithmetic scale for closed CAD-distance comparisons."""
+    net = np.asarray(surface, dtype=float)
+    coordinates = net[..., :3]/net[..., 3, None]
+    return 128.*np.finfo(float).eps*max(
+        1., float(np.max(abs(coordinates))),
+        float(np.max(np.abs(xyz))) if np.size(xyz) else 0.)
+
+
+def _surface_chord_error(surface, start, end, xyz):
+    """Bound an arbitrary-degree rational chart over one affine UV chord.
+
+    Restriction to the UV rectangle followed by its diagonal gives a
+    degree p+q homogeneous curve. Subtracting the reported XYZ chord times
+    its weight gives a Bernstein numerator bound over the whole segment.
+    """
+    net = np.asarray(surface, dtype=float).copy()
+    if not np.isfinite(net).all() or np.min(net[..., 3]) <= 0.:
+        return np.inf
+    net /= np.max(net[..., 3])
+    origin = np.asarray(xyz[0], dtype=float)
+    net[..., :3] -= origin * net[..., 3, None]
+    for axis in range(2):
+        a, b = float(start[axis]), float(end[axis])
+        if not (0. <= a <= 1. and 0. <= b <= 1.):
+            return np.inf
+        net = restrict_net_axis_v(net, axis, min(a, b), max(a, b), 0., 1.)
+        if b < a:
+            net = np.flip(net, axis=axis)
+    p, q = np.asarray(net.shape[:2])-1
+    degree = p+q
+    curve = np.zeros((degree+1, 4))
+    for i in range(p+1):
+        for j in range(q+1):
+            curve[i+j] += (comb(p, i)*comb(q, j)/comb(degree, i+j))*net[i, j]
+    if not np.isfinite(curve).all() or np.min(curve[:, 3]) <= 0.:
+        return np.inf
+    fraction = np.arange(degree+2)/(degree+1.)
+    elevated = np.zeros((degree+2, 3))
+    elevated[:-1] += (1.-fraction[:-1, None])*curve[:, :3]
+    elevated[1:] += fraction[1:, None]*curve[:, :3]
+    chord = np.zeros_like(elevated)
+    chord[1:] = (fraction[1:]*curve[:, 3])[:, None]*(np.asarray(xyz[1])-origin)
+    bound = float(np.max(np.linalg.norm(elevated-chord, axis=1))/np.min(curve[:, 3]))
+    return bound+_surface_roundoff(surface, xyz)
 
 
 def _planar_convex_rims(S1_h, S2_h, atol, charge, context, *, include_boundary_contacts=False):
@@ -422,6 +470,9 @@ def _sample_edge_rims(S_own_h, S_other_h, owner, axis, side, atol,
     Returns a list of rims, each a dict with synchronized arrays:
     ``stuv`` (N,4) global parameters, ``xyz`` (N,3), ``resid_max``.
     """
+    membership_tol = atol+_surface_roundoff(S_own_h)+_surface_roundoff(S_other_h)
+    if not np.isfinite(membership_tol):
+        return []
     ws = np.linspace(0.0, 1.0, coarse)
     onsurf = np.zeros(coarse, dtype=bool)
     inv = np.zeros((coarse, 2), dtype=np.float64)
@@ -432,8 +483,8 @@ def _sample_edge_rims(S_own_h, S_other_h, owner, axis, side, atol,
         u, v, resid = _invert_point(S_other_h, xyz, seed=seed)
         # A wandering warm start can hand the next sample a foreign basin
         # after an off-surface stretch; only propagate on-surface seeds.
-        seed = (u, v) if resid <= atol else None
-        onsurf[k] = resid <= atol
+        seed = (u, v) if resid <= membership_tol else None
+        onsurf[k] = np.isfinite(resid) and resid <= membership_tol
         inv[k] = (u, v)
 
     rims = []
@@ -464,13 +515,14 @@ def _refine_end(S_own_h, S_other_h, axis, side, atol, w_in, w_out, seed):
     w_out = min(1.0, max(0.0, w_out))
     if w_in == w_out:
         return w_in
+    membership_tol = atol+_surface_roundoff(S_own_h)+_surface_roundoff(S_other_h)
     lo, hi = (w_in, w_out)
     for _ in range(24):
         mid = 0.5 * (lo + hi)
         uo, vo = _edge_own_uv(axis, side, mid)
         xyz = eval_surface(S_own_h, uo, vo, rational=True)
         _, _, resid = _invert_point(S_other_h, xyz, seed=tuple(seed))
-        if resid <= atol:
+        if np.isfinite(resid) and resid <= membership_tol:
             lo = mid
         else:
             hi = mid
@@ -481,6 +533,9 @@ def _resample_rim(S_own_h, S_other_h, owner, axis, side, atol,
                   w_lo, w_hi, dense):
     if w_hi - w_lo <= 1e-12:
         return None
+    membership_tol = atol+_surface_roundoff(S_own_h)+_surface_roundoff(S_other_h)
+    if not np.isfinite(membership_tol):
+        return None
     ws = np.linspace(w_lo, w_hi, dense)
     stuv = np.zeros((dense, 4), dtype=np.float64)
     xyz = np.zeros((dense, 3), dtype=np.float64)
@@ -490,12 +545,16 @@ def _resample_rim(S_own_h, S_other_h, owner, axis, side, atol,
         uo, vo = _edge_own_uv(axis, side, float(w))
         p = eval_surface(S_own_h, uo, vo, rational=True)
         u, v, resid = _invert_point(S_other_h, p, seed=seed)
-        if resid > atol:
+        if not (np.isfinite(resid) and resid <= membership_tol):
             return None       # the refined span must certify end-to-end
         seed = (u, v)
         resid_max = max(resid_max, resid)
         stuv[k] = _stuv_sample(owner, (uo, vo), (u, v))
-        xyz[k] = p
+        # Use the same paired-point convention at discovery, corrected
+        # corners, and adaptive midpoints. Mixing owner points with averages
+        # can leave an irreducible bound at an old sample even when the
+        # complete two-surface gap is smaller than the requested tolerance.
+        xyz[k] = .5*(p+eval_surface(S_other_h, u, v, rational=True))
     if float(np.linalg.norm(xyz[-1] - xyz[0])) < atol and dense > 2:
         return None           # degenerate (corner-touch) span
     return {"stuv": stuv, "xyz": xyz, "resid_max": resid_max,
@@ -505,6 +564,187 @@ def _resample_rim(S_own_h, S_other_h, owner, axis, side, atol,
 # ---------------------------------------------------------------------------
 # Loop assembly
 # ---------------------------------------------------------------------------
+
+def _joint_rim_corner(first, second, rim_a, end_a, rim_b, end_b,
+                      atol, ptol4, charge):
+    """Correct a pair of rim ends on their actual source-domain edges.
+
+    Opposite-chart clamping identifies the other incident edge. Native
+    source corners stay fixed. Other coordinates stay in the endpoint's
+    half of its own observed rim span, so Newton cannot jump to the rim's
+    other corner or to a disjoint contact span.
+    """
+    if rim_a['owner'] == rim_b['owner']:
+        return None
+    rims, ends = ((rim_a, rim_b), (end_a, end_b)) if rim_a['owner'] == 1 else ((rim_b, rim_a), (end_b, end_a))
+    endpoint = [np.asarray(rim['stuv'][end], dtype=float) for rim, end in zip(rims, ends)]
+    tolerance = np.minimum(.25, np.maximum(np.asarray(ptol4), 64.*np.finfo(float).eps))
+    for owner in (0, 1):
+        axis = 2*owner+rims[owner]['axis']
+        if abs(endpoint[1-owner][axis]-rims[owner]['side']) > tolerance[axis]:
+            return None
+    point = np.r_[endpoint[0][:2], endpoint[1][2:]]
+    fixed = np.zeros(4, dtype=bool)
+    limits = np.array([[0., 1.]]*4)
+    for owner, (rim, end) in enumerate(zip(rims, ends)):
+        axis = 2*owner+rim['axis']
+        free = 2*owner+1-rim['axis']
+        point[axis] = rim['side']
+        fixed[axis] = True
+        low, high = sorted(rim['stuv'][[0, -1], free])
+        middle = .5*(low+high)
+        limits[free] = (low, middle) if end == 0 else (middle, high)
+        if point[free] in (0., 1.):
+            fixed[free] = True
+    free_axes = np.flatnonzero(~fixed)
+    surfaces = (first, second)
+
+    def evaluate(parameters):
+        values = [eval_surface_d1(surface, *parameters[2*i:2*i+2], rational=True)
+                  for i, surface in enumerate(surfaces)]
+        residual = values[0][0]-values[1][0]
+        jacobian = np.column_stack((values[0][1], values[0][2],
+                                    -values[1][1], -values[1][2]))[:, free_axes]
+        return values, residual, jacobian
+
+    converged = not len(free_axes)
+    for _ in range(32):
+        if not charge(1):
+            raise _OverlapWorkStopped
+        values, residual, jacobian = evaluate(point)
+        if not len(free_axes):
+            break
+        try:
+            singular = np.linalg.svd(jacobian, compute_uv=False)
+            if singular[-1] <= 64.*np.finfo(float).eps*singular[0]:
+                return None  # parallel/coincident edges do not define a corner
+            step = np.linalg.lstsq(jacobian, -residual, rcond=None)[0]
+        except np.linalg.LinAlgError:
+            return None
+        projected = np.clip(point[free_axes]+step, 0., 1.)-point[free_axes]
+        if np.max(abs(projected)) <= 128.*np.finfo(float).eps:
+            converged = True
+            break
+        previous = float(residual@residual)
+        advanced = False
+        for exponent in range(12):
+            candidate = point.copy()
+            candidate[free_axes] = np.clip(point[free_axes]+step*2.**(-exponent),
+                                            limits[free_axes, 0], limits[free_axes, 1])
+            other = [eval_surface(surface, *candidate[2*i:2*i+2], rational=True)
+                     for i, surface in enumerate(surfaces)]
+            error = other[0]-other[1]
+            if float(error@error) < previous:
+                point = candidate
+                advanced = True
+                break
+        if not advanced:
+            break
+    if not converged:
+        return None
+    values, residual, _ = evaluate(point)
+    membership_tol = atol+_surface_roundoff(first)+_surface_roundoff(second)
+    if (not np.isfinite(point).all() or not np.isfinite(residual).all()
+            or not np.isfinite(membership_tol)
+            or np.linalg.norm(residual) > membership_tol):
+        return None
+    xyz = .5*(values[0][0]+values[1][0])
+    score = sum(float(np.linalg.norm(point[2*i:2*i+2]-endpoint[i][2*i:2*i+2]))
+                for i in (0, 1))
+    return point, xyz, score
+
+
+def _refine_curved_rim_corners(rims, first, second, atol, ptol4, charge):
+    """Share jointly corrected corners before endpoint graph construction."""
+    proposals = []
+    for i, rim in enumerate(rims):
+        for j in range(i+1, len(rims)):
+            other = rims[j]
+            if rim['owner'] == other['owner']:
+                continue
+            for end_i in (0, -1):
+                for end_j in (0, -1):
+                    result = _joint_rim_corner(first, second, rim, end_i, other,
+                                               end_j, atol, ptol4, charge)
+                    if result is not None:
+                        point, xyz, score = result
+                        proposals.append((score, i, end_i, j, end_j, point, xyz))
+    used = set()
+    for _, i, end_i, j, end_j, point, xyz in sorted(proposals, key=lambda p: p[0]):
+        if (i, end_i) in used or (j, end_j) in used:
+            continue
+        for index, end in ((i, end_i), (j, end_j)):
+            rim = rims[index]
+            rim['stuv'][end] = point
+            rim['xyz'][end] = xyz
+            used.add((index, end))
+    return rims
+
+
+def _adaptive_curved_rim(rim, first, second, atol, charge):
+    """Refine a paired rim until both lifted parameter chords meet atol."""
+    owner = rim['owner']-1
+    own, other = (first, second) if owner == 0 else (second, first)
+    roundoff = _surface_roundoff(first, rim['xyz'])+_surface_roundoff(second, rim['xyz'])
+    if not np.isfinite(roundoff) or roundoff >= atol:
+        return None  # this arithmetic cannot resolve the requested accuracy
+    free = 2*owner+1-rim['axis']
+    start, end = np.asarray(rim['stuv'][0]), np.asarray(rim['stuv'][-1])
+    # Correcting an endpoint retracts its tolerance fringe. Remove old
+    # samples outside the new interval before refining the retained path.
+    low, high = sorted((start[free], end[free]))
+    samples = [(q.copy(), x.copy()) for q, x in zip(rim['stuv'], rim['xyz'])
+               if low <= q[free] <= high]
+    if len(samples) < 2:
+        return None
+    result = [samples[0]]
+    pending = list(reversed(list(zip(samples[:-1], samples[1:]))))
+    residual_max = 0.
+    while pending:
+        a, b = pending.pop()
+        if not charge(1):
+            raise _OverlapWorkStopped
+        errors = [_surface_chord_error(surface, a[0][2*i:2*i+2], b[0][2*i:2*i+2],
+                                         np.array([a[1], b[1]]))
+                  for i, surface in enumerate((first, second))]
+        # The sum also bounds the distance between the two lifted source
+        # chords. Individual source errors alone could add up to 2*atol.
+        # Each bound already includes its arithmetic pad. A second pad
+        # covers evaluation/comparison rounding at the CLOSED atol boundary;
+        # otherwise a constant gap equal to atol subdivides forever.
+        if not np.isfinite(errors).all():
+            return None
+        if sum(errors) <= atol+2.*roundoff:
+            result.append(b)
+            continue
+        value = .5*(a[0][free]+b[0][free])
+        if value == a[0][free] or value == b[0][free]:
+            return None
+        own_uv = _edge_own_uv(rim['axis'], rim['side'], value)
+        xyz = eval_surface(own, *own_uv, rational=True)
+        opposite = slice(2*(1-owner), 2*(1-owner)+2)
+        seed = .5*(a[0][opposite]+b[0][opposite])
+        u, v, residual = _invert_point(other, xyz, seed=seed)
+        if not (np.isfinite(residual) and residual <= atol+roundoff):
+            return None
+        point = _stuv_sample(owner+1, own_uv, (u, v))
+        projected = eval_surface(other, u, v, rational=True)
+        middle = (np.asarray(point), .5*(xyz+projected))
+        residual_max = max(residual_max, residual)
+        pending.extend(((middle, b), (a, middle)))
+    path = np.asarray([q for q, _ in result])
+    xyz = np.asarray([x for _, x in result])
+    for parameters, point in zip(path, xyz):
+        source_points = []
+        for side, surface in enumerate((first, second)):
+            source_point = eval_surface(
+                surface, *parameters[2*side:2*side+2], rational=True)
+            source_points.append(source_point)
+            residual_max = max(residual_max, float(np.linalg.norm(source_point-point)))
+        residual_max = max(residual_max,
+                           float(np.linalg.norm(source_points[0]-source_points[1])))
+    return dict(rim, stuv=path, xyz=xyz, resid_max=residual_max)
+
 
 def _dist_point_polyline(p, poly):
     a, b = poly[:-1], poly[1:]
@@ -622,7 +862,8 @@ def _loop_paths(rims, loop):
     for idx, (ri, rev) in enumerate(loop):
         stuv = rims[ri]["stuv"][::-1] if rev else rims[ri]["stuv"]
         xyz = rims[ri]["xyz"][::-1] if rev else rims[ri]["xyz"]
-        if idx > 0:
+        if (idx > 0 and np.array_equal(stuv_parts[-1][-1], stuv[0])
+                and np.array_equal(xyz_parts[-1][-1], xyz[0])):
             stuv, xyz = stuv[1:], xyz[1:]
         stuv_parts.append(stuv)
         xyz_parts.append(xyz)
@@ -714,6 +955,7 @@ def assemble_overlap_regions(
     overlap_boxes=(),
     charge=None,
     _planar_data=None,
+    _completed_rims=None,
 ):
     """Assemble certified SSXOverlapRegion entities from rim evidence.
 
@@ -759,8 +1001,25 @@ def assemble_overlap_regions(
             own = S1_h if owner == 1 else S2_h
             other = S2_h if owner == 1 else S1_h
             rims.extend(_sample_edge_rims(own, other, owner, axis, side, atol))
-        rims = _dedup_rims(rims, atol)
-        rims = _peel_dangling_rims(rims, atol)
+        try:
+            rims = _refine_curved_rim_corners(rims, S1_h, S2_h, atol, ptol4, _charge)
+            rims = _dedup_rims(rims, atol)
+            rims = _peel_dangling_rims(rims, atol)
+            refined = []
+            for rim in rims:
+                validated = _adaptive_curved_rim(rim, S1_h, S2_h, atol, _charge)
+                if validated is None:
+                    return empty
+                refined.append(validated)
+                if _completed_rims is not None:
+                    # Private progress sink: only whole-chord-validated
+                    # paired paths survive a later work-budget denial.
+                    _completed_rims.append(validated)
+        except _OverlapWorkStopped:
+            return empty
+        if any(rim is None for rim in refined):
+            return empty
+        rims = refined
     if not rims:
         return empty
 
