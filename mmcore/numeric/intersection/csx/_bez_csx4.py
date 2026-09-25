@@ -858,19 +858,63 @@ def _tolerance_csx_overlap_certificate(C, S, atol, rational, ptol_t,
             if t_end <= edge_pad or t_end >= 1.0 - edge_pad:
                 return True
             _p, u, v, _d = _member(t_end, (0.5, 0.5))
-            if min(u, 1.0 - u) <= 1e-6 or min(v, 1.0 - v) <= 1e-6:
-                return True
             # The tolerance boundary and the uv-domain exit can COINCIDE
             # (measured on user data: d crosses atol at almost the same t
             # where the projected path leaves through u=1, so the
             # projection AT the refined boundary is still interior).
-            # Probe one grid step OUTWARD: a domain-clipped span clamps to
-            # an edge there; a genuine interior fade-out (the offset-twin
-            # signature, which must stay refused) does not.
+            # A domain pin must actually ENTER through that edge. Merely
+            # lying on an edge does not pin t: a curve can follow v=0 past
+            # two distinct isolated crossings, and an endpoint-seeded
+            # window between those roots must not become an overlap.
             probe_step = (parameter_high - parameter_low) / (len(ts) - 1.)
             t_probe = min(1.0, max(0.0, t_end + outward * probe_step))
-            _p, u, v, _d = _member(t_probe, (u, v))
-            return (min(u, 1.0 - u) <= 1e-6 or min(v, 1.0 - v) <= 1e-6)
+            probe_point, u_out, v_out, projected_distance = _member(t_probe, (u, v))
+            exit_roundoff = max(tiny, 512.*np.finfo(float).eps*max(
+                1., float(np.max(abs(probe_point))),
+                float(np.max(abs(points)))))
+            # An accepted tolerance fringe may already clamp several
+            # samples before its endpoint, so use the whole run for the
+            # interior witness rather than only the adjacent grid sample.
+            for coordinate, side in ((0, 0.), (0, 1.), (1, 0.), (1, 1.)):
+                inner = uvs[k0:k1+1, coordinate]
+                if side == 0. and float(inner.max()) > 0.:
+                    sense = 1.
+                elif side == 1. and float(inner.min()) < 1.:
+                    sense = -1.
+                else:
+                    continue
+                # Test an actual boundary-constrained candidate. The
+                # coupled projector can stall just inside the edge
+                # when clipping its step worsens the free-coordinate fit;
+                # its final UV bits are not an active-set certificate.
+                boundary_uv = [u_out, v_out]
+                boundary_uv[coordinate] = side
+                surface_point, du, dv = eval_surface_d1(
+                    S64, *boundary_uv, rational=rational)
+                boundary_distance = float(np.linalg.norm(probe_point-surface_point))
+                if not (np.isfinite(boundary_distance)
+                        and np.isfinite(projected_distance)
+                        and boundary_distance <= projected_distance+exit_roundoff):
+                    continue
+                # Clamping must be active in geometry too. A curve that
+                # only grazes an edge can remain inside on both sides;
+                # small positive UV values are not a domain exit. Remove
+                # the along-edge tangent before measuring outward motion,
+                # so a normal offset or projection lag cannot supply it.
+                across, along = (du, dv) if coordinate == 0 else (dv, du)
+                along_sq = float(along@along)
+                if along_sq <= 0.:
+                    continue
+                inward = sense*(across-along*float(across@along)/along_sq)
+                inward_length = float(np.linalg.norm(inward))
+                derivative_roundoff = 512.*np.finfo(float).eps*max(
+                    float(np.linalg.norm(du)), float(np.linalg.norm(dv)))
+                if not np.isfinite(inward_length) or inward_length <= derivative_roundoff:
+                    continue
+                exit_distance = float((probe_point-surface_point)@inward/inward_length)
+                if exit_distance < -exit_roundoff:
+                    return True
+            return False
         if not (_pinned(t_lo, -1.0) and _pinned(t_hi, +1.0)):
             continue
         # A within-atol span remains CAD-coincident when rounding puts

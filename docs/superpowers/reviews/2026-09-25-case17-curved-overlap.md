@@ -34,6 +34,22 @@ no overlap region.
    membership and domain-end checks. The captured cut changed from
    22.54 seconds / 67,104 work units to 0.233 seconds / 1,126 units.
 
+The first full-suite run caught two integration regressions before merge.
+The candidate-interval path could mistake following a surface edge for
+leaving its domain, joining two lines eight tolerances apart. Domain
+pinning must establish an actual exit; touching an edge and returning to
+the interior does not qualify either. Both independent negative controls
+retain the separate roots.
+
+Changed subdivision also exposed an existing coordinate-dependent apex
+classification: a point at an original collapsed cone edge could sit far
+from that edge in a very thin child's rescaled parameters, acquiring a
+false isolated tangent-point label. Cells now retain their original
+surface context. The type check uses the fixed parameter axis and distance
+to the collapsed edge's image, while retaining local checks for an interior
+collapsed isoline exposed by a split. The cone generator and genuine
+isolated touches remain covered by their existing geometry assertions.
+
 Correcting the boundary still left the ordinary one-dimensional search
 subdividing a two-dimensional coincident area. A separate geometric
 reduction now handles supported rational quadratic spherical octants.

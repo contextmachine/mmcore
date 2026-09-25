@@ -167,6 +167,56 @@ def test_two_boundary_contacts_do_not_promote_an_out_of_tolerance_bulge():
     _validate_contacts(curve, surface, result['isolated'])
 
 
+@pytest.mark.parametrize('side', [0., 1.])
+def test_following_a_surface_edge_does_not_pin_an_interior_tolerance_window(side):
+    # These two roots are close in curve parameters but eight CAD atols
+    # apart in model space. The entire owner curve follows a target UV
+    # edge, which does not delimit the interval between the two roots.
+    a, b = .49, .4905
+    z = 32.*np.array([a*b, a*b-(a+b)/2., (1.-a)*(1.-b)])
+    curve = np.column_stack((np.array([0., 8., 16.]), np.full(3, side), z))
+    surface = np.array([[[16.*u, v, 0.] for v in (0., 1.)]
+                        for u in (0., 1.)])
+    result = csx.bez_csx(curve, surface, atol=1e-3, rational=False)
+    assert not result['budget_exhausted']
+    assert result['overlaps'] == []
+    _validate_contacts(curve, surface, result['isolated'])
+    for x in (7.84, 7.848):
+        assert any(np.linalg.norm(point['point']-[x, side, 0.]) <= 1e-3
+                   for point in result['isolated'])
+
+
+@pytest.mark.parametrize('side', [0., 1.])
+def test_touching_a_domain_edge_without_exiting_does_not_pin_a_span(side):
+    # The UV path touches the same edge at .4 and .6 but stays inside on
+    # BOTH sides. Its outward probes are only 4e-7 from that edge; treating
+    # "UV near zero" as an active clamp incorrectly promoted this window.
+    degree = 4
+    product = np.polynomial.polynomial.polyfromroots([.4, .6])
+    y = np.polynomial.polynomial.polymul(product, product)
+    if side:
+        y = -y
+        y[0] += 1.
+    def coefficients(power):
+        power = np.pad(power, (0, degree+1-len(power)))
+        return [sum(power[k]*comb(i, k)/comb(degree, k)
+                    for k in range(i+1)) for i in range(degree+1)]
+    curve = np.column_stack((coefficients([0., 16.]), coefficients(y),
+                             coefficients(.05*product)))
+    surface = np.array([[[16.*u, v, 0.] for v in (0., 1.)]
+                        for u in (0., 1.)])
+    assert csx._tolerance_csx_overlap_certificate(
+        curve, surface, 1e-3, False, 1e-3/16., None,
+        parameter_range=(.4, .6)) is None
+    result = csx.bez_csx(curve, surface, atol=1e-3, rational=False)
+    assert result['overlaps'] == []
+    assert not result['budget_exhausted']
+    _validate_contacts(curve, surface, result['isolated'])
+    for x in (6.4, 9.6):
+        assert any(np.linalg.norm(point['point']-[x, side, 0.]) <= 1e-3
+                   for point in result['isolated'])
+
+
 @pytest.mark.parametrize('owner,axis,side', [
     (owner, axis, side) for owner in (0, 1) for axis in (0, 1) for side in (0, 1)])
 def test_rounded_spherical_boundary_spans_cover_the_independent_common_rim(owner, axis, side):
