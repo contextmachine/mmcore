@@ -219,7 +219,8 @@ template<typename T>
 bool gjk_collision_detection(const std::vector<Vec3<T>>& vertices1,
                              const std::vector<Vec3<T>>& vertices2,
                              T                           tol,
-                             size_t                      maxIter = 0)
+                             size_t                      maxIter = 0,
+                             Vec3<T>*                    separatingAxis = nullptr)
 {
     if (vertices1.empty() || vertices2.empty())
         throw std::invalid_argument("Input vertex sets cannot be empty");
@@ -290,7 +291,13 @@ bool gjk_collision_detection(const std::vector<Vec3<T>>& vertices1,
         }
 
         if (dot(newPoint, d) < 0)
+        {
+            // Optional proposal only.  A caller using model-space padding
+            // must independently verify both complete hulls along this axis.
+            if (separatingAxis != nullptr)
+                *separatingAxis = d;
             return false;    // support point failed to pass origin
+        }
 
         simplex.push_back(newPoint);
 

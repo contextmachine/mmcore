@@ -20,6 +20,7 @@ cdef extern from "_gjk.cpp" nogil:  # Use "*" to include the custom C++ header/c
         
     bool gjk_collision_detection(const vector[Vec3[double]]& vertices1, const vector[Vec3[double]]& vertices2, double tol, size_t max_iter);
 
-    
-
-    
+    bool gjk_collision_detection_with_axis "gjk_collision_detection"(
+        const vector[Vec3[double]]& vertices1,
+        const vector[Vec3[double]]& vertices2,
+        double tol, size_t max_iter, Vec3[double]* separating_axis) except +

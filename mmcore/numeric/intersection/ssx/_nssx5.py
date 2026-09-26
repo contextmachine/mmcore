@@ -61,6 +61,7 @@ from mmcore.numeric.intersection.ssx._bez_ssx5 import (
     bez_ssx, SSXSingularity, _dist_point_polyline,
 )
 from mmcore.numeric.intersection.ssx._ssx_substrate import SSXBranch, SSXPoint
+from mmcore.numeric.intersection.ssx._ssx_broad_phase import _filter_patch_pairs
 from mmcore.numeric.intersection.ssx._ssx5_overlap import (
     SSXOverlapRegion, _point_in_polygon, _dist_point_polyline_2d,
 )
@@ -1403,6 +1404,12 @@ def nurbs_ssx(surf1, surf2, atol=1e-3, **kwargs) -> dict:
         for a, b in bvh_intersect(tree1, tree2, exact=False)))
 
     agg = _make_aggregate(kwargs, len(candidates))
+    # Keep the existing AABB selection and candidate-scaled allowances.
+    # Stronger padded hull bounds save whole Bezier solves without
+    # reducing the resources available to their surviving geometry.
+    if (agg.remaining_cells > 0 and agg.remaining_csx_calls > 0
+            and agg.remaining_output_items > 0):
+        candidates = _filter_patch_pairs(patches1, patches2, candidates, atol)
     forward = {k: kwargs[k] for k in _FORWARD_KWARGS if k in kwargs}
 
     raw = _RawResults()
