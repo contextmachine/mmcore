@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ "ubuntu-latest", "macos-latest", "windows-latest" ]
+        os: [ "ubuntu-24.04", "macos-latest", "windows-latest" ]
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
         exclude:
           - os: windows-latest
@@ -48,7 +48,7 @@ jobs:
           poetry config virtualenvs.in-project true
       - name: Load cached venv
         id: cached-pip-wheels
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache
           key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ steps.extract_branch.outputs.branch }}
@@ -59,20 +59,38 @@ jobs:
       - name: Poetry build
         run: poetry build
 
+      - name: Repair Linux wheels for PyPI
+        if: runner.os == 'Linux'
+        run: |
+          # 6.4.2 supports the full matrix, including Python 3.9.
+          python -m pip install "auditwheel==6.4.2" "patchelf==0.17.2.4"
+          # Match the Ubuntu 24.04 glibc baseline; auditwheel also adds any
+          # older manylinux tags that the compiled binaries actually support.
+          for wheel in dist/*.whl; do
+            auditwheel repair --plat manylinux_2_39_x86_64 --wheel-dir wheelhouse "$wheel"
+          done
+          # Only replace originals after every repair succeeds. Keep the sdist.
+          rm dist/*.whl
+          mv wheelhouse/*.whl dist/
+          if compgen -G 'dist/*-linux_*.whl' > /dev/null; then
+            echo "::error::Unrepaired Linux wheel in dist"
+            exit 1
+          fi
+
       # Gates run once (ubuntu / one Python), after `poetry build` so the
       # freshly compiled extensions are already copied into the source tree
       # by build.py. `python -m pytest` from the repo root is required:
       # there is no conftest.py and test fixtures are CWD-relative.
       - name: Import health (subset of benign optional-dep leaves)
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        if: matrix.os == 'ubuntu-24.04' && matrix.python-version == '3.12'
         run: poetry run python tools/check_imports.py
 
       - name: Layering (no upward import edges)
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        if: matrix.os == 'ubuntu-24.04' && matrix.python-version == '3.12'
         run: poetry run python tools/check_layering.py
 
       - name: Test suite (without the single slow case)
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        if: matrix.os == 'ubuntu-24.04' && matrix.python-version == '3.12'
         run: poetry run python -m pytest tests -q -m "not slow"
 
       - name: Artifact name
