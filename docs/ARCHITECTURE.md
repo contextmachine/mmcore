@@ -62,8 +62,8 @@ Two conventions are law here, because their violation cost real time historicall
   they let the good name point at dead code. If an engine is superseded, the package
   binding flips and the old generation is deleted — not kept beside its successor.
 - **Filename numbers do not encode recency.** When a numbered sibling of a live module
-  appears (`_bez_ssx6` was an older frozen fork of `_bez_ssx5`), the module docstring
-  is the authority. Prefer not to create numbered siblings at all.
+  appears (`_bez_ssx6` was an older frozen fork of `_bez_ssx5`), the package binding
+  decides which one is live. Prefer not to create numbered siblings at all.
 
 ## The dual-type NURBS ABI
 
@@ -82,11 +82,13 @@ mix-up survived undetected in a live L0 module for months; this table is why it 
 
 ## Governance
 
-- **Defects and decisions live as ledger IDs (`L##`)**, in commit subjects and module
-  docstrings — not as TODO comments. To learn why something exists, grep the ledger ID.
-- **Evidence precedence when sources disagree:** the code and git history at HEAD win
-  over `docs/superpowers/{specs,plans,issues}`, which win over any external session
-  notes. Say it once here so nobody rediscovers it by contradiction.
+- **Defects and decisions live as ledger IDs (`L##`)**, in commit subjects and
+  `docs/superpowers/` issue/plan docs — not in code comments, docstrings or TODOs. To
+  learn why something exists, grep the ledger ID.
+- **Evidence precedence when sources disagree:** code behavior and git history at HEAD
+  win over `docs/superpowers/{specs,plans,issues}`, which win over any external session
+  notes. Comments and docstrings are not evidence: they may be stale or unapproved.
+  New code carries no comments.
 - **Design law for numerics:** no bare thresholds in residual/classification
   predicates — envelopes are derived from the operands they judge
   (see the derived-envelope program in `docs/superpowers/`).
