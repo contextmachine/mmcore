@@ -104,6 +104,22 @@ def test_curve_lying_on_a_seam_gives_one_record_per_side(z0, z1):
 @pytest.mark.parametrize('curve', [_arc(-np.pi / 4, np.pi / 4, .7), _circle(np.pi / 2, .7)],
                          ids=['arc', 'circle_from_90deg'])
 def test_curve_crossing_a_seam_is_split_exactly_at_the_seam(curve):
+    _assert_split_exactly_at_the_seam(curve)
+
+
+def test_seam_split_survives_a_one_ulp_overshoot_of_the_edge_polish(monkeypatch):
+    import mmcore.numeric.intersection.csx._bez_csx4 as engine
+    polish = engine._polish_csx_boundary_root
+
+    def overshooting(*args, **kwargs):
+        t, u, v, residual, ok = polish(*args, **kwargs)
+        return (float(np.nextafter(t, 2.)) if 0. < t < 1. else t), u, v, residual, ok
+
+    monkeypatch.setattr(engine, '_polish_csx_boundary_root', overshooting)
+    _assert_split_exactly_at_the_seam(_arc(-np.pi / 4, np.pi / 4, .7))
+
+
+def _assert_split_exactly_at_the_seam(curve):
     surface = _cylinder()
     roots, overlaps, status = nurbs_csx(curve, surface, tol=ATOL)
     assert status['complete'], status

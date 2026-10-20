@@ -931,10 +931,12 @@ def _tolerance_csx_overlap_certificate(C, S, atol, rational, ptol_t,
             if not isinstance(pin, tuple):
                 return t_end, uv_end
             coordinate, side = pin
-            inner = next((ts[k] for k in inward_order
+            order = list(inward_order)
+            first = next((i for i, k in enumerate(order)
                           if uvs[k, coordinate] != side), None)
-            if inner is None:
+            if first is None:
                 return t_end, uv_end
+            inner = ts[order[min(first + 1, len(order) - 1)]]
             t, u, v, _G, _ok = _polish_csx_boundary_root(
                 C, S, BoundaryZero(axis=coordinate + 1, side=int(side), param=0.),
                 t_end, uv_end[0], uv_end[1], rational, strict_context)
