@@ -6,7 +6,6 @@ solutions explicitly when the public float parameter fields cannot hold them.
 """
 from fractions import Fraction
 
-import numpy as np
 from mmcore.numeric.intersection._root_box_certificate import exact_bernstein_value
 
 
@@ -18,18 +17,6 @@ def affine_parameters(parameters, bounds):
     exact = tuple(_fraction(a) + (_fraction(b)-_fraction(a))*_fraction(t)
                   for t, (a, b) in zip(parameters, bounds))
     return tuple(float(t) for t in exact), exact
-
-
-def affine_enclosure(interval, bounds):
-    """Outward float bounds for the exact affine image of an interval."""
-    _, exact = affine_parameters(interval, (bounds, bounds))
-    lower, upper = min(exact), max(exact)
-    lo, hi = float(lower), float(upper)
-    if _fraction(lo) > lower:
-        lo = float(np.nextafter(lo, -np.inf))
-    if _fraction(hi) < upper:
-        hi = float(np.nextafter(hi, np.inf))
-    return lo, hi
 
 
 def _exact_evaluate(control, parameters, rational):
@@ -118,24 +105,20 @@ def reject_parameter_aliases(entries, keys, status, context, return_status,
 
 
 def map_overlap(entry, keys, bounds, sources, rational, atol,
-                status, context, return_status, enclosure_keys=()):
-    """Map paired overlap endpoints, or explicitly designated enclosures."""
+                status, context, return_status, extent_keys=None):
+    """Map paired overlap endpoints."""
     ranges = tuple(tuple(entry.get(k+'_range', (0., 1.))) for k in keys)
     mapped_ranges, exact_ranges = [], []
     payload = dict(local_result=dict(entry), parameter_bounds=tuple(bounds))
     for key, interval, bound in zip(keys, ranges, bounds):
         mapped, exact = affine_parameters(interval, (bound, bound))
-        if interval[0] != interval[1] and mapped[0] == mapped[1]:
+        if ((extent_keys is None or key in extent_keys)
+                and interval[0] != interval[1] and mapped[0] == mapped[1]):
             mapping_issue(status, context, return_status, payload,
                           'nonzero overlap range collapses to one global parameter')
             return None
-        mapped_ranges.append(affine_enclosure(interval, bound)
-                             if key in enclosure_keys else mapped)
+        mapped_ranges.append(mapped)
         exact_ranges.append(exact)
-    # Enclosure corners need not lie on the intersection. Validate only
-    # sources whose complete parameter tuple is actually paired.
-    paired = [(control, axes) for control, axes in sources
-              if all(keys[i] not in enclosure_keys for i in axes)]
     for endpoint in (0, 1):
         local = tuple(interval[endpoint] for interval in ranges)
         restored = tuple((_fraction(interval[endpoint])-_fraction(a))/(_fraction(b)-_fraction(a))
@@ -146,7 +129,7 @@ def map_overlap(entry, keys, bounds, sources, rational, atol,
             limit = _fraction(atol)**2
             valid = True
             values = []
-            for control, axes in paired:
+            for control, axes in sources:
                 original = _exact_evaluate(control, tuple(_fraction(local[i]) for i in axes), rational)
                 represented = _exact_evaluate(control, tuple(restored[i] for i in axes), rational)
                 values.append(represented)

@@ -79,13 +79,40 @@ def _convex_chart(surface_points):
     return origin, normal, axes, quad, edges, orientation
 
 
+def _chart_preimage(quad, point):
+    p00, p10, p11, p01 = (np.array([float(x) for x in corner]) for corner in quad)
+    target = np.array([float(x) for x in point])
+
+    def residual(uv):
+        u, v = uv
+        return ((1-u)*(1-v)*p00 + u*(1-v)*p10 + u*v*p11 + (1-u)*v*p01) - target
+
+    uv = np.array([.5, .5])
+    r = residual(uv)
+    norm = float(np.linalg.norm(r))
+    while norm > 0.:
+        u, v = uv
+        jacobian = np.column_stack(((1-v)*(p10-p00) + v*(p11-p01),
+                                    (1-u)*(p01-p00) + u*(p11-p10)))
+        step = np.linalg.solve(jacobian, -r)
+        for _ in range(53):
+            candidate = np.clip(uv + step, 0., 1.)
+            candidate_residual = residual(candidate)
+            candidate_norm = float(np.linalg.norm(candidate_residual))
+            if candidate_norm < norm:
+                break
+            step = step / 2.
+        else:
+            break
+        uv, r, norm = candidate, candidate_residual, candidate_norm
+    return float(uv[0]), float(uv[1])
+
+
 def exact_planar_bilinear_overlap(C, S, boundary_roots=None, rational=False):
     """Return exact overlap dictionaries, or None when no proof is available.
 
     ``boundary_roots`` is accepted for a CSX integration interface, but
     approximate root samples are intentionally irrelevant to the proof.
-    The u/v ranges are conservative [0,1] enclosures, not an assertion
-    that a curved inverse parameterization interpolates its endpoints.
     Surface nonuniform weights and partially clipped higher-degree curves
     are currently unsupported; they do not receive a weaker certificate.
     """
@@ -119,6 +146,7 @@ def exact_planar_bilinear_overlap(C, S, boundary_roots=None, rational=False):
         return orientation * _cross2(edges[edge_index], _sub(point, quad[edge_index]))
 
     lo, hi = Fraction(0), Fraction(1)
+    ends = (planar_curve[0], planar_curve[-1])
     if len(curve_points) == 2:
         # First clip in the affine Cartesian line parameter lambda.
         for edge_index in range(4):
@@ -132,6 +160,8 @@ def exact_planar_bilinear_overlap(C, S, boundary_roots=None, rational=False):
                 return None
         if hi <= lo:
             return None
+        ends = tuple(tuple(a + value*(b - a) for a, b in zip(*planar_curve))
+                     for value in (lo, hi))
         # Positive weights make lambda(t)=w1*t/(w0*(1-t)+w1*t)
         # strictly increasing. Its inverse is exact rational arithmetic.
         w0, w1 = curve_weights
@@ -144,13 +174,13 @@ def exact_planar_bilinear_overlap(C, S, boundary_roots=None, rational=False):
              for point in planar_curve for edge_index in range(4)):
         return None
 
+    (u_lo, v_lo), (u_hi, v_hi) = (_chart_preimage(quad, end) for end in ends)
     return [{
         "boundary_zeros": [],
         "overlap_endpoints": [],
         "t_range": (float(lo), float(hi)),
-        "u_range": (0.0, 1.0),
-        "v_range": (0.0, 1.0),
-        "uv_range_is_enclosure": True,
+        "u_range": (u_lo, u_hi),
+        "v_range": (v_lo, v_hi),
         "certification": "exact",
         "parameterization": "unique_bilinear_inverse",
         "proof": "exact_plane_identity_and_convex_quad_inclusion",

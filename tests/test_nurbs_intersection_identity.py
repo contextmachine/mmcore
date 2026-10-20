@@ -144,14 +144,6 @@ def test_overlap_intervals_separated_by_a_real_gap_stay_separate():
     assert len(_merge_overlaps_by_t(overlaps, .001)) == 2
 
 
-def test_uv_enclosures_do_not_supply_endpoint_identity():
-    overlaps = [dict(t_range=(0., .5), u_range=(0., .5), v_range=(0., .5),
-                      uv_range_is_enclosure=True),
-                dict(t_range=(.5, 1.), u_range=(.5, 1.), v_range=(.5, 1.),
-                      uv_range_is_enclosure=True)]
-    assert len(_merge_overlaps_by_t(overlaps, .001)) == 2
-
-
 def test_planar_overlap_components_with_different_joint_preimages_survive():
     curve = NURBSCurveTuple(2, np.array([0., 0., 1., 1.]),
                             np.array([[-1., 0., 0.], [1., 0., 0.]]), np.ones(2))
@@ -165,8 +157,9 @@ def test_planar_overlap_components_with_different_joint_preimages_survive():
                                        tolerance_tier=False, max_cells=1000)
     assert status['complete'], status
     assert overlaps is not None and len(overlaps) == 2
-    assert all(o['uv_range_is_enclosure'] for o in overlaps)
-    assert sorted(o['t_range'] for o in overlaps) == [(0., .5), (.5, 1.)]
+    first, second = sorted(overlaps, key=lambda o: o['t_range'])
+    assert (first['t_range'], second['t_range']) == ((0., .5), (.5, 1.))
+    assert first['v_range'] == (.25, .25) and second['v_range'] == (.75, .75)
 
 
 def test_equal_unclamped_end_control_rows_are_not_a_periodic_seam():

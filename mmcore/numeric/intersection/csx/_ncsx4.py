@@ -11,10 +11,12 @@ from mmcore.nurbs._core import NURBSCurve, NURBSSurface
 from mmcore.nurbs._nurbs_eval import (
     NURBSCurveTuple, NURBSSurfaceTuple,
     to_homogeneous_1d, to_homogeneous_2d,
-    _nurbs_to_tuple,
+    _nurbs_to_tuple, evaluate_nurbs_surface,
 )
 from mmcore.nurbs._nurbs_knots import decompose_curve, decompose_surface
-from mmcore.nurbs._nurbs_param_tol import nurbs_curve_param_tolerance
+from mmcore.nurbs._nurbs_param_tol import (
+    nurbs_curve_param_tolerance, nurbs_surface_param_tolerance,
+)
 from mmcore.numeric.bvh.lbvh import AABB, build_bvh, bvh_intersect
 
 from mmcore.numeric.intersection.csx._bez_csx4 import bez_csx as bez_csx_v4
@@ -145,48 +147,134 @@ def _consume_bezier_status(
 # Overlap merging
 # ---------------------------------------------------------------------------
 
-def _merge_overlaps_by_t(overlaps, ptol_t):
-    """Join only exact paired endpoints; preserve every other correspondence.
+_OVERLAP_KEYS = ('t_range', 'u_range', 'v_range')
 
-    A common curve-parameter interval does not identify a surface preimage.
-    The range endpoints retain their orientation, including decreasing UV.
-    ``ptol_t`` remains accepted for compatibility, but cannot prove identity.
-    """
-    result = []
+
+def _overlap_ends(overlap):
+    return (tuple(float(overlap[k][0]) for k in _OVERLAP_KEYS),
+            tuple(float(overlap[k][1]) for k in _OVERLAP_KEYS))
+
+
+def _interior_knots(knots, order):
+    knots = np.asarray(knots, dtype=np.float64)
+    return np.unique(knots[order:len(knots) - order])
+
+
+class _OverlapIdentity:
+    def __init__(self, curve, surface, tol):
+        self.surface = surface
+        self.tol = float(tol)
+        ptol_u, ptol_v = nurbs_surface_param_tolerance(surface, tol)
+        self.ptol = (float(nurbs_curve_param_tolerance(curve, tol)),
+                     float(ptol_u), float(ptol_v))
+        self.knots = (_interior_knots(curve.knot, curve.order),
+                      _interior_knots(surface.knot_u, surface.order_u),
+                      _interior_knots(surface.knot_v, surface.order_v))
+        self.bounds = surface.interval()
+
+    def same(self, a, b):
+        return all(abs(x - y) <= p for x, y, p in zip(a, b, self.ptol))
+
+    def on_decomposition_boundary(self, point):
+        return any(len(knots) and float(np.min(np.abs(knots - x))) <= p
+                   for x, knots, p in zip(point, self.knots, self.ptol))
+
+    def twin(self, a, b):
+        if abs(a[0] - b[0]) > self.ptol[0] or self.same(a, b):
+            return False
+        for free in (1, 2):
+            fixed = 3 - free
+            if abs(a[fixed] - b[fixed]) > self.ptol[fixed]:
+                continue
+            if not (self._seam(free, a[free], b[free]) or self._pole(fixed, a[fixed])):
+                continue
+            gap = self._point(a) - self._point(b)
+            if float(np.linalg.norm(gap)) <= self.tol:
+                return True
+        return False
+
+    def _point(self, parameters):
+        return np.asarray(evaluate_nurbs_surface(
+            self.surface, parameters[1], parameters[2], d_order=0)['S'],
+            dtype=np.float64)
+
+    def _seam(self, axis, x, y):
+        low, high = self.bounds[axis - 1]
+        p = self.ptol[axis]
+        return ((abs(x - low) <= p and abs(y - high) <= p)
+                or (abs(x - high) <= p and abs(y - low) <= p))
+
+    def _pole(self, axis, x):
+        cp = np.asarray(self.surface.control_points, dtype=np.float64)
+        for index, value in zip((0, -1), self.bounds[axis - 1]):
+            if abs(x - value) > self.ptol[axis]:
+                continue
+            line = cp[:, index] if axis == 2 else cp[index, :]
+            if np.all(np.linalg.norm(line - line[0], axis=-1) <= self.tol):
+                return True
+        return False
+
+
+def _merge_overlaps_by_t(overlaps, ptol_t, identity=None):
+    if identity is None:
+        def same(a, b):
+            return a == b
+        joinable = same
+    else:
+        same = identity.same
+
+        def joinable(a, b):
+            return identity.same(a, b) and identity.on_decomposition_boundary(a)
+    chains, seen = [], []
     for overlap in sorted(overlaps or (), key=lambda o: o['t_range'][0]):
         current = dict(overlap)
-        if not result:
-            result.append(current)
-            continue
-        previous = result[-1]
-        keys = ('t_range', 'u_range', 'v_range')
-        # Some exact planar proofs expose UV bounding boxes, not paired
-        # endpoint values. Neither identity nor adjacency follows from
-        # matching bounding boxes.
-        if (previous.get('uv_range_is_enclosure', False)
-                or current.get('uv_range_is_enclosure', False)):
-            result.append(current)
-            continue
-        prior_exact = previous.get('_exact_global_ranges')
+        start, end = _overlap_ends(current)
         current_exact = current.get('_exact_global_ranges')
-        same_provenance = (prior_exact == current_exact
-                           if prior_exact is not None or current_exact is not None else True)
-        if same_provenance and all(tuple(previous[k]) == tuple(current[k]) for k in keys):
+        if any(same(start, a) and same(end, b)
+               and (identity is not None or exact == current_exact)
+               for a, b, exact in seen):
             continue
-        joined_provenance = (all(a[1] == b[0] for a, b in zip(prior_exact, current_exact))
-                             if prior_exact is not None and current_exact is not None
-                             else prior_exact is current_exact)
-        if joined_provenance and all(previous[k][1] == current[k][0] for k in keys):
-            for key in keys:
-                previous[key] = (previous[key][0], current[key][1])
-            if prior_exact is not None:
-                previous['_exact_global_ranges'] = tuple(
+        seen.append((start, end, current_exact))
+        for chain in chains:
+            if not joinable(_overlap_ends(chain)[1], start):
+                continue
+            prior_exact = chain.get('_exact_global_ranges')
+            if (identity is None and prior_exact is not None
+                    and current_exact is not None
+                    and not all(a[1] == b[0] for a, b in zip(prior_exact, current_exact))):
+                continue
+            for key in _OVERLAP_KEYS:
+                chain[key] = (chain[key][0], current[key][1])
+            if prior_exact is not None and current_exact is not None:
+                chain['_exact_global_ranges'] = tuple(
                     (a[0], b[1]) for a, b in zip(prior_exact, current_exact))
-                previous.setdefault('joined_local_certificates', []).append(
+            if 'local_overlap_certificate' in current:
+                chain.setdefault('joined_local_certificates', []).append(
                     current['local_overlap_certificate'])
+            break
         else:
-            result.append(current)
-    return result
+            chains.append(current)
+    return chains
+
+
+def _unify_twin_parameters(overlaps, identity):
+    groups = []
+    for overlap in overlaps:
+        for index, point in enumerate(_overlap_ends(overlap)):
+            for group in groups:
+                if any(identity.twin(point, other) for _o, _i, other in group):
+                    group.append((overlap, index, point))
+                    break
+            else:
+                groups.append([(overlap, index, point)])
+    for group in groups:
+        if len(group) < 2:
+            continue
+        t = float(np.mean([point[0] for _o, _i, point in group]))
+        for overlap, index, _point in group:
+            t_range = list(overlap['t_range'])
+            t_range[index] = t
+            overlap['t_range'] = tuple(t_range)
 
 
 # ---------------------------------------------------------------------------
@@ -365,40 +453,28 @@ def nurbs_csx(
                 raw_isolated.append(mapped)
 
         for ovl in result['overlaps']:
-            enclosure = bool(ovl.get('uv_range_is_enclosure', False))
             mapped = map_overlap(
                 ovl, ('t', 'u', 'v'), (seg_interval, *patch_interval),
                 ((pts_c, (0,)), (pts_s, (1, 2))), rational, tol,
-                status, context, return_status,
-                enclosure_keys=('u', 'v') if enclosure else ())
+                status, context, return_status, extent_keys=('t',))
             if mapped is not None:
-                mapped['uv_range_is_enclosure'] = enclosure
                 raw_overlaps.append(mapped)
         if stop_after_span and min(_remaining_allowances(status)) <= 0:
             break
 
-    # ---------------------------------------------------------------
-    # Post-processing: preserve paired-parameter correspondence
-    # ---------------------------------------------------------------
-    ptol_t = float(nurbs_curve_param_tolerance(curve, tol))
+    identity = _OverlapIdentity(curve, surface, tol)
+    merged_overlaps = _merge_overlaps_by_t(raw_overlaps, identity.ptol[0], identity)
+    _unify_twin_parameters(merged_overlaps, identity)
 
-    # 1. Join exactly matching paired overlap endpoints
-    merged_overlaps = _merge_overlaps_by_t(raw_overlaps, ptol_t)
-
-    # 2. Exact paired-preimage deduplication
+    tile_ends = [end for overlap in raw_overlaps for end in _overlap_ends(overlap)]
+    raw_isolated = [
+        iso for iso in raw_isolated
+        if not any(identity.same(point, end) or identity.twin(point, end)
+                   for point in ((iso['t'], iso['u'], iso['v']),)
+                   for end in tile_ends)]
     raw_isolated = reject_parameter_aliases(
         raw_isolated, ('t', 'u', 'v'), status, 'nurbs_csx assembly', return_status)
     deduped_isolated = _dedup_csx_isolated(raw_isolated, curve, surface, tol)
-
-    # An isolated root may lie on another sheet over the same t interval.
-    # Endpoint identity is sufficient; t proximity alone is not.
-    if merged_overlaps and deduped_isolated:
-        deduped_isolated = [iso for iso in deduped_isolated if not any(
-            (iso['_exact_global_parameters'] == tuple(
-                interval[endpoint] for interval in overlap['_exact_global_ranges']))
-            for overlap in merged_overlaps
-            if not overlap.get('uv_range_is_enclosure', False)
-            for endpoint in (0, 1))]
 
     # Remove the _micro tag from results
     for iso in strip_mapping_metadata(deduped_isolated):

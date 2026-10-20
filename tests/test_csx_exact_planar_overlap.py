@@ -27,7 +27,9 @@ def test_line_is_clipped_by_exact_quad_halfspaces():
     result = exact_planar_bilinear_overlap(curve, _quad())
     assert _exact_ranges(result) == (Fraction(1, 5), Fraction(7, 10))
     assert result[0]["certification"] == "exact"
-    assert result[0]["uv_range_is_enclosure"] is True
+    roundoff = 4.*np.finfo(float).eps
+    np.testing.assert_allclose(result[0]["u_range"], (0., 1.), rtol=0., atol=roundoff)
+    np.testing.assert_allclose(result[0]["v_range"], (.5, .5), rtol=0., atol=roundoff)
 
 
 def test_rational_line_clipping_maps_back_to_its_actual_parameter():
@@ -43,6 +45,9 @@ def test_curved_inverse_uv_is_certified_by_whole_control_hull():
     result = exact_planar_bilinear_overlap(curve, _quad())
     assert _exact_ranges(result) == (Fraction(0), Fraction(1))
     assert result[0]["parameterization"] == "unique_bilinear_inverse"
+    roundoff = 4.*np.finfo(float).eps
+    np.testing.assert_allclose(result[0]["u_range"], (.25/2.125, 1.75/2.125), rtol=0., atol=roundoff)
+    np.testing.assert_allclose(result[0]["v_range"], (.125, .125), rtol=0., atol=roundoff)
 
 
 @pytest.mark.parametrize("surface_reverse", [False, True])

@@ -731,11 +731,6 @@ def _find_ssx_boundary_zeros(
 
         for ovl in result.get('overlaps', []):
             tr = ovl.get('t_range', (0.0, 1.0))
-            # ENDPOINT RESOLUTION (corner-sharing bilinear repro): the
-            # claim's u/v_range endpoints are NOT paired with the t_range
-            # endpoints in any meaningful order for a curve-on-surface
-            # overlap — resolve each t-endpoint's true surface preimage by
-            # point inversion instead of trusting the index pairing.
             uv_pairs = []
             for t_end in (tr[0], tr[1]):
                 cpt = eval_curve(iso, float(t_end), rational=rational)

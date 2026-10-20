@@ -597,6 +597,18 @@ def _polish_csx_boundary_root(
     return (*map(float, params), G, bool(ok))
 
 
+def _continue_through_pole(C, S, end, other, atol, rational, strict_tol):
+    point = eval_curve(C, end[0], rational=rational)
+    free = {axis for fiber in _surface_fibers_at_point(
+        S, end[1], end[2], point, atol, rational) for axis in fiber}
+    if not free or free == {1, 2}:
+        return end
+    moved = tuple(float(other[axis] if axis in free else end[axis])
+                  for axis in (0, 1, 2))
+    ok, _G = _strict_csx_residual_ok(C, S, *moved, rational, strict_tol)
+    return moved if ok else end
+
+
 def _restrict_bezier_axis_ordered(ctrl, axis, a, b):
     """Restrict a tensor-product Bezier net to ordered interval a -> b."""
     a = float(np.clip(a, 0.0, 1.0))
@@ -640,10 +652,8 @@ _bernstein_product_1d = bernstein_product_1d
 def _certify_affine_csx_overlap(C, S, a, b, rational):
     """Prove the affine endpoint correspondence is an exact overlap.
 
-    The public overlap schema ships only endpoint ranges, so its implied
-    correspondence is affine in one common parameter.  Certify that exact
-    path by checking every coefficient of the homogeneous residual
-    C_xyz*W_S - S_xyz*W_C, not a finite set of tolerance samples.
+    Certify that exact path by checking every coefficient of the homogeneous
+    residual C_xyz*W_S - S_xyz*W_C, not a finite set of tolerance samples.
     """
     c_pts = _cartesian_controls_for_exactness(C, rational)
     s_pts = _cartesian_controls_for_exactness(S, rational)
@@ -844,10 +854,11 @@ def _tolerance_csx_overlap_certificate(C, S, atol, rational, ptol_t,
             # in-band across at least one full grid interval.
             continue
         t_lo, t_hi = float(ts[k0]), float(ts[k1])
+        uv_lo, uv_hi = tuple(uvs[k0]), tuple(uvs[k1])
         if k0 > 0:
-            t_lo, _ = _refine(t_lo, float(ts[k0 - 1]), tuple(uvs[k0]))
+            t_lo, uv_lo = _refine(t_lo, float(ts[k0 - 1]), uv_lo)
         if k1 < len(ts) - 1:
-            t_hi, _ = _refine(t_hi, float(ts[k1 + 1]), tuple(uvs[k1]))
+            t_hi, uv_hi = _refine(t_hi, float(ts[k1 + 1]), uv_hi)
         if t_hi - t_lo < 4.0 * ptol_t:
             continue                    # too short to claim a 1-D overlap
         # (2b) domain pinning: each end must sit at the CURVE's domain end
@@ -856,7 +867,7 @@ def _tolerance_csx_overlap_certificate(C, S, atol, rational, ptol_t,
         # is never promoted (the CCX L47 rule).
         def _pinned(t_end, outward):
             if t_end <= edge_pad or t_end >= 1.0 - edge_pad:
-                return True
+                return 'curve'
             _p, u, v, _d = _member(t_end, (0.5, 0.5))
             # The tolerance boundary and the uv-domain exit can COINCIDE
             # (measured on user data: d crosses atol at almost the same t
@@ -913,14 +924,51 @@ def _tolerance_csx_overlap_certificate(C, S, atol, rational, ptol_t,
                     continue
                 exit_distance = float((probe_point-surface_point)@inward/inward_length)
                 if exit_distance < -exit_roundoff:
-                    return True
-            return False
-        if not (_pinned(t_lo, -1.0) and _pinned(t_hi, +1.0)):
+                    return coordinate, side
+            return None
+
+        def _edge_end(t_end, uv_end, pin, inward_order):
+            if not isinstance(pin, tuple):
+                return t_end, uv_end
+            coordinate, side = pin
+            inner = next((ts[k] for k in inward_order
+                          if uvs[k, coordinate] != side), None)
+            if inner is None:
+                return t_end, uv_end
+            t, u, v, _G, _ok = _polish_csx_boundary_root(
+                C, S, BoundaryZero(axis=coordinate + 1, side=int(side), param=0.),
+                t_end, uv_end[0], uv_end[1], rational, strict_context)
+            if not (np.isfinite([t, u, v]).all()
+                    and min(inner, t_end) <= t <= max(inner, t_end)):
+                return t_end, uv_end
+            gap = eval_curve(C, t, rational=rational) - eval_surface(
+                S64, u, v, rational=rational)
+            if not float(np.linalg.norm(gap)) <= atol:
+                return t_end, uv_end
+            return float(t), (float(u), float(v))
+
+        def _pole_end(t_end, uv_end, neighbour_uv):
+            point = eval_curve(C, float(t_end), rational=rational)
+            free = {axis for fiber in _surface_fibers_at_point(
+                S64, uv_end[0], uv_end[1], point, atol, rational)
+                for axis in fiber}
+            if not free or free == {1, 2}:
+                return uv_end
+            return tuple(float(neighbour_uv[axis - 1] if axis in free
+                               else uv_end[axis - 1]) for axis in (1, 2))
+
+        pin_lo, pin_hi = _pinned(t_lo, -1.0), _pinned(t_hi, +1.0)
+        if pin_lo is None or pin_hi is None:
             continue
+        t_lo, uv_lo = _edge_end(t_lo, uv_lo, pin_lo, range(k0, k1 + 1))
+        t_hi, uv_hi = _edge_end(t_hi, uv_hi, pin_hi, range(k1, k0 - 1, -1))
+        if t_hi - t_lo < 4.0 * ptol_t:
+            continue
+        uv_lo = _pole_end(t_lo, uv_lo, uvs[min(k0 + 1, k1)])
+        uv_hi = _pole_end(t_hi, uv_hi, uvs[max(k1 - 1, k0)])
         # A within-atol span remains CAD-coincident when rounding puts
         # samples on both sides of the target surface. Preserve bracketed
-        # contacts separately so SSX can refine them on its owning face;
-        # an overlap's unpaired UV ranges cannot stand in for those seeds.
+        # contacts separately so SSX can refine them on its owning face.
         # Use normal gaps only: tangential projection lag must not amplify
         # an otherwise meaningless roundoff normal sign.
         idx = [k for k in range(k0, k1 + 1) if abs(signed[k]) > tiny]
@@ -961,10 +1009,8 @@ def _tolerance_csx_overlap_certificate(C, S, atol, rational, ptol_t,
                 contact_count += 1
         span_res = float(res[k0:k1 + 1].max())
         cert = "exact" if span_res <= tiny else "tolerance"
-        u_rng = (float(uvs[k0:k1 + 1, 0].min()),
-                 float(uvs[k0:k1 + 1, 0].max()))
-        v_rng = (float(uvs[k0:k1 + 1, 1].min()),
-                 float(uvs[k0:k1 + 1, 1].max()))
+        u_rng = (float(uv_lo[0]), float(uv_hi[0]))
+        v_rng = (float(uv_lo[1]), float(uv_hi[1]))
         overlaps.append({
             "boundary_zeros": [],
             "overlap_endpoints": [],
@@ -2629,8 +2675,14 @@ def bez_csx(
             t_b, u_b, v_b, _Gb, root_b = _polish_csx_boundary_root(
                 C, S, bz_b, t_b, u_b, v_b, rational,
                 strict_root_tol)
-            endpoint_a = (t_a, u_a, v_a)
-            endpoint_b = (t_b, u_b, v_b)
+            endpoint_a = _continue_through_pole(
+                C, S, (t_a, u_a, v_a), (t_b, u_b, v_b), atol, rational,
+                strict_root_tol)
+            endpoint_b = _continue_through_pole(
+                C, S, (t_b, u_b, v_b), endpoint_a, atol, rational,
+                strict_root_tol)
+            t_a, u_a, v_a = endpoint_a
+            t_b, u_b, v_b = endpoint_b
             affine_overlap = (root_a and root_b and _certify_affine_csx_overlap(
                     C, S, endpoint_a, endpoint_b, rational))
             if affine_overlap and exact_topology:
@@ -2644,18 +2696,20 @@ def bez_csx(
                     affine_overlap = _affine_residual_is_zero(
                         C, S, endpoint_a, endpoint_b, rational)
             if affine_overlap:
-                bz_a_strict = _boundary_zero_from_tuv_like(
-                    bz_a, *endpoint_a)
-                bz_b_strict = _boundary_zero_from_tuv_like(
-                    bz_b, *endpoint_b)
-                t_lo_ovl, t_hi_ovl = min(t_a, t_b), max(t_a, t_b)
+                (start, bz_start), (end, bz_end) = sorted(
+                    ((endpoint_a, bz_a), (endpoint_b, bz_b)),
+                    key=lambda item: item[0][0])
+                t_lo_ovl, t_hi_ovl = start[0], end[0]
                 overlaps.append({
                     "boundary_zeros": [
-                        (bz_a.axis, bz_a.side), (bz_b.axis, bz_b.side)],
-                    "overlap_endpoints": [bz_a_strict, bz_b_strict],
-                    "t_range": (t_lo_ovl, t_hi_ovl),
-                    "u_range": (min(u_a, u_b), max(u_a, u_b)),
-                    "v_range": (min(v_a, v_b), max(v_a, v_b)),
+                        (bz_start.axis, bz_start.side),
+                        (bz_end.axis, bz_end.side)],
+                    "overlap_endpoints": [
+                        _boundary_zero_from_tuv_like(bz_start, *start),
+                        _boundary_zero_from_tuv_like(bz_end, *end)],
+                    "t_range": (start[0], end[0]),
+                    "u_range": (start[1], end[1]),
+                    "v_range": (start[2], end[2]),
                     "certification": "exact",
                 })
                 t_exclude.append(
@@ -2667,8 +2721,7 @@ def bez_csx(
                     overlaps[-1], t_lo_ovl - padding, t_hi_ovl + padding)
             elif root_a and root_b:
                 # Ledger L42: a valley-confirmed pair whose affine identity
-                # cannot be certified is either a curved-UV EXACT overlap
-                # (the public endpoint-range schema cannot represent it) or
+                # cannot be certified is either a curved-UV EXACT overlap or
                 # a broad near-tangent tolerance valley.  Neither exclusion
                 # nor tolerance merging is sound here (sub-atol valleys
                 # carry real topology), and an unrestricted Phase-2 walk of
