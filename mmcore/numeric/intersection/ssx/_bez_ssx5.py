@@ -4963,28 +4963,40 @@ def _drop_traces_covered_by_overlap_union(
 # Loop-absence check: TΨᵢ monotonicity OR Gauss map separability
 # ---------------------------------------------------------------------------
 
-def _check_loop_free(g1, g2, T1=None, T2=None, T3=None, T4=None):
-    """Check if the intersection is provably loop-free.
-
-    Two independent checks — either suffices:
-    1. TΨᵢ monotonicity: any TΨᵢ non-negative or non-positive
-    2. Gauss map separability: normal cones separated into opposite hemispheres
-
-    Returns True if loop-free.
-    """
-    if T1 is not None:
-        is_mono, _ = _check_monotonicity(T1, T2, T3, T4)
-        if is_mono:
-            return True
-
+def _gauss_maps_separate(g1, g2):
     try:
         p1, p2 = separate_gauss_maps(g1.map_dirs(), g2.map_dirs())
         if p1 is not None and p2 is not None:
             return True
     except Exception:
         pass
-
     return False
+
+
+def _loop_free_minors(S1, S2):
+    if _weight_net_uniform(S1) and _weight_net_uniform(S2):
+        return minors_Tpsi_from_control_nets(
+            S1[..., :-1] / S1[..., -1:], S2[..., :-1] / S2[..., -1:])
+    from mmcore.numeric.intersection.ssx._ssx5_singular import (
+        minors_Tpsi_rational)
+    return minors_Tpsi_rational(S1, S2)
+
+
+def _check_loop_free(g1, g2, T1=None, T2=None, T3=None, T4=None, clipped=None):
+    if T1 is not None:
+        is_mono, _ = _check_monotonicity(T1, T2, T3, T4)
+        if is_mono:
+            return True
+    if _gauss_maps_separate(g1, g2):
+        return True
+    if clipped is None:
+        return False
+    first, second = clipped
+    minors = [_tpsi_to_numpy(T) for T in _loop_free_minors(first, second)]
+    if _check_monotonicity(*minors)[0]:
+        return True
+    return _gauss_maps_separate(GaussMapBern.from_surf(first, rational=True),
+                                GaussMapBern.from_surf(second, rational=True))
 
 
 # ---------------------------------------------------------------------------
@@ -7700,10 +7712,12 @@ def bez_ssx(
         queue.extend(_probe_children(parent))
         return True
 
-    from mmcore.numeric.intersection.ssx._ssx_bernstein_clip import residual_coordinate_scale
+    from mmcore.numeric.intersection.ssx._ssx_bernstein_clip import (
+        clip_residual_box, residual_coordinate_scale, restrict_source_pair)
     from mmcore.numeric.intersection.ssx._ssx_trace_coverage import TangentialTraceCoverage
+    clip_scale = residual_coordinate_scale(S1_h_top, S2_h_top)
     tangent_coverage = TangentialTraceCoverage(
-        atol, unify_tol, residual_coordinate_scale(S1_h_top, S2_h_top),
+        atol, unify_tol, clip_scale,
         charge=lambda amount: budget.charge_cells(amount, "tangent_coverage"))
 
     def _known_tangent_crossings(cell):
@@ -7819,8 +7833,17 @@ def bez_ssx(
         # Loop-absence on this sub-cell — TΨᵢ monotonicity (cheap) tried first,
         # Gauss map separability as fallback (design §6, §10 principle 8).
 
+        clip_box, clip_stats = clip_residual_box(
+            cell.g1.surface, cell.g2.surface, source_scale=clip_scale,
+            charge=_charge_hook(budget, "loop_free_clip"))
+        if clip_box is None:
+            continue
+        clipped = (restrict_source_pair(cell.g1.surface, cell.g2.surface, clip_box)
+                   if clip_stats['valid'] and not clip_stats['denied']
+                   and clip_box != ((0.0, 1.0),) * 4 else None)
         if _check_loop_free(cell.g1, cell.g2,
-                            cell.T1, cell.T2, cell.T3, cell.T4):
+                            cell.T1, cell.T2, cell.T3, cell.T4,
+                            clipped=clipped):
             # C2 touch ON the subdivision lattice: when the tangent point
             # coincides with cut values (the saddle's X at s=t=1/2 under
             # midpoint cuts), the children are loop-free via a NON-STRICT

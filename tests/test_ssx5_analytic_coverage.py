@@ -169,3 +169,17 @@ def test_nested_circles_preserve_complete_closed_components(variant):
     result = solve_case('nested_circles',variant)
     report = audit_result('nested_circles',result)
     assert report['passed'],report
+
+
+def test_nearby_circles_with_transposed_parameters_are_complete():
+    with _watchdog(120.):
+        result = solve_case('nearby_circles', 'transpose')
+        report = audit_result('nearby_circles', result)
+    assert report['passed'], report
+
+
+def test_nearby_circles_with_swapped_operands_keep_both_circles():
+    with _watchdog(120.):
+        result = solve_case('nearby_circles', 'swap')
+        report = audit_result('nearby_circles', result)
+    assert report['failures'] == [], report
